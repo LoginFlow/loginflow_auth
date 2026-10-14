@@ -1,0 +1,184 @@
+import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
+import 'package:loginflow_auth/src/core/json/list_equality.dart';
+
+/// The ID token claims the library reads (OpenID Connect Core §2, §5.1;
+/// OpenID Connect Native SSO §3.4.1; LoginFlow `company_id`).
+class IdTokenClaims {
+  const IdTokenClaims({
+    required this.issuer,
+    required this.subject,
+    required this.audiences,
+    required this.expiresAt,
+    required this.issuedAt,
+    this.authTime,
+    this.nonce,
+    this.sessionId,
+    this.authorizedParty,
+    this.authenticationContext,
+    this.authenticationMethods = const <String>[],
+    this.deviceSecretHash,
+    this.companyId,
+    this.email,
+    this.isEmailVerified = false,
+    this.name,
+  });
+
+  factory IdTokenClaims.fromJson(Map<String, Object?> json) {
+    final authTime = json.optionalInt('auth_time');
+    return IdTokenClaims(
+      issuer: json.requireString('iss'),
+      subject: json.requireString('sub'),
+      audiences: json.stringOrStringList('aud'),
+      expiresAt: _epoch(json.requireInt('exp')),
+      issuedAt: _epoch(json.requireInt('iat')),
+      authTime: authTime == null ? null : _epoch(authTime),
+      nonce: json.optionalString('nonce'),
+      sessionId: json.optionalString('sid'),
+      authorizedParty: json.optionalString('azp'),
+      authenticationContext: json.optionalString('acr'),
+      authenticationMethods: json.stringList('amr'),
+      deviceSecretHash: json.optionalString('ds_hash'),
+      companyId: json.optionalString('company_id'),
+      email: json.optionalString('email'),
+      isEmailVerified: json.optionalBool('email_verified', absent: false),
+      name: json.optionalString('name'),
+    );
+  }
+
+  final String issuer;
+  final String subject;
+  final List<String> audiences;
+  final DateTime expiresAt;
+  final DateTime issuedAt;
+  final DateTime? authTime;
+  final String? nonce;
+
+  /// `sid`: the device or browser session the token belongs to.
+  final String? sessionId;
+
+  /// `azp`.
+  final String? authorizedParty;
+
+  /// `acr`.
+  final String? authenticationContext;
+
+  /// `amr` (RFC 8176 values such as `pwd`, `otp`, `mfa`).
+  final List<String> authenticationMethods;
+
+  /// `ds_hash` (OpenID Connect Native SSO §3.4.1).
+  final String? deviceSecretHash;
+
+  /// LoginFlow tenant claim: the company the identity belongs to.
+  final String? companyId;
+  final String? email;
+  final bool isEmailVerified;
+  final String? name;
+
+  static DateTime _epoch(int seconds) =>
+      DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+
+  static int _seconds(DateTime value) => value.millisecondsSinceEpoch ~/ 1000;
+
+  IdTokenClaims copyWith({
+    String? issuer,
+    String? subject,
+    List<String>? audiences,
+    DateTime? expiresAt,
+    DateTime? issuedAt,
+    DateTime? authTime,
+    String? nonce,
+    String? sessionId,
+    String? authorizedParty,
+    String? authenticationContext,
+    List<String>? authenticationMethods,
+    String? deviceSecretHash,
+    String? companyId,
+    String? email,
+    bool? isEmailVerified,
+    String? name,
+  }) => IdTokenClaims(
+    issuer: issuer ?? this.issuer,
+    subject: subject ?? this.subject,
+    audiences: audiences ?? this.audiences,
+    expiresAt: expiresAt ?? this.expiresAt,
+    issuedAt: issuedAt ?? this.issuedAt,
+    authTime: authTime ?? this.authTime,
+    nonce: nonce ?? this.nonce,
+    sessionId: sessionId ?? this.sessionId,
+    authorizedParty: authorizedParty ?? this.authorizedParty,
+    authenticationContext: authenticationContext ?? this.authenticationContext,
+    authenticationMethods: authenticationMethods ?? this.authenticationMethods,
+    deviceSecretHash: deviceSecretHash ?? this.deviceSecretHash,
+    companyId: companyId ?? this.companyId,
+    email: email ?? this.email,
+    isEmailVerified: isEmailVerified ?? this.isEmailVerified,
+    name: name ?? this.name,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'iss': issuer,
+    'sub': subject,
+    'aud': audiences,
+    'exp': _seconds(expiresAt),
+    'iat': _seconds(issuedAt),
+    'auth_time': ?authTime.toEpochSeconds(),
+    'nonce': ?nonce,
+    'sid': ?sessionId,
+    'azp': ?authorizedParty,
+    'acr': ?authenticationContext,
+    if (authenticationMethods.isNotEmpty) 'amr': authenticationMethods,
+    'ds_hash': ?deviceSecretHash,
+    'company_id': ?companyId,
+    'email': ?email,
+    'email_verified': isEmailVerified,
+    'name': ?name,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IdTokenClaims &&
+          issuer == other.issuer &&
+          subject == other.subject &&
+          audiences.hasSameValues(other.audiences) &&
+          expiresAt == other.expiresAt &&
+          issuedAt == other.issuedAt &&
+          authTime == other.authTime &&
+          nonce == other.nonce &&
+          sessionId == other.sessionId &&
+          authorizedParty == other.authorizedParty &&
+          authenticationContext == other.authenticationContext &&
+          authenticationMethods.hasSameValues(other.authenticationMethods) &&
+          deviceSecretHash == other.deviceSecretHash &&
+          companyId == other.companyId &&
+          email == other.email &&
+          isEmailVerified == other.isEmailVerified &&
+          name == other.name;
+
+  @override
+  int get hashCode => Object.hash(
+    issuer,
+    subject,
+    audiences.valuesHash,
+    expiresAt,
+    issuedAt,
+    authTime,
+    nonce,
+    sessionId,
+    authorizedParty,
+    authenticationContext,
+    authenticationMethods.valuesHash,
+    deviceSecretHash,
+    companyId,
+    email,
+    isEmailVerified,
+    name,
+  );
+}
+
+extension on DateTime? {
+  int? toEpochSeconds() {
+    final value = this;
+    return value == null ? null : value.millisecondsSinceEpoch ~/ 1000;
+  }
+}
