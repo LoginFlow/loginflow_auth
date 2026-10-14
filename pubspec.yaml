@@ -1,0 +1,45 @@
+name: loginflow_auth
+description: >-
+  Flutter client library for LoginFlow: native first-party sign-in through the
+  OAuth 2.0 authorization challenge flow, OpenID Connect ID token validation,
+  token lifecycle, Native SSO between same-publisher apps, and a ready-to-use
+  sign-in UI.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/LoginFlow/loginflow_auth
+
+environment:
+  sdk: ^3.13.4
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  logger_rs: ^2.1.1
+  meta: ^1.18.3
+  pointycastle: ^4.0.0
+  reactive_notifier: ^2.18.1
+  result_controller: ^1.3.0
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_localizations:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  plugin:
+    platforms:
+      android:
+        package: dev.loginflow.auth
+        pluginClass: LoginFlowAuthPlugin
+      ios:
+        pluginClass: LoginFlowAuthPlugin
+        sharedDarwinSource: true
+      macos:
+        pluginClass: LoginFlowAuthPlugin
+        sharedDarwinSource: true

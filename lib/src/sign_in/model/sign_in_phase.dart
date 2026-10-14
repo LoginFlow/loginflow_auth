@@ -1,0 +1,237 @@
+import 'package:loginflow_auth/src/core/json/list_equality.dart';
+import 'package:loginflow_auth/src/core/session/login_flow_session.dart';
+import 'package:loginflow_auth/src/core/sso/sso_candidate.dart';
+import 'package:loginflow_auth/src/sign_in/model/auth_method.dart';
+
+/// Which screen of the sign-in flow is showing.
+///
+/// Phases are transient UI state rebuilt from the authentication state; they
+/// are never serialized, so they have no `toJson`/`fromJson`.
+sealed class SignInPhase {
+  const SignInPhase();
+}
+
+/// `LoginFlowSignInSetup.install` was not called.
+final class SignInNotConfigured extends SignInPhase {
+  const SignInNotConfigured();
+
+  @override
+  bool operator ==(Object other) => other is SignInNotConfigured;
+
+  @override
+  int get hashCode => (SignInNotConfigured).hashCode;
+}
+
+/// Reading the methods the server enables for this client.
+final class SignInLoadingOptions extends SignInPhase {
+  const SignInLoadingOptions();
+
+  @override
+  bool operator ==(Object other) => other is SignInLoadingOptions;
+
+  @override
+  int get hashCode => (SignInLoadingOptions).hashCode;
+}
+
+/// The server's login options could not be read; nothing unverified is shown.
+final class SignInOptionsUnavailable extends SignInPhase {
+  const SignInOptionsUnavailable();
+
+  @override
+  bool operator ==(Object other) => other is SignInOptionsUnavailable;
+
+  @override
+  int get hashCode => (SignInOptionsUnavailable).hashCode;
+}
+
+/// None of the configured methods is enabled on the server.
+final class SignInNoMethods extends SignInPhase {
+  const SignInNoMethods();
+
+  @override
+  bool operator ==(Object other) => other is SignInNoMethods;
+
+  @override
+  int get hashCode => (SignInNoMethods).hashCode;
+}
+
+/// Several methods: the user picks one.
+final class SignInChoosingMethod extends SignInPhase {
+  const SignInChoosingMethod({required this.methods});
+
+  final List<AuthMethod> methods;
+
+  SignInChoosingMethod copyWith({List<AuthMethod>? methods}) =>
+      SignInChoosingMethod(methods: methods ?? this.methods);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInChoosingMethod && methods.hasSameValues(other.methods);
+
+  @override
+  int get hashCode => methods.valuesHash;
+}
+
+/// Email and password form.
+final class SignInPasswordEntry extends SignInPhase {
+  const SignInPasswordEntry({
+    required this.isForgotPasswordShown,
+    this.isIdentifierLocked = false,
+  });
+
+  final bool isForgotPasswordShown;
+
+  /// The server already knows the user (re-authentication); only the
+  /// password is asked.
+  final bool isIdentifierLocked;
+
+  SignInPasswordEntry copyWith({
+    bool? isForgotPasswordShown,
+    bool? isIdentifierLocked,
+  }) => SignInPasswordEntry(
+    isForgotPasswordShown: isForgotPasswordShown ?? this.isForgotPasswordShown,
+    isIdentifierLocked: isIdentifierLocked ?? this.isIdentifierLocked,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInPasswordEntry &&
+          isForgotPasswordShown == other.isForgotPasswordShown &&
+          isIdentifierLocked == other.isIdentifierLocked;
+
+  @override
+  int get hashCode => Object.hash(isForgotPasswordShown, isIdentifierLocked);
+}
+
+/// Email form before the one-time code is sent.
+final class SignInEmailEntry extends SignInPhase {
+  const SignInEmailEntry();
+
+  @override
+  bool operator ==(Object other) => other is SignInEmailEntry;
+
+  @override
+  int get hashCode => (SignInEmailEntry).hashCode;
+}
+
+/// One-time code form.
+final class SignInOtpEntry extends SignInPhase {
+  const SignInOtpEntry({required this.email, required this.resendSecondsLeft});
+
+  final String email;
+
+  /// 0 when "Resend code" is enabled.
+  final int resendSecondsLeft;
+
+  bool get canResend => resendSecondsLeft == 0;
+
+  SignInOtpEntry copyWith({String? email, int? resendSecondsLeft}) =>
+      SignInOtpEntry(
+        email: email ?? this.email,
+        resendSecondsLeft: resendSecondsLeft ?? this.resendSecondsLeft,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInOtpEntry &&
+          email == other.email &&
+          resendSecondsLeft == other.resendSecondsLeft;
+
+  @override
+  int get hashCode => Object.hash(email, resendSecondsLeft);
+}
+
+/// TOTP (or recovery code) form, shown whenever the server asks for it.
+final class SignInTotpEntry extends SignInPhase {
+  const SignInTotpEntry({
+    required this.isRecoveryCode,
+    required this.canUseRecoveryCode,
+  });
+
+  final bool isRecoveryCode;
+  final bool canUseRecoveryCode;
+
+  SignInTotpEntry copyWith({bool? isRecoveryCode, bool? canUseRecoveryCode}) =>
+      SignInTotpEntry(
+        isRecoveryCode: isRecoveryCode ?? this.isRecoveryCode,
+        canUseRecoveryCode: canUseRecoveryCode ?? this.canUseRecoveryCode,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInTotpEntry &&
+          isRecoveryCode == other.isRecoveryCode &&
+          canUseRecoveryCode == other.canUseRecoveryCode;
+
+  @override
+  int get hashCode => Object.hash(isRecoveryCode, canUseRecoveryCode);
+}
+
+/// The system browser is open.
+final class SignInAwaitingBrowser extends SignInPhase {
+  const SignInAwaitingBrowser();
+
+  @override
+  bool operator ==(Object other) => other is SignInAwaitingBrowser;
+
+  @override
+  int get hashCode => (SignInAwaitingBrowser).hashCode;
+}
+
+/// "Continue as …" with the Native SSO session of a sibling app.
+final class SignInSsoConfirm extends SignInPhase {
+  const SignInSsoConfirm({required this.candidate});
+
+  final SsoCandidate candidate;
+
+  SignInSsoConfirm copyWith({SsoCandidate? candidate}) =>
+      SignInSsoConfirm(candidate: candidate ?? this.candidate);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInSsoConfirm && candidate == other.candidate;
+
+  @override
+  int get hashCode => candidate.hashCode;
+}
+
+/// HTTP 429: too many attempts; waits [secondsLeft].
+final class SignInLockedOut extends SignInPhase {
+  const SignInLockedOut({required this.secondsLeft});
+
+  final int secondsLeft;
+
+  SignInLockedOut copyWith({int? secondsLeft}) =>
+      SignInLockedOut(secondsLeft: secondsLeft ?? this.secondsLeft);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInLockedOut && secondsLeft == other.secondsLeft;
+
+  @override
+  int get hashCode => secondsLeft.hashCode;
+}
+
+/// Signed in.
+final class SignInCompleted extends SignInPhase {
+  const SignInCompleted({required this.session});
+
+  final LoginFlowSession session;
+
+  SignInCompleted copyWith({LoginFlowSession? session}) =>
+      SignInCompleted(session: session ?? this.session);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInCompleted && session == other.session;
+
+  @override
+  int get hashCode => session.hashCode;
+}

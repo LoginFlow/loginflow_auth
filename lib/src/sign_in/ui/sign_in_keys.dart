@@ -1,0 +1,25 @@
+import 'package:flutter/foundation.dart';
+
+/// Stable keys of the sign-in UI, for widget tests and integration drivers.
+abstract final class SignInKeys {
+  static const ValueKey<String> emailField = ValueKey<String>(
+    'loginflow.field.email',
+  );
+  static const ValueKey<String> passwordField = ValueKey<String>(
+    'loginflow.field.password',
+  );
+  static const ValueKey<String> codeField = ValueKey<String>(
+    'loginflow.field.code',
+  );
+  static const ValueKey<String> passwordStep = ValueKey<String>(
+    'loginflow.step.password',
+  );
+  static const ValueKey<String> emailStep = ValueKey<String>(
+    'loginflow.step.email',
+  );
+  static const ValueKey<String> otpStep = ValueKey<String>(
+    'loginflow.step.otp',
+  );
+  static const String totpStepPrefix = 'loginflow.step.totp';
+  static const String methodButtonPrefix = 'loginflow.method';
+}

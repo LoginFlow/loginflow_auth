@@ -1,0 +1,48 @@
+/// Pure-Dart core of `loginflow_auth`: protocol, PKCE, ID token validation,
+/// token lifecycle and the authentication state machine. No Flutter imports;
+/// usable from any Dart code and testable without a device.
+library;
+
+export 'package:result_controller/result_controller.dart' show Err, Ok, Result;
+
+export 'src/core/browser/external_user_agent.dart';
+export 'src/core/browser/in_memory_pending_authorization_store.dart';
+export 'src/core/browser/pending_authorization.dart';
+export 'src/core/browser/pending_authorization_store.dart';
+export 'src/core/browser/pending_purpose.dart';
+export 'src/core/config/login_flow_clock.dart';
+export 'src/core/config/login_flow_config.dart';
+export 'src/core/config/login_flow_environment.dart';
+export 'src/core/crypto/pkce_pair.dart';
+export 'src/core/crypto/secure_random_source.dart';
+export 'src/core/discovery/discovery_document.dart';
+export 'src/core/error/authorization_response_problem.dart';
+export 'src/core/error/browser_failure_reason.dart';
+export 'src/core/error/id_token_failure.dart';
+export 'src/core/error/login_flow_error.dart';
+export 'src/core/error/upstream_failure_reason.dart';
+export 'src/core/id_token/id_token_claims.dart';
+export 'src/core/login_flow_auth.dart';
+export 'src/core/protocol/browser/authorization_prompt.dart';
+export 'src/core/protocol/challenge/challenge_response.dart';
+export 'src/core/protocol/challenge/challenge_step.dart';
+export 'src/core/protocol/challenge/step_error.dart';
+export 'src/core/protocol/challenge/upstream_prompt.dart';
+export 'src/core/protocol/challenge/upstream_provider.dart';
+export 'src/core/protocol/login_options/client_login_options.dart';
+export 'src/core/protocol/step_up/step_up_requirement.dart';
+export 'src/core/session/login_flow_session.dart';
+export 'src/core/session/user_identity.dart';
+export 'src/core/sso/in_memory_sso_store.dart';
+export 'src/core/sso/sso_candidate.dart';
+export 'src/core/sso/sso_entry.dart';
+export 'src/core/sso/sso_store.dart';
+export 'src/core/state/auth_state.dart';
+export 'src/core/state/challenge_prompt.dart';
+export 'src/core/state/challenge_purpose.dart';
+export 'src/core/state/sign_out_reason.dart';
+export 'src/core/state/sign_out_scope.dart';
+export 'src/core/storage/in_memory_session_store.dart';
+export 'src/core/storage/session_store.dart';
+export 'src/core/storage/stored_session.dart';
+export 'src/core/upstream/google_id_token_source.dart';
