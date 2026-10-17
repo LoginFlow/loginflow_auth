@@ -58,6 +58,13 @@ class _EmailStepState extends State<EmailStep> {
           label: strings.sendCodeButton,
           onPressed: isEnabled ? _submit : null,
         ),
+        if (widget.state.isPasskeySignInOffered)
+          PasskeyButton(
+            label: strings.continueWithPasskey,
+            onPressed: isEnabled
+                ? () => unawaited(widget.viewModel.signInWithPasskey())
+                : null,
+          ),
         if (widget.state.canGoBack)
           SignInTextAction(
             label: strings.back,

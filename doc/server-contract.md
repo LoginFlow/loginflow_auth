@@ -120,18 +120,54 @@ the server does not allow is never shown.
 ```json
 {
   "client_id": "turnosqr-mobile",
-  "login_methods": ["password", "email_otp", "google", "microsoft"],
+  "login_methods": ["password", "email_otp", "google", "microsoft", "apple", "facebook"],
   "self_signup": true,
-  "password_reset": true
+  "password_reset": true,
+  "passkey": true,
+  "passkey_mode": "passwordless",
+  "google_server_client_id": "1234567890-abc.apps.googleusercontent.com",
+  "facebook_app_id": "1234567890123456",
+  "policy_uri": "https://acme.example/privacy",
+  "tos_uri": "https://acme.example/terms"
 }
 ```
 
 - `client_id` MUST echo the request (the library rejects a mismatch).
 - `login_methods` wire names: `password`, `email_otp`, `google`,
-  `microsoft`. Unknown future names are ignored by older libraries. TOTP is
-  not a primary method; it appears as a challenge step (§5).
+  `microsoft`, `apple`, `facebook`. A name only appears when the client is
+  configured for it **and** the company/application actually has it usable
+  (for `google`/`microsoft`/`apple`/`facebook`, an enabled upstream
+  provider config). Unknown future names are ignored by older libraries.
+  TOTP is not a primary method; it appears as a challenge step (§5).
+  `passkey` is never a member of this array (see below) and a Temporary
+  Access Pass is never advertised here — it is admin-issued, not
+  client-selected.
 - `self_signup`: the application's `allow_self_signup` flag.
 - `password_reset`: whether the hosted reset flow is enabled for the client.
+- `passkey`: `true` when the company's passkey policy (company-wide, set by
+  the company's admin or by LoginFlow's master operators — never per end
+  user) is not `disabled`; absent fields `passkey_mode`/
+  `google_server_client_id` are omitted, not `null`, when not applicable.
+- `passkey_mode` (present only when `passkey` is `true`): `"mfa_only"` —
+  the passkey may stand in for the second factor on top of a primary
+  method — or `"passwordless"` — it may also be the first factor on its
+  own. Drives whether the built-in UI offers "Sign in with a passkey" as a
+  first-factor option.
+- `google_server_client_id` (present only when `google` is configured and
+  enabled): the Google OAuth client ID a native app needs for
+  `CredentialManager`'s `GetGoogleIdOption` / `GoogleSignInOptions`. Not a
+  secret.
+- `facebook_app_id` (present only when `facebook` is configured and
+  enabled): the Facebook App ID a native app needs for the Facebook SDK.
+  Not a secret. Apple needs no equivalent field here: the native ceremony
+  resolves entirely from the app's own Xcode capability and bundle/Services
+  ID, never from a value the server hands out per request.
+- `policy_uri`/`tos_uri` (RFC 7591 client-metadata names): the company's
+  privacy-policy/terms-of-service pages, each an `https` URL. Both are
+  optional and are omitted, not `null`, when the company has not
+  configured one; the library's built-in UI shows a link only for the
+  one(s) present, and nothing when neither is. A value that is present
+  but not `https` is treated by the library the same as absent.
 - Unknown `client_id`: `404 {"error":"invalid_client"}`.
 
 ## 5. Authorization Challenge Endpoint: `POST {authorization_challenge_endpoint}`
@@ -194,10 +230,15 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `resend` | `email_otp` → send a new code, answer `next: email_otp` |
 | `totp` | 6-digit TOTP |
 | `recovery_code` | A TOTP recovery code (single use) |
-| `upstream_provider` | `google` or `microsoft` |
-| `upstream_flow` | `native` (Google only: the app will post a Google ID token) or `browser` (answered with `redirect_to_web`) |
-| `upstream_token` | The Google ID token (with `upstream_provider=google`) |
+| `upstream_provider` | `google`, `microsoft`, `apple` or `facebook` |
+| `upstream_flow` | `native` (the app will post an `upstream_token`; Microsoft never sends this, it is always `browser`) or `browser` (answered with `redirect_to_web`) |
+| `upstream_token` | The provider token (with the matching `upstream_provider`), typed by `upstream_token_type` |
+| `upstream_token_type` | `id_token` (Google always; Apple always; Facebook iOS Limited Login) or `access_token` (Facebook Android classic login) — **LoginFlow extension**, generalizing the single implicit `id_token` Google used before Apple/Facebook existed |
+| `upstream_user_name` | **LoginFlow extension.** Apple's given/family name (e.g. `"Ana Ruiz"`), sent only on the first authorization for that Apple ID + app pair — Apple omits it from every later `identityToken`, so the library forwards whatever it received instead of caching it client-side |
 | `intent` | `password_reset` → `redirect_to_web` to the hosted reset flow (FIPA App. A.2); MAY carry `login_hint` |
+| `method` (passkeys) | `webauthn_identify` → starts a passkey ceremony: targeted when sent together with `login_hint`, discoverable/conditional otherwise. Answers `next: webauthn_assertion` with `options` (§5.7) |
+| `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
+| `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |
 
 ### 5.5 Responses
 
@@ -217,9 +258,11 @@ no step parameter (no `password`, `method`, `email_otp`, `totp`,
 `recovery_code`, `upstream_provider`), with or without `login_hint`, and no
 `id_token_hint`, answers `insufficient_authorization` with
 `next: select_method` and `methods` = the client's primary methods, using the
-wire names of §4 (`password`, `email_otp`, `google`, `microsoft`). The client
-continues with `method=password` / `method=email_otp`, or opens
-`upstream_provider=google|microsoft`. The status is 403, not 200: FIPA §5.2.2
+wire names of §4 (`password`, `email_otp`, `google`, `microsoft`, `apple`,
+`facebook`). The client continues with `method=password` /
+`method=email_otp`, or opens
+`upstream_provider=google|microsoft|apple|facebook`. The status is 403,
+not 200: FIPA §5.2.2
 requires 403 for `insufficient_authorization`, and 200 is reserved for the
 `authorization_code` response (§5.2.1).
 
@@ -251,9 +294,13 @@ requires 403 for `insufficient_authorization`, and 200 is reserved for the
   `code_expired` for an expired or burned email OTP (burned after 5 failures).
   The same value is returned whether or not the account exists.
 - `upstream`: REQUIRED when `next = upstream_token`. `nonce` is generated by
-  the server, bound to the `auth_session`, single use. `client_id` is the
-  company's Google **web** client ID; the app passes it to the Google SDK as
-  `serverClientId`.
+  the server, bound to the `auth_session`, single use. For `provider:
+  "google"`, `client_id` is the company's Google **web** client ID, passed
+  to the Google SDK as `serverClientId`; for `provider: "apple"` or
+  `"facebook"`, `client_id` is informational only (the Services ID / App
+  ID the server has configured) — the native ceremony on the client side
+  resolves its own provider client ID from app configuration (Xcode
+  capability, `Info.plist`, Facebook SDK resources), never from this field.
 
 Anti-enumeration: the answer to an identifier (with or without password)
 MUST NOT depend on whether the account exists. A request with
@@ -277,9 +324,14 @@ shows the TOTP screen automatically.
 }
 ```
 
-Used for Microsoft (always), Google with `upstream_flow=browser`,
-`prompt=create`, `intent=password_reset`, and any risk-based decision
-(FIPA §9.2). `request_uri` references an internal pushed authorization
+Used for Microsoft (always), Google/Apple/Facebook with
+`upstream_flow=browser`, `prompt=create`, `intent=password_reset`, and any
+risk-based decision (FIPA §9.2). A client sends `upstream_flow=browser`
+for a provider whenever it has no native source registered for it, or that
+source reports itself unavailable on the current platform (e.g. Apple on
+Android) — the client decision, not a server one; the server does not
+otherwise distinguish Apple/Facebook's `browser` leg from Google's.
+`request_uri` references an internal pushed authorization
 request (RFC9126 §2.2) built from the authorization's bound parameters,
 including `redirect_uri`, `state`, `nonce`, `code_challenge` and `scope`. It
 is single use and expires in `expires_in` seconds. Without a PKCE challenge
@@ -308,6 +360,79 @@ web client ID; `exp`; `nonce` = the `upstream.nonce` issued for this
 `auth_session` (then burn it). Link accounts by Google `sub`; auto-link by
 email only when Google is authoritative (`@gmail.com`, or `email_verified` and
 `hd`) (`doc/decisions.md` D15, D16).
+
+### 5.6b Apple and Facebook upstream validation (server side)
+
+`upstream_token_type` tells the server which shape to expect; a mismatch
+with what `upstream_provider` can actually produce (e.g. `apple` with
+`access_token`) → the generic `insufficient_authorization`/
+`invalid_credential` shape of §5.5, same as a wrong password.
+
+- **Apple, `id_token`** (Sign in with Apple REST API): signature against
+  Apple's JWKS (`https://appleid.apple.com/auth/keys`); `iss` =
+  `https://appleid.apple.com`; `aud` = the company's registered Services ID
+  (or app bundle ID for the native flow); `exp`; `nonce` = the lowercase hex SHA-256 of the `upstream.nonce` issued
+  for this `auth_session`, compared byte for byte (the app passes that digest
+  to `ASAuthorizationAppleIDRequest.nonce` and Apple returns it unchanged in
+  the `identityToken`'s `nonce` claim; Google and Facebook return the raw
+  value instead, which the server digests on arrival).
+  Link accounts by Apple's `sub`. `upstream_user_name`, when present, is
+  trusted only on the account's first-ever Apple link (Apple does not
+  resend it afterward, so a later request can neither confirm nor
+  contradict it).
+- **Facebook, `id_token`** (Limited Login, iOS): verify as an OIDC token
+  against `https://www.facebook.com/.well-known/oauth/openid/jwks/`; `iss`
+  = `https://www.facebook.com`; `aud` = the company's Facebook App ID;
+  `exp`; `nonce` = the raw `upstream.nonce` issued for this `auth_session`
+  (then burn it) — same direction as Google.
+  (G-FB-LIMITED-LOGIN style, no first-party-apps analogue exists)
+- **Facebook, `access_token`** (classic login, Android): call Facebook's
+  Graph API `/me` (or `/debug_token`) with the token to resolve the
+  Facebook user id and confirm the token's `app_id` matches the company's
+  Facebook App ID. No `nonce` to check — classic access tokens carry none;
+  the LoginFlow extension that types this leg via `upstream_token_type`
+  exists precisely so the server knows not to look for one.
+- **Server implementation note (as shipped):** the NATIVE leg links by the stored
+  `(provider, sub)` `oauth_identities` row, the SAME lookup the HOSTED browser flow uses
+  (`GoogleClientResolver::resolve_upstream_identity`, backed by
+  `upstream_authorization_service::resolve_upstream_account`) — one identity-resolution rule
+  shared by both transports, not a per-transport difference. The upstream-verified EMAIL only
+  enters when there is NO existing `oauth_identities` row yet for that subject, and only to
+  auto-link (or create) an account, per the provider's own rule: Google auto-links whenever
+  `email_verified`; Apple auto-links only when `email_verified` AND the address is not a
+  `is_private_email` relay; Facebook NEVER auto-links (no claim ever vouches for its email). An
+  identity ALREADY linked by `sub` (through either transport, or a prior link made by another
+  method) signs in regardless of what its current email claim is — a changed Google/Apple email,
+  or a Facebook/relay identity that can never auto-link, both still match by subject once linked.
+
+### 5.7 Passkeys and Temporary Access Pass (LoginFlow extension, WebAuthn L3)
+
+`method=webauthn_identify` answers `403`:
+
+```json
+{
+  "error": "insufficient_authorization",
+  "next": "webauthn_assertion",
+  "auth_session": "…",
+  "options": { "…": "webauthn-rs's RequestChallengeResponse, unmodified" }
+}
+```
+
+`options` is passed straight to `navigator.credentials.get()` (or the
+platform equivalent, `PasskeyAuthenticator.getAssertion`); the result comes
+back as the `webauthn_assertion` form field above. A failed assertion
+answers the generic `insufficient_authorization`/`invalid_credential` shape
+**without** a fresh `options` member — a WebAuthn challenge is single-use,
+so the library does not retry the ceremony blindly; it ends the attempt and
+the caller starts over with a new `webauthn_identify` request.
+
+`temporary_access_pass` answers the generic `insufficient_authorization`/
+`invalid_credential` shape on a wrong or already-used code — no extra data
+needed, the caller may retry with another code on the same `auth_session`.
+
+Both methods, on success, satisfy the primary method AND the second factor
+in the same step (a passkey is possession + user verification; a TAP is an
+admin-issued credential), so neither is ever followed by `next: totp`.
 
 ## 6. Authorization endpoint (browser): `GET {authorization_endpoint}`
 
@@ -526,14 +651,96 @@ matches a registered value (§3); otherwise it shows a confirmation page.
 The library uses it for `SignOutScope.browser` (and on the web after
 app-level logout when the app asks for it).
 
-## 13. Not part of 0.1.0
+## 13. DPoP (RFC 9449)
 
-- **DPoP** (RFC9449). the LoginFlow profile makes a DPoP proof required for
-  native clients in the LoginFlow profile. Library 0.1.0 does not send DPoP
-  proofs (it needs a non-exportable Secure Enclave / StrongBox key per app,
-  scheduled for the next version). Until then the server MUST NOT require
-  DPoP for first-party native clients and MUST issue `token_type: Bearer`.
-- **App attestation** (FIPA §9.1, ABCA): phase 2.
+**Mandatory for every client registered `native` + `first_party`.** The
+library attaches a proof to the authorization challenge endpoint (§5), the
+token endpoint (§7) and every resource request that carries an access token
+(§10, §11): the device-logout and global-logout endpoints today.
+`token_endpoint_auth_method=none` public clients outside that combination
+(web, SPA) are unaffected and keep sending `Authorization: Bearer <token>`.
+
+### 13.1 The key
+
+A non-exportable ES256 (P-256) key, one per app installation, generated and
+held entirely outside Dart:
+
+- iOS/macOS: the Secure Enclave (`SecureEnclave.P256.Signing.PrivateKey`),
+  falling back to a Keychain-only key where there is none (the Simulator,
+  Intel Macs without a T2 chip).
+- Android: the Android Keystore, with `setIsStrongBoxBacked(true)` when the
+  device has a StrongBox HSM, falling back to the regular Keystore
+  (`StrongBoxUnavailableException`) otherwise. Still non-exportable either
+  way.
+- Flutter web: a non-extractable WebCrypto `CryptoKey`
+  (`SubtleCrypto.generateKey(..., extractable: false, ...)`), persisted in
+  IndexedDB (a non-extractable `CryptoKey` is structured-cloneable, so it
+  survives the round trip and stays non-extractable) so the key — and the
+  `jkt` the server bound the refresh token to — survives a page reload. If
+  IndexedDB is unavailable or the stored key cannot be read back (private
+  browsing, a cleared store), a fresh key is generated instead; the existing
+  refresh token no longer matches its `jkt`, the next refresh fails with
+  `invalid_grant`, and the library's already-documented behaviour for that
+  (§7.2: clear the session, sign out) applies — an explicit new sign-in, not
+  a silent one.
+
+Only the public JWK and signatures the platform produces ever reach the
+library; the private key material never crosses into Dart.
+
+### 13.2 The proof
+
+A JWS in compact serialization (RFC 9449 §4.2), sent as the `DPoP` request
+header on every protected request:
+
+- Header: `typ: "dpop+jwt"`, `alg: "ES256"`, `jwk` = the public key as an EC
+  JWK (`kty`, `crv: "P-256"`, `x`, `y`; no `kid` needed, the embedded `jwk`
+  **is** the key identifier, RFC 9449 §4.3 bullet 7).
+- Payload: `htm` (the HTTP method), `htu` (the request URL **without query or
+  fragment**, matching exactly what the server receives), `iat` (epoch
+  seconds), `jti` (a fresh random value, single use), `nonce` (the last
+  `DPoP-Nonce` the server sent, when any), and `ath` (`BASE64URL(SHA256(
+  ASCII(access_token)))`) **only** on a resource request that also carries
+  that access token — never on the token endpoint's own exchange of a code
+  or refresh token for that token.
+- Signature: raw `R || S` (64 bytes), ES256 (RFC 7518 §3.4), over the same
+  signing input as any other JWS.
+
+### 13.3 Access tokens and the `Authorization` header
+
+With DPoP, a resource request sends `Authorization: DPoP <access_token>`
+(RFC 9449 §7.1), never `Bearer`. The access token's `cnf.jkt` (RFC 7800)
+MUST equal the JWK thumbprint (RFC 7638) of the key that signed the
+accompanying proof; the server refuses a token presented with a proof from a
+different key. `token_type` in the token response is `"DPoP"` instead of
+`"Bearer"` for these clients.
+
+### 13.4 Nonces
+
+RFC 9449 §8: the server MAY require a server-provided nonce in the proof.
+When a protected request is missing one, or presents a stale one, the server
+answers `400 {"error":"use_dpop_nonce"}` with a `DPoP-Nonce` response header
+carrying the nonce to use. **The library retries that same request exactly
+once**, with a fresh proof carrying `nonce` set to the value from
+`DPoP-Nonce`. A `DPoP-Nonce` header on a *successful* response is cached the
+same way, pre-supplying the nonce for the next proof so steady-state traffic
+does not need the extra round trip. A second `use_dpop_nonce` for the same
+logical request is surfaced as `OAuthProtocolError(code: 'use_dpop_nonce')`,
+not retried again.
+
+### 13.5 Errors
+
+- `400 {"error":"invalid_dpop_proof"}`: malformed proof, bad signature,
+  `htm`/`htu` mismatch, expired `iat`, reused `jti`, or `ath` mismatch.
+- `401` with a `WWW-Authenticate: DPoP error="invalid_dpop_proof"` header on
+  a resource endpoint is treated the same as the `400` form above.
+- Discovery publishes `dpop_signing_alg_values_supported: ["ES256"]` when
+  DPoP is offered; the library does not currently gate on this field (every
+  `native` + `first_party` client is assumed to need DPoP per the registered
+  client type, not per discovery), but a future version may.
+
+### 13.6 Not part of 0.1.0
+
+- **App attestation** (FIPA §9.1, ABCA): not implemented.
 - **Back-channel logout** (OIDC-BCL): a server-to-backend feature; no client
   library involvement.
 
@@ -561,3 +768,33 @@ app-level logout when the app asks for it).
 9. Revocation (§9), device logout (§10), global logout (§11),
    end-session (§12).
 10. `Cache-Control: no-store`, 429 + `Retry-After`, RFC6749 error bodies (§1).
+11. Passkeys challenge steps of §5.7 and the account API of §15.
+
+## 15. Passkey account API (LoginFlow extension, authenticated)
+
+Unlike every endpoint above, this is **not** part of
+`GET /.well-known/openid-configuration`: it is a fixed account-management
+REST surface under `/v1/user/passkeys`, resolved from `issuer` the same way
+the server itself mounts it, never negotiated through discovery. Bodies are
+`application/json` (not form-urlencoded — this is not an OAuth/OIDC
+endpoint), authenticated with the user's access token
+(`Authorization: Bearer` or `DPoP`, §13 applies the same way it does to
+every other resource endpoint).
+
+| Route | Body | Response |
+|---|---|---|
+| `POST /v1/user/passkeys/enroll/start` | `{"username", "display_name"}` | `200` `webauthn-rs`'s `CreationChallengeResponse`, unmodified — pass to `PasskeyAuthenticator.createCredential` |
+| `POST /v1/user/passkeys/enroll/finish` | `{"credential", "name"?}` | `201` the stored credential (`id`, `name`, `created_at`, `last_used_at`) |
+| `GET /v1/user/passkeys` | — | `200` an array of stored credentials |
+| `PATCH /v1/user/passkeys/{id}` | `{"name"}` | `200` the updated credential |
+| `DELETE /v1/user/passkeys/{id}` | — | `200` |
+
+`enroll/start` and `enroll/finish` require a recently authenticated access
+token (RFC 9470, `auth_time` within 300 s — the same gate as a password
+change): a stale token answers `401` with
+`WWW-Authenticate: Bearer error="insufficient_user_authentication",
+max_age=300` before anything else runs. Never the public key, the AAGUID or
+the transports — only what the user needs to recognize and manage their own
+passkeys. Error bodies follow this server's general `ApiResponse` envelope
+(`{"error": {"code", "message"}}`), not the RFC6749 §5.2 shape of §1.5 —
+this is account-management REST, not an OAuth/OIDC endpoint.

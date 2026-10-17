@@ -15,6 +15,8 @@ sealed class AuthMethod {
       EmailOtpMethod.methodName => EmailOtpMethod.fromJson(json),
       GoogleMethod.methodName => const GoogleMethod(),
       MicrosoftMethod.methodName => const MicrosoftMethod(),
+      AppleMethod.methodName => const AppleMethod(),
+      FacebookMethod.methodName => const FacebookMethod(),
       _ => throw FormatException('Unknown sign-in method "$method".'),
     };
   }
@@ -138,6 +140,51 @@ final class MicrosoftMethod extends AuthMethod {
 
   @override
   bool operator ==(Object other) => other is MicrosoftMethod;
+
+  @override
+  int get hashCode => methodName.hashCode;
+}
+
+/// Apple: native `AuthenticationServices` on iOS/macOS when
+/// `loginflow_auth_apple` is configured, otherwise the system browser —
+/// including Android, where the native ceremony is never used.
+final class AppleMethod extends AuthMethod {
+  const AppleMethod();
+
+  static const String methodName = 'apple';
+
+  @override
+  String get wireName => methodName;
+
+  AppleMethod copyWith() => const AppleMethod();
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{'method': methodName};
+
+  @override
+  bool operator ==(Object other) => other is AppleMethod;
+
+  @override
+  int get hashCode => methodName.hashCode;
+}
+
+/// Facebook: native Limited Login (iOS) / classic login (Android) when
+/// `loginflow_auth_facebook` is configured, otherwise the system browser.
+final class FacebookMethod extends AuthMethod {
+  const FacebookMethod();
+
+  static const String methodName = 'facebook';
+
+  @override
+  String get wireName => methodName;
+
+  FacebookMethod copyWith() => const FacebookMethod();
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{'method': methodName};
+
+  @override
+  bool operator ==(Object other) => other is FacebookMethod;
 
   @override
   int get hashCode => methodName.hashCode;

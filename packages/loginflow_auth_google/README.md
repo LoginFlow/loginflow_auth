@@ -13,4 +13,12 @@ final auth = LoginFlowPlatform.createAuth(
 );
 ```
 
+No Google client ID to configure here: the server supplies it per attempt
+(`UpstreamPrompt.clientId`), the same value it publishes ahead of time as
+`ClientLoginOptions.googleServerClientId` from `GET /oauth2/login-options`
+(`doc/server-contract.md` §4 in the main package). Pass
+`NativeGoogleIdTokenSource(serverClientId: ...)` only to force a different
+one — local testing against a server that has not configured Google yet,
+for example; never for a real deployment.
+
 Setup is described in the main README, section "Google (optional package)".

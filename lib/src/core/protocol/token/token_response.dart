@@ -30,7 +30,8 @@ class TokenResponse {
 
   final String accessToken;
 
-  /// Case-insensitive (RFC 6749 §7.1); this version accepts only `Bearer`.
+  /// Case-insensitive (RFC 6749 §7.1): `Bearer`, or `DPoP` for a client
+  /// using RFC 9449 (§13).
   final String tokenType;
   final Duration expiresIn;
   final String? refreshToken;
@@ -47,6 +48,9 @@ class TokenResponse {
   final String? authSession;
 
   bool get isBearer => tokenType.toLowerCase() == 'bearer';
+
+  /// RFC 9449 §7.1.
+  bool get isDpop => tokenType.toLowerCase() == 'dpop';
 
   TokenResponse copyWith({
     String? accessToken,

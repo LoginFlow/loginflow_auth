@@ -3,10 +3,16 @@
 Flutter client library for **LoginFlow**, the OAuth 2.0 / OpenID Connect
 provider. It gives first-party apps:
 
-- **Native sign-in** (password, email one-time code, TOTP step-up, Google)
-  through the OAuth 2.0 *Authorization Challenge Endpoint*
-  (draft-ietf-oauth-first-party-apps-04), ending in an authorization code
-  redeemed with PKCE S256.
+- **Native sign-in** (password, email one-time code, TOTP step-up, Google,
+  passkeys, a Temporary Access Pass) through the OAuth 2.0 *Authorization
+  Challenge Endpoint* (draft-ietf-oauth-first-party-apps-04), ending in an
+  authorization code redeemed with PKCE S256.
+- **Passkeys** (WebAuthn L3 — Android Credential Manager, iOS/macOS
+  AuthenticationServices, the browser's WebAuthn API) work out of the box
+  through `LoginFlowPlatform.createAuth`: no extra package, no platform
+  code to write. **Google native sign-in** is one small optional package
+  away (`loginflow_auth_google` — see [Google](#google)); without it,
+  Google still works through the system browser.
 - **System-browser fallback** (ASWebAuthenticationSession, Custom Tabs, a
   top-level redirect on the web) whenever the server answers
   `redirect_to_web`: Microsoft, sign-up, password reset. Never a WebView.
@@ -28,12 +34,29 @@ The exact HTTP contract the library expects from the server is in
 
 | Package | What | Platforms |
 |---|---|---|
-| `loginflow_auth` | Core, platform layer, sign-in UI | Android, iOS, macOS, web (Windows/Linux: see Limitations) |
-| `packages/loginflow_auth_google` | Optional native Google ID token source | Android, iOS |
+| `loginflow_auth` | Core, platform layer, sign-in UI, and the real passkey adapter ([`CorbadoPasskeyAuthenticator`](lib/src/platform/webauthn/corbado_passkey_authenticator.dart), the `passkeys` pub package) | Android, iOS, macOS, web (Windows/Linux: see Limitations) |
+| `packages/loginflow_auth_google` | Optional native Google sign-in ([`NativeGoogleIdTokenSource`](packages/loginflow_auth_google/lib/src/native_google_id_token_source.dart): Credential Manager, `GIDSignIn`) — its own native plugin, so apps without Google carry no Google SDK | Android, iOS |
+| `packages/loginflow_auth_apple` | Optional native Sign in with Apple ([`NativeAppleTokenSource`](packages/loginflow_auth_apple/lib/src/native_apple_token_source.dart), over the `sign_in_with_apple` pub package) | iOS, macOS |
+| `packages/loginflow_auth_facebook` | Optional native Continue with Facebook ([`NativeFacebookTokenSource`](packages/loginflow_auth_facebook/lib/src/native_facebook_token_source.dart), over the `flutter_facebook_auth` pub package: Limited Login on iOS, classic login on Android) | Android, iOS |
+
+Passkeys live in the main package because `CorbadoPasskeyAuthenticator` is a
+pure-Dart adapter over a federated plugin (`passkeys`); it needed no native
+code of its own, so there was no reason to split it into a second package
+the way Google's is split. Google needs its own hand-written native
+Credential Manager/`GIDSignIn` code (`packages/loginflow_auth_google`,
+predates this release) — and that package depends on `loginflow_auth`, so
+`loginflow_auth` cannot default-wire it back without a circular dependency.
+Apple and Facebook follow the same split, each over its own federated
+plugin (`sign_in_with_apple`, `flutter_facebook_auth`) instead of
+hand-written native code. Pass `enablePasskeys: false` to turn passkeys
+off; there is nothing to turn off for Google/Apple/Facebook here since each
+is opt-IN by adding its own package (see [Google](#google), [Apple](#apple),
+[Facebook](#facebook)).
 
 `import 'package:loginflow_auth/loginflow_auth_core.dart';` exposes only the
-pure-Dart core (no Flutter imports). `loginflow_auth.dart` adds the platform
-layer and the UI.
+pure-Dart core (no Flutter imports, no `passkeys` dependency pulled in by
+that import alone); `loginflow_auth.dart` adds the platform layer, the
+passkey adapter and the UI.
 
 ```yaml
 dependencies:
@@ -47,6 +70,18 @@ dependencies:
       url: git@github.com:LoginFlow/loginflow_auth.git
       ref: main
       path: packages/loginflow_auth_google
+  # Only if the app offers Sign in with Apple:
+  loginflow_auth_apple:
+    git:
+      url: git@github.com:LoginFlow/loginflow_auth.git
+      ref: main
+      path: packages/loginflow_auth_apple
+  # Only if the app offers Continue with Facebook:
+  loginflow_auth_facebook:
+    git:
+      url: git@github.com:LoginFlow/loginflow_auth.git
+      ref: main
+      path: packages/loginflow_auth_facebook
 ```
 
 ## Quick start (API only)
@@ -127,7 +162,9 @@ void main() async {
       clientId: 'acme-orders-mobile',
       redirectUri: Uri.parse('https://acme.example.com/oauth/callback'),
     ),
-    googleIdTokenSource: const NativeGoogleIdTokenSource(), // optional package
+    // Passkeys are wired by default — nothing to pass for them. Google
+    // needs the separate `loginflow_auth_google` package added above:
+    googleIdTokenSource: const NativeGoogleIdTokenSource(),
   );
   await auth.initialize();
 
@@ -141,6 +178,11 @@ void main() async {
         MicrosoftMethod(),
       ],
       isSelfSignUpOffered: true,
+      // `isPasskeySignInOffered` defaults to true: the server decides
+      // whether a passkey is actually offered. Set it to false only to
+      // hide a passkey the server allows, never to try to show one it
+      // does not (see "What decides what is shown" below).
+      isTemporaryAccessPassOffered: true,
       copy: SignInCopy(
         title: LocalizedText(english: 'Welcome to Acme', spanish: 'Bienvenido a Acme'),
       ),
@@ -184,23 +226,45 @@ class AcmeApp extends StatelessWidget {
 - **Methods**: `SignInConfiguration.methods`, in that order, **intersected**
   with the methods the server enables for the client
   (`loginflow_login_options_endpoint`). A method the server does not allow is
-  never shown; until the server answers, nothing unverified is shown.
+  never shown; until the server answers, nothing unverified is shown. Google,
+  Microsoft, Apple and Facebook only appear when the server's
+  `login_methods` lists them — i.e. only when the company actually has that
+  upstream provider configured and enabled. Apple's button follows the
+  Apple Human Interface Guidelines (black, Apple's mark); Facebook's follows
+  Meta's brand guidelines (Facebook blue) — both render their own branded
+  widget instead of the generic outlined button the other methods share.
 - **One method** → the UI opens it directly (password form or email form;
-  Google/Microsoft show their single button). Several → a method picker.
+  Google/Microsoft/Apple/Facebook show their single button). Several → a
+  method picker.
 - **TOTP** → shown automatically whenever the server answers `next: totp`,
   with "use a recovery code" when the server offers it.
 - **Sign-up** → "Create an account" only if `isSelfSignUpOffered` **and** the
   server enables self sign-up.
 - **Forgot password** → only if `PasswordMethod.isForgotPasswordShown` **and**
   the server enables password reset.
+- **Passkey (first factor)** → "Continue with a passkey" on the method
+  picker only if `isPasskeySignInOffered` (default `true`) **and** the
+  server's company-wide passkey policy is `passwordless`
+  (`ClientLoginOptions.isFirstFactorPasskeyOffered`). With the policy set to
+  `mfa_only`, this button and `isPasskeyAutoSuggestOffered` both stay
+  hidden — the server still prompts for a passkey automatically as a
+  *second* factor mid-challenge, handled by `LoginFlowAuth` with no UI
+  wiring needed. With the policy `disabled` (no `passkey` field), no
+  passkey entry appears at all. The local flag can only hide what the
+  server allows, never show what it does not.
 - **Native SSO** → "Continue as …" when a sibling app is signed in.
 - **Errors** → a message above the step (wrong credentials, expired code,
   offline, …); **429** → "Too many attempts" with a countdown from
   `Retry-After`.
 
 `AuthMethod` is a sealed class with the implemented methods only. Passkeys
-will be a new case when implemented; every `switch` over `AuthMethod` then
-fails to compile until it handles them.
+and the Temporary Access Pass are implemented at the `LoginFlowAuth` API
+level (`signInWithPasskey`, `submitTemporaryAccessPass`, see
+[Passkeys](#passkeys-optional-adapter) below) but have no case in the
+bundled picker widget yet; an app offering them builds its own button/screen
+against `states`, the same way it would for any method not in this list.
+When they are added here, every `switch` over `AuthMethod` fails to compile
+until it handles them.
 
 ### Layout, theme, language, accessibility
 
@@ -211,13 +275,78 @@ fails to compile until it handles them.
 - Colors and typography come from your `ThemeData` (`ColorScheme`,
   `TextTheme`); spacing, radius, card width, logo height, button height and
   the loading bar thickness (1.5 px) come from `LoginFlowSignInTheme`.
-- Texts in English and Spanish, chosen from the ambient locale; force one
-  with `Localizations.override`.
+- Texts in Spanish (base) and English, chosen from the effective locale; see
+  [Language](#language) below. Provider buttons (Apple/Google/Microsoft/
+  Facebook) always keep their mandatory brand colors and labels, regardless
+  of your theme.
 - Fields carry autofill hints (`email`, `password`, `oneTimeCode`), titles are
   semantic headers, messages are live regions, and every action is at least
   48 dp tall.
 
 The UI uses `reactive_notifier` internally; your app does not have to.
+
+### Language
+
+Texts come from `.arb` files compiled with `flutter gen-l10n`
+(`lib/src/sign_in/l10n/arb/login_flow_{es,en}.arb`), not hardcoded strings —
+no widget ever branches on a locale itself. The effective locale, in order:
+
+1. An explicit override set by your app with `LoginFlowLocaleService.setLocale(...)`.
+2. The ambient `Localizations` locale of the widget tree.
+3. `es` (the library's base locale), if neither of the above is supported.
+
+```dart
+// Force the built-in UI to English regardless of the device locale.
+LoginFlowLocaleService.setLocale(const Locale('en'));
+
+// Go back to following the device/ambient locale.
+LoginFlowLocaleService.setLocale(null);
+```
+
+Setting an override reconstructs the mounted sign-in UI in place — no
+navigation, no manual rebuild. Adding a language the library does not ship
+yet is adding its `login_flow_<code>.arb` file under `lib/src/sign_in/l10n/
+arb/` with every key from `login_flow_es.arb`, running `flutter gen-l10n`,
+and listing it in `LoginFlowLocaleService.supportedLocales` — no widget
+changes.
+
+### Branding
+
+Everything the built-in UI renders is driven by typed, host-supplied inputs
+— never a hardcoded color, font or asset:
+
+| What | Where it comes from |
+|---|---|
+| Colors (light/dark) | Your app's `ColorScheme` (`ThemeData.colorScheme` / `.copyWith(brightness: ...)`) |
+| Typography | Your app's `TextTheme` |
+| Logo | A `Widget?` you pass to the sign-in widget (`Image.asset`, `Image.network`, an `SvgPicture`, anything) |
+| Spacing, corner radius, card width, logo height, button height, loading bar thickness | `LoginFlowSignInTheme` (a `ThemeExtension`) |
+| Title / subtitle text | `SignInCopy` (per locale, via `LocalizedText`), usually set server-side through the client's `login-options` response |
+| Provider button colors/labels | Fixed by each provider's brand guidelines — never themeable |
+
+```dart
+MaterialApp(
+  theme: ThemeData(
+    colorScheme: ColorScheme.fromSeed(seedColor: myBrandColor),
+    extensions: const [
+      LoginFlowSignInTheme(cardMaxWidth: 420, cornerRadius: 20),
+    ],
+  ),
+  darkTheme: ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: myBrandColor,
+      brightness: Brightness.dark,
+    ),
+    extensions: const [
+      LoginFlowSignInTheme(cardMaxWidth: 420, cornerRadius: 20),
+    ],
+  ),
+  home: LoginFlowSignIn(logo: Image.asset('assets/my_logo.png')),
+);
+```
+
+`LoginFlowSignInTheme` is one extension shared by every screen of the flow;
+there is no second, parallel branding object to keep in sync with it.
 
 ## Platform setup
 
@@ -312,6 +441,59 @@ In `DebugProfile.entitlements` and `Release.entitlements` add
    only talks to a sibling whose package is signed with the same certificate.
    `sharedUserId` and Block Store are not used (`doc/decisions.md` D12).
 
+### Magic link (Android App Links / iOS Universal Links)
+
+Each OAuth client (app) has its OWN magic-link path,
+`/login/magic/<client_id>`, on the company's login host — a company that
+runs several apps on the same host must give each app its own intent
+filter / Associated Domains entry for its own `client_id`, never one
+shared entry (`docs/operations/passkeys.md` §4 on the server). Set this up
+once per app; the library does the rest (`LoginFlowAuth.
+magicLinkTokenFromUri`, `SignInViewModel.sendMagicLink`/the "email me a
+sign-in link instead" button, shown only when the server publishes
+`magic_link` in `login-options`).
+
+- **Android**, `AndroidManifest.xml` (same `autoVerify` App Link pattern as
+  the browser callback above, but scoped to this app's own path):
+
+  ```xml
+  <intent-filter android:autoVerify="true">
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.DEFAULT" />
+      <category android:name="android.intent.category.BROWSABLE" />
+      <data android:scheme="https"
+            android:host="acme.id.loginflow.dev"
+            android:pathPrefix="/login/magic/app-one" />
+  </intent-filter>
+  ```
+
+  Deliver the intercepted link to Flutter with a deep-link plugin (e.g.
+  `app_links`) and extract the token:
+
+  ```dart
+  AppLinks().uriLinkStream.listen((uri) {
+    final token = auth.magicLinkTokenFromUri(uri);
+    if (token != null) {
+      unawaited(auth.submitMagicLinkToken(token));
+    }
+  });
+  ```
+
+- **iOS**: Associated Domains capability, `applinks:acme.id.loginflow.dev`
+  — the entitlement is per HOST, shared by every app of the company on
+  that host (the AASA's own `applinks.details[].components` is what scopes
+  each app's `appID` to only its own `/login/magic/<client_id>` path, so
+  two apps with the same entitlement still only ever match their own
+  link). Handle the Universal Link the same way, through
+  `UIApplicationDelegate.application(_:continue:restorationHandler:)` (or
+  the SwiftUI `onOpenURL`) forwarded to the same `magicLinkTokenFromUri` /
+  `submitMagicLinkToken` call above.
+- `submitMagicLinkToken` continues the attempt the SAME browser/app
+  session already has open (the one that called `requestMagicLink` or
+  `requestEmailOtp`) — opening the link in a context with no attempt in
+  progress answers `invalid_session`, by design (contract: magic link,
+  prevents login CSRF and session fixation).
+
 ### Web
 
 - Tokens live **in memory only**; a reload loses them. Restore the session
@@ -339,16 +521,175 @@ In `DebugProfile.entitlements` and `Release.entitlements` add
   authorization server's own domain (top-level navigation, no iframes, no
   third-party cookies).
 
-### Google (optional package)
+### Google
 
-- **Android**: create an *Android* OAuth client (package + SHA-1) and a *Web*
-  client in the company's Google Cloud project; LoginFlow sends the web
-  client ID as `serverClientId`. No manifest change.
-- **iOS**: create an *iOS* OAuth client; add `GIDClientID` to `Info.plist`
-  (or pass `NativeGoogleIdTokenSource(iosClientId: …)`) and the reversed
-  client ID as a URL scheme in `CFBundleURLTypes`.
-- Without the package, Google runs in the system browser through LoginFlow's
-  hosted page.
+Add the `loginflow_auth_google` package (above) and pass
+[`NativeGoogleIdTokenSource`](packages/loginflow_auth_google/lib/src/native_google_id_token_source.dart)
+to `googleIdTokenSource` — its own native plugin (Credential Manager on
+Android via `GetSignInWithGoogleOption`, `GIDSignIn` on iOS), requesting
+the ID token for `prompt.clientId` (the company's Google *web* client, from
+the `upstream_token` challenge step, `doc/server-contract.md` §5.3/§5.6)
+with `prompt.nonce` passed straight through as the per-attempt nonce — a
+real possession proof the server can check, not a one-shot SDK
+initialization worked around after the fact.
+
+- **Android**: create an *Android* OAuth client (package + SHA-1) and a
+  *Web* client in the company's Google Cloud project. No manifest change.
+- **iOS/macOS**: create an *iOS* OAuth client; add `GIDClientID` to
+  `Info.plist` (or pass `NativeGoogleIdTokenSource(iosClientId: …)`) and
+  the reversed client ID as a URL scheme in `CFBundleURLTypes`.
+- Without the package, Google runs in the system browser through
+  LoginFlow's hosted page (`signInWithGoogle`'s existing fallback).
+
+### Apple
+
+Add the `loginflow_auth_apple` package (above) and pass
+[`NativeAppleTokenSource`](packages/loginflow_auth_apple/lib/src/native_apple_token_source.dart)
+to `appleTokenSource` — `AuthenticationServices` via the `sign_in_with_apple`
+pub package, requesting the ID token with `prompt.nonce` as the raw nonce
+(the package hashes it with SHA-256 before handing it to Apple's native
+API; Apple's `identityToken` carries the raw value back in its `nonce`
+claim for the server to compare, `doc/server-contract.md` §5.4).
+
+- Add the **Sign in with Apple** capability to the app target in Xcode
+  (Signing & Capabilities).
+- The company's Services ID (or the app's bundle ID) must match LoginFlow's
+  Apple provider configuration for this client.
+- `NativeAppleTokenSource.isAvailable` is `false` on every platform other
+  than iOS/macOS — in particular Android, where
+  `sign_in_with_apple`'s own web-based flow is deliberately not used.
+  Without the package, or on a platform the source reports unavailable,
+  Apple runs in the system browser through LoginFlow's hosted page, the
+  same fallback Google has without `loginflow_auth_google`.
+- On the first authorization only, Apple returns the user's given/family
+  name; the library forwards it to the server as `upstream_user_name`
+  without the app having to cache it.
+
+### Facebook
+
+Add the `loginflow_auth_facebook` package (above) and pass
+[`NativeFacebookTokenSource`](packages/loginflow_auth_facebook/lib/src/native_facebook_token_source.dart)
+to `facebookTokenSource` — the `flutter_facebook_auth` pub package: Limited
+Login on iOS (an OIDC ID token with `prompt.nonce`) and classic login on
+Android (a nonceless access token). The source picks the right one per
+platform and reports the resulting shape to the server as
+`upstream_token_type` (`id_token` or `access_token`,
+`doc/server-contract.md` §5.4) — the app never branches on platform itself.
+
+- Create the app in Meta for Developers and add the Facebook Login product.
+- **Android**: `facebook_app_id` / `facebook_client_token` /
+  `fb_login_protocol_scheme` string resources plus the matching manifest
+  entries (see the package README).
+- **iOS**: `FacebookAppID` / `FacebookClientToken` / `FacebookDisplayName`
+  in `Info.plist`, the `fbYOUR_APP_ID` URL scheme, and
+  `LSApplicationQueriesSchemes` for `fbapi`/`fb-messenger-share-api`.
+- Without the package, Facebook runs in the system browser through
+  LoginFlow's hosted page.
+
+### Passkeys
+
+`LoginFlowPlatform.createAuth` wires
+[`CorbadoPasskeyAuthenticator`](lib/src/platform/webauthn/corbado_passkey_authenticator.dart)
+(the `passkeys` pub package by Corbado: Android Credential Manager,
+iOS/macOS AuthenticationServices, the browser's WebAuthn API) by default —
+nothing to pass for passkeys to work, on every platform that package
+supports. Pass `enablePasskeys: false` to turn it off, or
+`passkeyAuthenticator: myOwnAuthenticator` to replace it (e.g. a test
+double — `PasskeyAuthenticator`, `loginflow_auth_core.dart`, is still a
+plain interface for that purpose).
+
+Every company has its own **relying party (RP) ID**: a fixed,
+per-company host of the shape `<slug>.id.loginflow.dev` (LoginFlow's
+multi-tenant hosted domain) — never the app's own domain, and never
+changed once passkeys are enrolled (an RP ID change invalidates every
+existing passkey). `doc/server-contract.md` §5.7 and §15 cover the wire;
+the platform association below is what makes the OS trust that host for
+*your* app specifically.
+
+- **iOS/macOS**: add the **Associated Domains** capability in Xcode with a
+  `webcredentials:<slug>.id.loginflow.dev` entry (one entry per company the
+  app can sign a user into — most apps have exactly one):
+
+  ```
+  webcredentials:acme.id.loginflow.dev
+  ```
+
+  This is the LoginFlow domain's `apple-app-site-association` (served from
+  `https://<slug>.id.loginflow.dev/.well-known/apple-app-site-association`,
+  §15) that must list your app's Team ID + bundle identifier — ask the
+  company admin to register it via the master API
+  (`PATCH /v1/master/companies/{company_id}/oauth-clients/{client_id}/passkey-app-registration`,
+  `doc/server-contract.md` §15), the same way an Associated Domain is
+  verified for a universal link, except the file lives on LoginFlow's host,
+  not the app's own.
+- **Android**: no manifest entry for the RP ID itself — WebAuthn credential
+  requests already carry the RP ID, and Android resolves it against that
+  domain's own `/.well-known/assetlinks.json`
+  (`https://<slug>.id.loginflow.dev/.well-known/assetlinks.json`, §15),
+  which the same master endpoint above publishes with your app's package
+  name and signing certificate SHA-256. Register the SHA-256 of the
+  certificate you release with (the Play App Signing certificate in
+  production, not your local debug key) with the company admin.
+- **Web**: `navigator.credentials` works against the page's own origin;
+  `passkeys_web` implements the ceremonies there too, so this works
+  without extra setup beyond the RP's own `.well-known` files above
+  (which a browser checks implicitly through the RP ID, not through an
+  app association file).
+
+#### Managing enrolled passkeys: API + example
+
+The bundled sign-in UI has no account screen (there is no account area in
+this library to extend — see Limitations). Build one against the API
+directly:
+
+```dart
+class PasskeysScreen extends StatelessWidget {
+  const PasskeysScreen({required this.auth, super.key});
+
+  final LoginFlowAuth auth;
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+    future: auth.listPasskeys(),
+    builder: (context, snapshot) {
+      final result = snapshot.data;
+      if (result == null) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return result.when(
+        ok: (passkeys) => ListView(
+          children: [
+            for (final passkey in passkeys)
+              ListTile(
+                title: Text(passkey.name ?? passkey.id),
+                subtitle: Text('Added ${passkey.createdAt}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => auth.deletePasskey(passkey.id),
+                ),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Add a passkey'),
+              onTap: () => auth.enrollPasskey(
+                username: 'ana@example.com', // the signed-in user's email
+                displayName: 'Ana Ruiz',
+              ),
+            ),
+          ],
+        ),
+        err: (error) => Text(error.message),
+      );
+    },
+  );
+}
+```
+
+`enrollPasskey`/`listPasskeys`/`renamePasskey`/`deletePasskey` require the
+RFC 9470 recently-authenticated gate the server enforces on `enroll/*`
+(`doc/server-contract.md` §15) — a token older than 300 s answers
+`ServerResponseInvalid(statusCode: 401, ...)`; re-authenticate (e.g.
+`stepUp` with a password/TOTP requirement) before retrying.
 
 ## Security notes
 
@@ -362,11 +703,22 @@ In `DebugProfile.entitlements` and `Release.entitlements` add
 
 ## Limitations of 0.1.0
 
-- No DPoP yet (see `doc/server-contract.md` §13).
-- Windows and Linux: no secure storage or system browser implementation; the
-  session lives in memory and browser steps fail as unavailable.
+- Windows and Linux: no secure storage, system browser or passkey
+  implementation; the session lives in memory and browser/passkey steps
+  fail as unavailable (`passkeys_windows` exists upstream but is not wired
+  here in 0.1.0).
 - Google and Microsoft buttons have no brand marks; add them per each
   provider's branding guidelines.
+- Passkeys on web: no conditional UI/autofill (the browser's
+  `mediation: "conditional"` tied to a username field) — the bundled
+  passkey button always runs a full, visible ceremony. True autofill needs
+  a web-specific hook this library does not expose yet.
+- The bundled sign-in UI offers a passkey button and a Temporary Access
+  Pass screen, but no account screen to list/rename/delete enrolled
+  passkeys — only the API
+  (`LoginFlowAuth.enrollPasskey`/`listPasskeys`/`renamePasskey`/
+  `deletePasskey`) and the example in [Passkeys](#passkeys); an app builds
+  its own screen against it.
 
 ## Manual test plan (native)
 
@@ -383,9 +735,13 @@ These checks need a device and are not automated:
 | 6 | Android | Device logout on A, resume B | B is signed out |
 | 7 | iOS | Steps 1–4 and 6 with ASWebAuthenticationSession and the shared keychain group | Same results |
 | 8 | iOS | Put the shared group first in `keychain-access-groups` | Sign-in fails with `StorageFailure` (`MISCONFIGURED`) |
-| 9 | Android, iOS | Google with `loginflow_auth_google` | Account sheet, then signed in |
+| 9 | Android, iOS | Google (`signInWithGoogle` / the picker's Google button) | Account sheet (Credential Manager / `GIDSignIn`), then signed in |
 | 10 | Android | While the Custom Tab is open, fire `adb shell am start -a android.intent.action.VIEW -d "<redirect URI>?code=x&state=forged"` | Nothing happens; the tab stays open and finishing the login still signs in |
 | 11 | Android | Sign in, change the screen lock (invalidates Keystore keys), sign in again | The stored session is discarded once; the new sign-in persists normally |
+| 12 | Android | Tap "Continue with a passkey" with an enrolled passkey on the device | Credential Manager bottom sheet, then signed in |
+| 13 | iOS/macOS | Tap "Continue with a passkey" with an enrolled passkey in iCloud Keychain | AuthenticationServices sheet, then signed in |
+| 14 | Android/iOS | Enroll a passkey (`enrollPasskey`) without a recent sign-in | `ServerResponseInvalid(statusCode: 401, ...)` — re-authenticate first |
+| 15 | Android/iOS | "Use a temporary access pass" with a code issued by a company admin | Signs in directly, no TOTP step even on an account with TOTP enabled |
 
 ## Development
 

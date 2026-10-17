@@ -8,6 +8,12 @@ import 'package:http/testing.dart';
 import 'package:loginflow_auth/src/core/crypto/base64_url_encoding.dart';
 import 'package:loginflow_auth/src/core/crypto/pkce_pair.dart';
 import 'package:loginflow_auth/src/core/crypto/sha256_hashing.dart';
+import 'package:loginflow_auth/src/core/dpop/dpop_proof_factory.dart' show AccessTokenHash;
+import 'package:loginflow_auth/src/core/jose/compact_jws.dart';
+import 'package:loginflow_auth/src/core/jose/json_web_key.dart';
+import 'package:loginflow_auth/src/core/jose/jws_header.dart';
+import 'package:loginflow_auth/src/core/jose/jws_signature_verifier.dart';
+import 'package:loginflow_auth/src/core/protocol/login_options/passkey_mode.dart';
 
 import 'test_signing_keys.dart';
 
@@ -88,8 +94,19 @@ class FakeLoginFlowServer {
   }
 
   static const String emailOtpCode = '424242';
+  static const String magicLinkToken = 'magic-link-token-under-test';
   static const String totpCode = '123456';
   static const String recoveryCode = 'RECOVERY-0001';
+  static const String passkeyCredentialId = 'credential-ana-0001';
+  static const String temporaryAccessPassCode = 'TAP-0001';
+
+  /// Which account owns each enrolled passkey — resolved from the
+  /// assertion's own credential id on a discoverable (no `login_hint`)
+  /// sign-in, the same way `WebauthnRepository::
+  /// find_credential_by_rp_and_credential_id` does on the real server.
+  final Map<String, String> passkeyCredentialOwners = <String, String>{
+    passkeyCredentialId: 'ana@example.com',
+  };
   static const String googleWebClientId = 'google-web-client.apps.example';
   static const String companyId = 'company-acme';
 
@@ -127,6 +144,16 @@ class FakeLoginFlowServer {
   ];
   bool isSelfSignUpEnabled = true;
   bool isPasswordResetEnabled = true;
+
+  /// The company's passkey policy (`GET /oauth2/login-options`,
+  /// `doc/server-contract.md` §4): `true` + [passkeyMode] by default, so
+  /// tests that do not care about this keep seeing the passkey button they
+  /// did before the server started publishing it.
+  bool hasPasskey = true;
+  PasskeyMode? passkeyMode = PasskeyMode.passwordless;
+  String? googleServerClientId =
+      '1234567890-fake.apps.googleusercontent.com';
+  String? facebookAppId = '1234567890123456';
   bool isNativeSsoSupported = true;
   String idTokenAlgorithm = 'RS256';
   IdTokenTampering tampering = IdTokenTampering.none;
@@ -164,6 +191,21 @@ class FakeLoginFlowServer {
   /// Simulated hosted-login browser session for `prompt=none`.
   bool hasBrowserSession = false;
 
+  /// When true, every challenge/token/resource request must carry a valid
+  /// DPoP proof (RFC 9449), as the LoginFlow profile requires for `native` +
+  /// `first_party` clients (`doc/server-contract.md` §13).
+  bool requiresDpop = false;
+
+  /// The next DPoP-protected request answers `400 use_dpop_nonce` once, with
+  /// this nonce in the `DPoP-Nonce` response header (RFC 9449 §8).
+  String? nextDpopNonceChallenge;
+
+  /// Every DPoP proof's public key thumbprint this server has accepted, in
+  /// call order — tests assert the same key signed every proof of a flow.
+  final List<String> acceptedDpopThumbprints = <String>[];
+
+  final Set<String> _usedDpopJti = <String>{};
+
   final List<Map<String, String>> challengeRequests = <Map<String, String>>[];
   final List<Map<String, String>> tokenRequests = <Map<String, String>>[];
   final List<Map<String, String>> revocationRequests = <Map<String, String>>[];
@@ -171,6 +213,7 @@ class FakeLoginFlowServer {
   final List<String> globalLogoutTokens = <String>[];
   final List<Uri> endSessionRequests = <Uri>[];
   final List<String> sentEmailOtps = <String>[];
+  final List<String> sentMagicLinks = <String>[];
 
   final Map<String, _ChallengeSession> _sessions =
       <String, _ChallengeSession>{};
@@ -267,6 +310,16 @@ class FakeLoginFlowServer {
     ],
   };
 
+  /// Endpoints the LoginFlow profile requires a DPoP proof on: the
+  /// challenge and token endpoints, and the two resource (Bearer/DPoP)
+  /// logout endpoints (`doc/server-contract.md` §13).
+  static const Set<String> _dpopProtectedPaths = <String>{
+    '/oauth2/authorize-challenge',
+    '/oauth2/token',
+    '/oauth2/device-logout',
+    '/oauth2/logout-everywhere',
+  };
+
   /// Handles one request; both transports end here.
   Future<FakeHttpResponse> respond(FakeHttpRequest request) async {
     final form = request.method == 'POST'
@@ -274,6 +327,13 @@ class FakeLoginFlowServer {
         : null;
     final response = FakeHttpResponse();
     response.headers['cache-control'] = 'no-store';
+    if (requiresDpop && _dpopProtectedPaths.contains(request.uri.path)) {
+      final dpopError = _checkDpop(request, response);
+      if (dpopError != null) {
+        _oauthError(response, 400, dpopError);
+        return response;
+      }
+    }
     switch ((request.method, request.uri.path)) {
       case ('GET', '/.well-known/openid-configuration'):
         response.headers['cache-control'] = 'public, max-age=3600';
@@ -289,6 +349,11 @@ class FakeLoginFlowServer {
           'login_methods': loginMethods,
           'self_signup': isSelfSignUpEnabled,
           'password_reset': isPasswordResetEnabled,
+          'passkey': hasPasskey,
+          if (hasPasskey) 'passkey_mode': passkeyMode?.wireName,
+          if (googleServerClientId != null)
+            'google_server_client_id': googleServerClientId,
+          if (facebookAppId != null) 'facebook_app_id': facebookAppId,
         });
       case ('POST', '/oauth2/authorize-challenge'):
         challengeRequests.add(form ?? <String, String>{});
@@ -385,11 +450,13 @@ class FakeLoginFlowServer {
       return _redirectToWeb(response, session);
     }
     final provider = form['upstream_provider'];
+    const nativeUpstreamProviders = <String>{'google', 'apple', 'facebook'};
     if (provider == 'microsoft' ||
-        (provider == 'google' && form['upstream_flow'] == 'browser')) {
+        (nativeUpstreamProviders.contains(provider) &&
+            form['upstream_flow'] == 'browser')) {
       return _redirectToWeb(response, session);
     }
-    if (provider == 'google') {
+    if (provider != null && nativeUpstreamProviders.contains(provider)) {
       final token = form['upstream_token'];
       if (token == null) {
         session.upstreamNonce = _token32();
@@ -398,16 +465,23 @@ class FakeLoginFlowServer {
           session,
           'upstream_token',
           upstream: <String, Object?>{
-            'provider': 'google',
+            'provider': provider,
             'nonce': session.upstreamNonce,
-            'client_id': googleWebClientId,
+            'client_id': provider == 'google'
+                ? googleWebClientId
+                : '$provider-client.example',
           },
         );
       }
+      // Facebook's classic (Android) access token carries no nonce, unlike
+      // every other case here (Google always, Apple always, Facebook's
+      // iOS Limited Login) — same as the real server's Facebook access
+      // token validation path.
+      final isNonceless = form['upstream_token_type'] == 'access_token';
       final parts = token.split(':');
       if (parts.length != 3 ||
-          parts[0] != 'google' ||
-          parts[1] != session.upstreamNonce) {
+          parts[0] != provider ||
+          (!isNonceless && parts[1] != session.upstreamNonce)) {
         return _step(
           response,
           session,
@@ -418,7 +492,7 @@ class FakeLoginFlowServer {
       session.email = parts[2];
       session.isPrimaryAuthenticated = users.containsKey(parts[2]);
     }
-    final user = users[session.email];
+    var user = users[session.email];
     final password = form['password'];
     if (password != null) {
       if (user == null || user.password != password) {
@@ -436,9 +510,28 @@ class FakeLoginFlowServer {
       sentEmailOtps.add(session.email ?? '');
       return _step(response, session, 'email_otp');
     }
+    if (form['method'] == 'magic_link') {
+      // Contract: magic link — one request, one email carrying both the
+      // OTP code and the link; the server still answers `next: email_otp`.
+      sentEmailOtps.add(session.email ?? '');
+      sentMagicLinks.add(session.email ?? '');
+      return _step(response, session, 'email_otp');
+    }
     final otp = form['email_otp'];
     if (otp != null) {
       if (user == null || otp != emailOtpCode) {
+        return _step(
+          response,
+          session,
+          'email_otp',
+          stepError: 'invalid_credential',
+        );
+      }
+      session.isPrimaryAuthenticated = true;
+    }
+    final magicLinkTokenPresented = form['magic_link_token'];
+    if (magicLinkTokenPresented != null) {
+      if (user == null || magicLinkTokenPresented != magicLinkToken) {
         return _step(
           response,
           session,
@@ -463,14 +556,72 @@ class FakeLoginFlowServer {
       }
       session.isSecondFactorDone = true;
     }
+    if (form['method'] == 'webauthn_identify') {
+      return _step(
+        response,
+        session,
+        'webauthn_assertion',
+        options: <String, Object?>{
+          'challenge': _token32(),
+          'rpId': issuer.host,
+        },
+      );
+    }
+    final webauthnAssertion = form['webauthn_assertion'];
+    if (webauthnAssertion != null) {
+      final decoded = jsonDecode(webauthnAssertion) as Map<String, Object?>;
+      final owner = passkeyCredentialOwners[decoded['id']];
+      if (owner == null) {
+        // No fresh `options` on a failed assertion: like a rejected
+        // upstream token, a WebAuthn challenge is single-use, so the
+        // client restarts with a new `signInWithPasskey` identify call
+        // rather than retrying this step blindly.
+        return _step(
+          response,
+          session,
+          'webauthn_assertion',
+          stepError: 'invalid_credential',
+        );
+      }
+      // Discoverable sign-in (no `login_hint`): the credential id itself
+      // identifies the account, same as `find_credential_by_rp_and_
+      // credential_id` on the real server. `user` was already read above
+      // (before this leg resolved the account), so it is re-read here.
+      session.email ??= owner;
+      user = users[session.email];
+      // A valid assertion satisfies BOTH factors in the same step
+      // (`doc/server-contract.md` passkeys section): a passkey is
+      // phishing-resistant on its own.
+      session.isPrimaryAuthenticated = true;
+      session.isSecondFactorDone = true;
+    }
+    final temporaryAccessPass = form['temporary_access_pass'];
+    if (temporaryAccessPass != null) {
+      if (temporaryAccessPass != temporaryAccessPassCode) {
+        return _step(
+          response,
+          session,
+          'temporary_access_pass',
+          stepError: 'invalid_credential',
+        );
+      }
+      // Also satisfies both factors in one step, but never
+      // phishing-resistant — a TAP is a shared secret, not a possession
+      // proof.
+      session.isPrimaryAuthenticated = true;
+      session.isSecondFactorDone = true;
+    }
     const stepFields = <String>[
       'password',
       'method',
       'email_otp',
+      'magic_link_token',
       'resend',
       'totp',
       'recovery_code',
       'upstream_provider',
+      'webauthn_assertion',
+      'temporary_access_pass',
     ];
     final hasStepInput = stepFields.any(form.containsKey);
     if (!session.isPrimaryAuthenticated &&
@@ -746,7 +897,7 @@ class FakeLoginFlowServer {
     );
     _json(response, 200, <String, Object?>{
       'access_token': accessToken,
-      'token_type': 'Bearer',
+      'token_type': requiresDpop ? 'DPoP' : 'Bearer',
       'expires_in': 900,
       'refresh_token': refreshToken,
       'id_token':
@@ -833,7 +984,11 @@ class FakeLoginFlowServer {
     required bool everywhere,
   }) {
     final header = request.headers['authorization'] ?? '';
-    final token = header.startsWith('Bearer ') ? header.substring(7) : '';
+    final token = switch (header) {
+      final value when value.startsWith('Bearer ') => value.substring(7),
+      final value when value.startsWith('DPoP ') => value.substring(5),
+      _ => '',
+    };
     final access = _accessTokens[token];
     if (access == null) {
       return _oauthError(response, 401, 'invalid_token');
@@ -850,6 +1005,93 @@ class FakeLoginFlowServer {
       _deviceSessions[access.sid]?.isActive = false;
     }
     response.statusCode = 204;
+  }
+
+  /// Validates the `DPoP` header against RFC 9449 §4.3: well-formed proof
+  /// JWT, `typ: dpop+jwt`, `alg: ES256`, signature verifies against its own
+  /// embedded `jwk`, `htm`/`htu` match this request, `jti` single use, and
+  /// (on a resource request with `Authorization: DPoP <token>`) `ath`
+  /// matches the token. Returns `null` when valid, or the `error` code to
+  /// answer with; stamps `DPoP-Nonce` on [response] when a nonce challenge
+  /// is pending.
+  String? _checkDpop(FakeHttpRequest request, FakeHttpResponse response) {
+    final nextNonce = nextDpopNonceChallenge;
+    if (nextNonce != null) {
+      nextDpopNonceChallenge = null;
+      response.headers['dpop-nonce'] = nextNonce;
+      return 'use_dpop_nonce';
+    }
+    final header = request.headers['dpop'];
+    if (header == null) {
+      return 'invalid_dpop_proof';
+    }
+    final proof = _parseDpopProof(header);
+    if (proof == null) {
+      return 'invalid_dpop_proof';
+    }
+    if (proof.httpMethod != request.method || proof.httpUri != request.uri.path) {
+      return 'invalid_dpop_proof';
+    }
+    if (!_usedDpopJti.add(proof.jwtId)) {
+      return 'invalid_dpop_proof';
+    }
+    final authorization = request.headers['authorization'];
+    if (authorization != null && authorization.startsWith('DPoP ')) {
+      final presentedToken = authorization.substring(5);
+      if (proof.accessTokenHash != presentedToken.toAccessTokenHash()) {
+        return 'invalid_dpop_proof';
+      }
+    }
+    acceptedDpopThumbprints.add(proof.jwkThumbprint);
+    return null;
+  }
+
+  _DpopProof? _parseDpopProof(String token) {
+    final parts = token.split('.');
+    if (parts.length != 3) {
+      return null;
+    }
+    final headerBytes = parts[0].tryDecodeBase64Url();
+    final payloadBytes = parts[1].tryDecodeBase64Url();
+    if (headerBytes == null || payloadBytes == null) {
+      return null;
+    }
+    final Map<String, Object?> header;
+    final Map<String, Object?> payload;
+    try {
+      header = jsonDecode(utf8.decode(headerBytes)) as Map<String, Object?>;
+      payload = jsonDecode(utf8.decode(payloadBytes)) as Map<String, Object?>;
+    } on FormatException {
+      return null;
+    }
+    if (header['typ'] != 'dpop+jwt' || header['alg'] != 'ES256') {
+      return null;
+    }
+    final jwkJson = header['jwk'];
+    if (jwkJson is! Map<String, Object?>) {
+      return null;
+    }
+    final jwk = JsonWebKey.fromJson(jwkJson);
+    final jws = CompactJws(
+      header: const JwsHeader(algorithm: 'ES256', type: 'dpop+jwt'),
+      payloadJson: utf8.decode(payloadBytes),
+      signingInput: '${parts[0]}.${parts[1]}',
+      signature: parts[2],
+    );
+    if (!const JwsSignatureVerifier().verify(jws, jwk)) {
+      return null;
+    }
+    final jti = payload['jti'];
+    if (jti is! String) {
+      return null;
+    }
+    return _DpopProof(
+      httpMethod: payload['htm'] as String?,
+      httpUri: Uri.tryParse(payload['htu'] as String? ?? '')?.path,
+      jwtId: jti,
+      accessTokenHash: payload['ath'] as String?,
+      jwkThumbprint: '${jwk.x}:${jwk.y}',
+    );
   }
 
   void _redirectToWeb(FakeHttpResponse response, _ChallengeSession session) {
@@ -870,6 +1112,7 @@ class FakeLoginFlowServer {
     String? stepError,
     List<String>? methods,
     Map<String, Object?>? upstream,
+    Map<String, Object?>? options,
   }) => _json(response, 403, <String, Object?>{
     'error': 'insufficient_authorization',
     'auth_session': session.key,
@@ -877,6 +1120,7 @@ class FakeLoginFlowServer {
     'methods': ?methods,
     'step_error': ?stepError,
     'upstream': ?upstream,
+    'options': ?options,
   });
 
   String _issueCode(
@@ -1018,4 +1262,21 @@ class _AccessRecord {
 
   final String subject;
   final String sid;
+}
+
+/// A parsed, signature-verified DPoP proof (RFC 9449 §4.3).
+class _DpopProof {
+  const _DpopProof({
+    required this.httpMethod,
+    required this.httpUri,
+    required this.jwtId,
+    required this.accessTokenHash,
+    required this.jwkThumbprint,
+  });
+
+  final String? httpMethod;
+  final String? httpUri;
+  final String jwtId;
+  final String? accessTokenHash;
+  final String jwkThumbprint;
 }

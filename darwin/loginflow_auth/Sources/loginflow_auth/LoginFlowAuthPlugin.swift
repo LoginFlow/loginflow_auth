@@ -63,8 +63,41 @@ public final class LoginFlowAuthPlugin: NSObject, FlutterPlugin {
             }
         case "browser.authenticate":
             authenticate(arguments, result: result)
+        case "dpop.ensureKey":
+            runDpop(result) {
+                let alias = try required(arguments, "alias")
+                let jwk = try DpopSecureEnclaveKey(alias: alias).ensurePublicJwk()
+                let json = try JSONSerialization.data(withJSONObject: ["key_id": alias, "public_jwk": jwk])
+                return String(data: json, encoding: .utf8)
+            }
+        case "dpop.sign":
+            runDpop(result) {
+                let alias = try required(arguments, "alias")
+                guard let input = Data(base64UrlEncoded: try required(arguments, "signingInput")) else {
+                    throw PluginError.invalidArgument("signingInput is not valid base64url.")
+                }
+                return try DpopSecureEnclaveKey(alias: alias).sign(input)
+            }
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    private func runDpop(_ result: @escaping FlutterResult, operation: @escaping () throws -> String?) {
+        storageQueue.async {
+            let reply: Any?
+            do {
+                reply = try operation()
+            } catch PluginError.invalidArgument(let reason) {
+                reply = FlutterError(code: "INVALID_ARGUMENT", message: reason, details: nil)
+            } catch DpopKeyError.keyUnavailable(let reason) {
+                reply = FlutterError(code: "STORAGE", message: reason, details: nil)
+            } catch DpopKeyError.signingFailed(let reason) {
+                reply = FlutterError(code: "STORAGE", message: reason, details: nil)
+            } catch {
+                reply = FlutterError(code: "STORAGE", message: error.localizedDescription, details: nil)
+            }
+            DispatchQueue.main.async { result(reply) }
         }
     }
 

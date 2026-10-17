@@ -22,4 +22,16 @@ abstract final class SignInKeys {
   );
   static const String totpStepPrefix = 'loginflow.step.totp';
   static const String methodButtonPrefix = 'loginflow.method';
+  static const ValueKey<String> temporaryAccessPassStep = ValueKey<String>(
+    'loginflow.step.temporary_access_pass',
+  );
+  static const ValueKey<String> passkeyButton = ValueKey<String>(
+    'loginflow.button.passkey',
+  );
+  static const ValueKey<String> appleButton = ValueKey<String>(
+    'loginflow.button.apple',
+  );
+  static const ValueKey<String> facebookButton = ValueKey<String>(
+    'loginflow.button.facebook',
+  );
 }

@@ -28,6 +28,13 @@ class MethodPickerStep extends StatelessWidget {
     crossAxisAlignment: .stretch,
     spacing: context.signInTheme.spacingSmall,
     children: [
+      if (state.isPasskeySignInOffered)
+        PasskeyButton(
+          label: context.loginFlowStrings.continueWithPasskey,
+          onPressed: state.isBusy
+              ? null
+              : () => unawaited(viewModel.signInWithPasskey()),
+        ),
       ...phase.methods.map(
         (method) => _MethodButton(
           key: method.toButtonKey(),
@@ -56,14 +63,24 @@ class _MethodButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = method.toIcon();
-    return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        minimumSize: Size.fromHeight(context.signInTheme.actionHeight),
+    final label = method.toButtonLabel(context.loginFlowStrings);
+    return switch (method) {
+      AppleMethod() => AppleSignInButton(label: label, onPressed: onPressed),
+      FacebookMethod() => FacebookSignInButton(
+        label: label,
+        onPressed: onPressed,
       ),
-      onPressed: onPressed,
-      icon: icon == null ? null : Icon(icon),
-      label: Text(method.toButtonLabel(context.loginFlowStrings)),
-    );
+      PasswordMethod() ||
+      EmailOtpMethod() ||
+      GoogleMethod() ||
+      MicrosoftMethod() => OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          minimumSize: Size.fromHeight(context.signInTheme.actionHeight),
+        ),
+        onPressed: onPressed,
+        icon: method.toIcon() == null ? null : Icon(method.toIcon()),
+        label: Text(label),
+      ),
+    };
   }
 }

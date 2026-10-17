@@ -30,7 +30,7 @@ class TokenClient {
       return reply.jsonObject().flatMap((json) {
         try {
           final response = TokenResponse.fromJson(json);
-          return response.isBearer
+          return response.isBearer || response.isDpop
               ? Ok(response)
               : Err(
                   ServerResponseInvalid(

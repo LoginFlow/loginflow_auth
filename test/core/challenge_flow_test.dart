@@ -122,6 +122,45 @@ void main() {
       expect(signedIn.data, isA<SignedIn>());
     });
 
+    test(
+      'magic link: request sends the OTP email and the token signs in, a wrong token does not',
+      () async {
+        final fixture = AuthFixture.create(server);
+        await fixture.auth.initialize();
+
+        final requested = await fixture.auth.requestEmailOtp(
+          loginHint: 'ana@example.com',
+        );
+        expect(
+          (requested.data as ChallengeRequired).prompt.step,
+          ChallengeStep.emailOtp,
+        );
+
+        final afterMagicLinkRequest = await fixture.auth.requestMagicLink();
+        expect(
+          (afterMagicLinkRequest.data as ChallengeRequired).prompt.step,
+          ChallengeStep.emailOtp,
+          reason:
+              'the server always answers next: email_otp for a magic-link '
+              'request — the code on the same step still works',
+        );
+        expect(server.sentMagicLinks, <String>['ana@example.com']);
+
+        final wrongToken = await fixture.auth.submitMagicLinkToken(
+          'not-the-real-token',
+        );
+        expect(
+          (wrongToken.data as ChallengeRequired).prompt.stepError,
+          StepError.invalidCredential,
+        );
+
+        final signedIn = await fixture.auth.submitMagicLinkToken(
+          FakeLoginFlowServer.magicLinkToken,
+        );
+        expect(signedIn.data, isA<SignedIn>());
+      },
+    );
+
     test('TOTP is asked after the password when the account has it', () async {
       final fixture = AuthFixture.create(server);
       await fixture.auth.initialize();

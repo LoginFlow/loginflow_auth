@@ -1,5 +1,6 @@
 import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
+import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
 import 'package:loginflow_auth/src/core/state/sign_out_reason.dart';
@@ -24,6 +25,16 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     ) =>
       SignInFeedback.providerUnavailable,
     UpstreamFailed(reason: UpstreamFailureReason.failed) =>
+      SignInFeedback.unexpected,
+    PasskeyFailed(reason: PasskeyFailureReason.userCancelled) =>
+      SignInFeedback.none,
+    PasskeyFailed(
+      reason: PasskeyFailureReason.notConfigured ||
+          PasskeyFailureReason.notSupported ||
+          PasskeyFailureReason.noCredentialsAvailable,
+    ) =>
+      SignInFeedback.providerUnavailable,
+    PasskeyFailed(reason: PasskeyFailureReason.invalidResponse) =>
       SignInFeedback.unexpected,
     ServerResponseInvalid() ||
     OAuthProtocolError() ||

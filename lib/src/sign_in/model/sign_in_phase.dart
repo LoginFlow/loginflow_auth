@@ -171,6 +171,27 @@ final class SignInTotpEntry extends SignInPhase {
   int get hashCode => Object.hash(isRecoveryCode, canUseRecoveryCode);
 }
 
+/// Temporary Access Pass entry: an admin-issued, single-use recovery code
+/// (`doc/server-contract.md` §5.7). The user navigates here directly
+/// (`SignInViewModel.useTemporaryAccessPass`) — the server never prompts
+/// for this method, so [isIdentifierLocked] is `true` only on the rare
+/// defensive path where a `ChallengeStep.temporaryAccessPass` `next`
+/// arrives with the account already identified by the `auth_session`.
+final class SignInTemporaryAccessPassEntry extends SignInPhase {
+  const SignInTemporaryAccessPassEntry({this.isIdentifierLocked = false});
+
+  final bool isIdentifierLocked;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInTemporaryAccessPassEntry &&
+          isIdentifierLocked == other.isIdentifierLocked;
+
+  @override
+  int get hashCode => Object.hash(SignInTemporaryAccessPassEntry, isIdentifierLocked);
+}
+
 /// The system browser is open.
 final class SignInAwaitingBrowser extends SignInPhase {
   const SignInAwaitingBrowser();

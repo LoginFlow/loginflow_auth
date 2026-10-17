@@ -1,10 +1,14 @@
 import 'package:http/http.dart' as http;
 import 'package:loginflow_auth/loginflow_auth_core.dart';
 
+import 'fake_apple_source.dart';
 import 'fake_browser.dart';
+import 'fake_facebook_source.dart';
 import 'fake_google_source.dart';
 import 'fake_login_flow_server.dart';
+import 'fake_passkey_authenticator.dart';
 import 'test_clock.dart';
+import 'test_dpop_key_store.dart';
 
 /// One "app" wired to the fake server: its own stores, browser and clock.
 class AuthFixture {
@@ -14,6 +18,9 @@ class AuthFixture {
     required this.browser,
     required this.clock,
     required this.google,
+    required this.apple,
+    required this.facebook,
+    required this.passkey,
   });
 
   factory AuthFixture.create(
@@ -22,7 +29,11 @@ class AuthFixture {
     SsoStore? ssoStore,
     SessionStore? sessionStore,
     FakeGoogleSource? google,
+    FakeAppleSource? apple,
+    FakeFacebookSource? facebook,
+    FakePasskeyAuthenticator? passkey,
     bool hasBrowser = true,
+    bool enableDpop = false,
   }) {
     final store = sessionStore ?? InMemorySessionStore();
     final browser = FakeBrowser(server);
@@ -35,6 +46,7 @@ class AuthFixture {
         redirectUri: Uri.parse('https://app.example.com/oauth/callback'),
         postLogoutRedirectUri: Uri.parse('https://app.example.com/signed-out'),
         uiLocales: const <String>['es', 'en'],
+        enableDpop: enableDpop,
       ),
       httpClient: http.Client(),
       sessionStore: store,
@@ -42,6 +54,10 @@ class AuthFixture {
       ssoStore: ssoStore,
       userAgent: hasBrowser ? browser : null,
       googleIdTokenSource: google,
+      appleTokenSource: apple,
+      facebookTokenSource: facebook,
+      passkeyAuthenticator: passkey,
+      dpopKeyStore: enableDpop ? TestDpopKeyStore() : null,
       clock: clock,
     );
     return AuthFixture._(
@@ -50,6 +66,9 @@ class AuthFixture {
       browser: browser,
       clock: clock,
       google: google,
+      apple: apple,
+      facebook: facebook,
+      passkey: passkey,
     );
   }
 
@@ -58,6 +77,9 @@ class AuthFixture {
   final FakeBrowser browser;
   final TestClock clock;
   final FakeGoogleSource? google;
+  final FakeAppleSource? apple;
+  final FakeFacebookSource? facebook;
+  final FakePasskeyAuthenticator? passkey;
 
   Future<StoredSession?> storedSession() async => (await sessionStore.read())
       .when(ok: (stored) => stored, err: (_) => null);

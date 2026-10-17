@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/json/list_equality.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
@@ -54,6 +56,7 @@ final class ChallengeStepRequired extends ChallengeResponse {
     this.methods = const <ChallengeStep>[],
     this.stepError,
     this.upstream,
+    this.options,
   });
 
   factory ChallengeStepRequired.fromJson(Map<String, Object?> json) {
@@ -71,6 +74,7 @@ final class ChallengeStepRequired extends ChallengeResponse {
       ),
       stepError: StepError.fromWireName(json.optionalString('step_error')),
       upstream: upstream == null ? null : UpstreamPrompt.fromJson(upstream),
+      options: json.optionalObject('options'),
     );
   }
 
@@ -89,18 +93,25 @@ final class ChallengeStepRequired extends ChallengeResponse {
   /// Present when [next] is [ChallengeStep.upstreamToken].
   final UpstreamPrompt? upstream;
 
+  /// Present when [next] is [ChallengeStep.webauthnAssertion]: the
+  /// `webauthn-rs` request/creation challenge, passed straight to
+  /// `PasskeyAuthenticator.getAssertion`.
+  final Map<String, Object?>? options;
+
   ChallengeStepRequired copyWith({
     String? authSession,
     ChallengeStep? next,
     List<ChallengeStep>? methods,
     StepError? stepError,
     UpstreamPrompt? upstream,
+    Map<String, Object?>? options,
   }) => ChallengeStepRequired(
     authSession: authSession ?? this.authSession,
     next: next ?? this.next,
     methods: methods ?? this.methods,
     stepError: stepError ?? this.stepError,
     upstream: upstream ?? this.upstream,
+    options: options ?? this.options,
   );
 
   @override
@@ -112,6 +123,7 @@ final class ChallengeStepRequired extends ChallengeResponse {
       'methods': methods.map((method) => method.wireName).toList(),
     'step_error': ?stepError?.wireName,
     'upstream': ?upstream?.toJson(),
+    'options': ?options,
   };
 
   @override
@@ -122,11 +134,25 @@ final class ChallengeStepRequired extends ChallengeResponse {
           next == other.next &&
           methods.hasSameValues(other.methods) &&
           stepError == other.stepError &&
-          upstream == other.upstream;
+          upstream == other.upstream &&
+          _encodedOptions == other._encodedOptions;
+
+  /// `options` is server-decoded JSON (`Map<String, Object?>`), which has no
+  /// built-in deep equality; comparing the (deterministic, since both sides
+  /// decode the same JSON text shape) re-encoding is simpler than hand-rolling
+  /// a recursive map/list comparison for a field the library only forwards,
+  /// never inspects.
+  String? get _encodedOptions => options == null ? null : jsonEncode(options);
 
   @override
-  int get hashCode =>
-      Object.hash(authSession, next, methods.valuesHash, stepError, upstream);
+  int get hashCode => Object.hash(
+    authSession,
+    next,
+    methods.valuesHash,
+    stepError,
+    upstream,
+    _encodedOptions,
+  );
 }
 
 /// 403 `redirect_to_web`: continue in the system browser (§5.2.2.1.1).

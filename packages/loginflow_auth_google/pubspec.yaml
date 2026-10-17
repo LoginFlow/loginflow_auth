@@ -3,7 +3,7 @@ description: >-
   Optional native Google sign-in for loginflow_auth: obtains a Google ID token
   with the server nonce through Credential Manager (Android) and GoogleSignIn
   (iOS), so apps without Google do not depend on any Google SDK.
-version: 0.1.0
+version: 0.6.0
 publish_to: none
 
 environment:

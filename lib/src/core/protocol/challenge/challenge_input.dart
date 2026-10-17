@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/upstream_token_type.dart';
 
 /// The user input carried by one challenge request: the deployment-defined
 /// step parameters of the LoginFlow profile
@@ -161,6 +164,53 @@ final class ResendEmailOtpInput extends ChallengeInput {
   int get hashCode => (ResendEmailOtpInput).hashCode;
 }
 
+/// Asks the server to send one email carrying both a fresh email-OTP code
+/// and a magic-link token bound to this transaction (contract: magic
+/// link). Reached from the `email_otp` step's "email me a sign-in link
+/// instead" action, only when `ClientLoginOptions.isMagicLinkOffered`.
+final class RequestMagicLinkInput extends ChallengeInput {
+  const RequestMagicLinkInput();
+
+  RequestMagicLinkInput copyWith() => const RequestMagicLinkInput();
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'method': ChallengeStep.magicLink.wireName,
+  };
+
+  @override
+  bool operator ==(Object other) => other is RequestMagicLinkInput;
+
+  @override
+  int get hashCode => (RequestMagicLinkInput).hashCode;
+}
+
+/// Exchanges a magic-link token intercepted from a
+/// `https://<company host>/login/magic/<client_id>?token=...` Android App
+/// Link / iOS Universal Link, bound to the SAME `auth_session` the app
+/// opened the sign-in attempt with (contract: magic link §3).
+final class MagicLinkTokenInput extends ChallengeInput {
+  const MagicLinkTokenInput({required this.token});
+
+  final String token;
+
+  MagicLinkTokenInput copyWith({String? token}) =>
+      MagicLinkTokenInput(token: token ?? this.token);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'magic_link_token': token,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MagicLinkTokenInput && token == other.token;
+
+  @override
+  int get hashCode => token.hashCode;
+}
+
 /// Answer to `next: totp`.
 final class TotpInput extends ChallengeInput {
   const TotpInput({required this.code});
@@ -256,34 +306,154 @@ final class UpstreamStartInput extends ChallengeInput {
   int get hashCode => Object.hash(provider, flow);
 }
 
-/// Answer to `next: upstream_token`: the provider ID token.
+/// Answer to `next: upstream_token`: the provider token, typed by
+/// [tokenType] (`doc/server-contract.md` §5.4), plus — on Apple's first
+/// authorization only — the name Apple returned once.
 final class UpstreamTokenInput extends ChallengeInput {
-  const UpstreamTokenInput({required this.provider, required this.idToken});
+  const UpstreamTokenInput({
+    required this.provider,
+    required this.token,
+    this.tokenType = UpstreamTokenType.idToken,
+    this.givenName,
+    this.familyName,
+  });
 
   final UpstreamProvider provider;
-  final String idToken;
+  final String token;
+  final UpstreamTokenType tokenType;
+  final String? givenName;
+  final String? familyName;
 
-  UpstreamTokenInput copyWith({UpstreamProvider? provider, String? idToken}) =>
-      UpstreamTokenInput(
-        provider: provider ?? this.provider,
-        idToken: idToken ?? this.idToken,
-      );
+  UpstreamTokenInput copyWith({
+    UpstreamProvider? provider,
+    String? token,
+    UpstreamTokenType? tokenType,
+    String? givenName,
+    String? familyName,
+  }) => UpstreamTokenInput(
+    provider: provider ?? this.provider,
+    token: token ?? this.token,
+    tokenType: tokenType ?? this.tokenType,
+    givenName: givenName ?? this.givenName,
+    familyName: familyName ?? this.familyName,
+  );
 
   @override
   Map<String, String> toFormFields() => <String, String>{
     'upstream_provider': provider.wireName,
-    'upstream_token': idToken,
+    'upstream_token': token,
+    'upstream_token_type': tokenType.wireName,
+    'upstream_user_name': ?_userName,
   };
+
+  String? get _userName {
+    final name = <String>[
+      ?givenName,
+      ?familyName,
+    ].join(' ').trim();
+    return name.isEmpty ? null : name;
+  }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is UpstreamTokenInput &&
           provider == other.provider &&
-          idToken == other.idToken;
+          token == other.token &&
+          tokenType == other.tokenType &&
+          givenName == other.givenName &&
+          familyName == other.familyName;
 
   @override
-  int get hashCode => Object.hash(provider, idToken);
+  int get hashCode =>
+      Object.hash(provider, token, tokenType, givenName, familyName);
+}
+
+/// Answer to `next: webauthn_assertion`: the raw `PublicKeyCredential` JSON a
+/// WebAuthn client produces from the options carried on the `identify` leg
+/// (`PasskeyAuthenticator.getAssertion`). Sent as a JSON-encoded string form
+/// field, since form-urlencoded has no native nested shape.
+final class WebauthnAssertionInput extends ChallengeInput {
+  const WebauthnAssertionInput({required this.assertion});
+
+  final Map<String, Object?> assertion;
+
+  WebauthnAssertionInput copyWith({Map<String, Object?>? assertion}) =>
+      WebauthnAssertionInput(assertion: assertion ?? this.assertion);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'webauthn_assertion': jsonEncode(assertion),
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WebauthnAssertionInput &&
+          jsonEncode(assertion) == jsonEncode(other.assertion);
+
+  @override
+  int get hashCode => jsonEncode(assertion).hashCode;
+}
+
+/// Identifier plus an admin-issued, single-use Temporary Access Pass in one
+/// request — the opening leg, since the server never prompts for this
+/// method (`doc/server-contract.md` passkeys section, "identified by the
+/// transaction's `login_hint` like `password`").
+final class TemporaryAccessPassSignInInput extends ChallengeInput {
+  const TemporaryAccessPassSignInInput({
+    required this.loginHint,
+    required this.code,
+  });
+
+  final String loginHint;
+  final String code;
+
+  TemporaryAccessPassSignInInput copyWith({String? loginHint, String? code}) =>
+      TemporaryAccessPassSignInInput(
+        loginHint: loginHint ?? this.loginHint,
+        code: code ?? this.code,
+      );
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'login_hint': loginHint,
+    'temporary_access_pass': code,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TemporaryAccessPassSignInInput &&
+          loginHint == other.loginHint &&
+          code == other.code;
+
+  @override
+  int get hashCode => Object.hash(loginHint, code);
+}
+
+/// Answer continuing an attempt whose identity is already bound to the
+/// `auth_session` (step-up/reauthentication): just the code.
+final class TemporaryAccessPassInput extends ChallengeInput {
+  const TemporaryAccessPassInput({required this.code});
+
+  final String code;
+
+  TemporaryAccessPassInput copyWith({String? code}) =>
+      TemporaryAccessPassInput(code: code ?? this.code);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'temporary_access_pass': code,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TemporaryAccessPassInput && code == other.code;
+
+  @override
+  int get hashCode => code.hashCode;
 }
 
 /// Asks for the hosted password-reset flow (answered with `redirect_to_web`).

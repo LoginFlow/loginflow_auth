@@ -12,10 +12,13 @@ import 'package:loginflow_auth/src/core/config/login_flow_config.dart';
 import 'package:loginflow_auth/src/core/crypto/secure_random_source.dart';
 import 'package:loginflow_auth/src/core/discovery/discovery_client.dart';
 import 'package:loginflow_auth/src/core/discovery/discovery_document.dart';
+import 'package:loginflow_auth/src/core/dpop/dpop_key_store.dart';
+import 'package:loginflow_auth/src/core/dpop/dpop_proof_factory.dart';
 import 'package:loginflow_auth/src/core/error/authorization_response_problem.dart';
 import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
+import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/flow/active_session.dart';
 import 'package:loginflow_auth/src/core/flow/authorization_attempt.dart';
@@ -36,11 +39,15 @@ import 'package:loginflow_auth/src/core/protocol/challenge/challenge_request.dar
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/upstream_token_type.dart';
 import 'package:loginflow_auth/src/core/protocol/login_options/client_login_options.dart';
 import 'package:loginflow_auth/src/core/protocol/login_options/login_options_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/revocation_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/session_logout_client.dart';
+import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
+import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_client.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_grant.dart';
@@ -57,6 +64,8 @@ import 'package:loginflow_auth/src/core/state/sign_out_scope.dart';
 import 'package:loginflow_auth/src/core/storage/session_store.dart';
 import 'package:loginflow_auth/src/core/storage/stored_session.dart';
 import 'package:loginflow_auth/src/core/upstream/google_id_token_source.dart';
+import 'package:loginflow_auth/src/core/upstream/upstream_token_source.dart';
+import 'package:loginflow_auth/src/core/webauthn/passkey_authenticator.dart';
 import 'package:result_controller/result_controller.dart';
 
 /// The LoginFlow client: native first-party sign-in
@@ -76,6 +85,10 @@ class LoginFlowAuth {
     this._ssoStore,
     this._userAgent,
     this._googleIdTokenSource,
+    this._appleTokenSource,
+    this._facebookTokenSource,
+    this._passkeyAuthenticator,
+    DpopKeyStore? dpopKeyStore,
     LoginFlowClock clock = const SystemLoginFlowClock(),
     this._randomSource = const PlatformSecureRandomSource(),
   }) : _pendingStore = pendingAuthorizationStore,
@@ -83,6 +96,13 @@ class LoginFlowAuth {
     final transport = LoginFlowTransport(
       client: httpClient,
       timeout: config.requestTimeout,
+      dpop: config.enableDpop && dpopKeyStore != null
+          ? DpopProofFactory(
+              keyStore: dpopKeyStore,
+              randomSource: _randomSource,
+              clock: clock,
+            )
+          : null,
     );
     _discovery = DiscoveryClient(
       issuer: config.issuer,
@@ -108,6 +128,10 @@ class LoginFlowAuth {
       transport: transport,
       clientId: config.clientId,
     );
+    _passkeyAccount = PasskeyAccountClient(
+      transport: transport,
+      issuer: config.issuer,
+    );
   }
 
   final LoginFlowConfig config;
@@ -116,8 +140,37 @@ class LoginFlowAuth {
   final SsoStore? _ssoStore;
   final ExternalUserAgent? _userAgent;
   final GoogleIdTokenSource? _googleIdTokenSource;
+  final UpstreamTokenSource? _appleTokenSource;
+  final UpstreamTokenSource? _facebookTokenSource;
+  final PasskeyAuthenticator? _passkeyAuthenticator;
   final LoginFlowClock _clock;
   final SecureRandomSource _randomSource;
+
+  /// One source per provider the app configured, keyed by the wire name the
+  /// server uses (`upstream_provider`). [GoogleIdTokenSource] keeps its own
+  /// narrower interface for backward compatibility; it is wrapped here so
+  /// [_answerUpstream] handles every provider the same way, with no
+  /// per-provider branch.
+  late final Map<UpstreamProvider, UpstreamTokenSource> _upstreamSources =
+      <UpstreamProvider, UpstreamTokenSource>{
+        UpstreamProvider.google: ?_wrappedGoogleSource,
+        UpstreamProvider.apple: ?_appleTokenSource,
+        UpstreamProvider.facebook: ?_facebookTokenSource,
+      };
+
+  UpstreamTokenSource? get _wrappedGoogleSource {
+    final source = _googleIdTokenSource;
+    return source == null ? null : _GoogleUpstreamTokenSourceAdapter(source);
+  }
+
+  /// The registered, platform-available native source for [provider], or
+  /// `null` when the app opens this provider through the hosted page
+  /// instead (not configured, or available only through
+  /// `redirect_to_web` on this platform — e.g. Apple on Android).
+  UpstreamTokenSource? _nativeSourceFor(UpstreamProvider provider) {
+    final source = _upstreamSources[provider];
+    return source != null && source.isAvailable ? source : null;
+  }
 
   late final DiscoveryClient _discovery;
   late final IdTokenValidator _idTokens;
@@ -126,6 +179,7 @@ class LoginFlowAuth {
   late final RevocationClient _revocation;
   late final SessionLogoutClient _sessionLogout;
   late final LoginOptionsClient _loginOptions;
+  late final PasskeyAccountClient _passkeyAccount;
 
   final StreamController<AuthState> _states =
       StreamController<AuthState>.broadcast();
@@ -235,6 +289,47 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> resendEmailOtp() =>
       _continueAttempt(const ResendEmailOtpInput());
 
+  /// The `email_otp` step's "email me a sign-in link instead" action
+  /// (contract: magic link). Only meaningful when
+  /// `ClientLoginOptions.isMagicLinkOffered`; the server still answers
+  /// `next: email_otp` either way, so the code on the same step keeps
+  /// working.
+  Future<Result<AuthState, LoginFlowError>> requestMagicLink() =>
+      _continueAttempt(const RequestMagicLinkInput());
+
+  /// Exchanges a magic-link token this app intercepted from its own
+  /// `https://<company host>/login/magic/<client_id>?token=...` Android
+  /// App Link / iOS Universal Link (contract: magic link §3) — the
+  /// `auth_session` carried by the CURRENT attempt must be the same one
+  /// that requested the link, exactly like [resendEmailOtp]/
+  /// [submitEmailOtp] continue an already-open attempt.
+  Future<Result<AuthState, LoginFlowError>> submitMagicLinkToken(
+    String token,
+  ) => _continueAttempt(MagicLinkTokenInput(token: token));
+
+  /// The `token` query parameter of a magic-link URL addressed to this app
+  /// (`https://<company host>/login/magic/<client_id>?token=...` with
+  /// `<client_id>` equal to [LoginFlowConfig.clientId]), or `null` for any
+  /// other URI — the consuming app's deep-link listener (Android App Links /
+  /// iOS Universal Links, e.g. the `app_links` package) calls this first and
+  /// only calls [submitMagicLinkToken] with a non-null result. The host
+  /// itself is verified by the operating system (App Links / Universal Links
+  /// only deliver verified domains).
+  String? magicLinkTokenFromUri(Uri uri) {
+    final segments = uri.pathSegments;
+    final isThisAppsMagicLink =
+        uri.scheme == 'https' &&
+        segments.length == 3 &&
+        segments[0] == 'login' &&
+        segments[1] == 'magic' &&
+        segments[2] == config.clientId;
+    if (!isThisAppsMagicLink) {
+      return null;
+    }
+    final token = uri.queryParameters['token'];
+    return token == null || token.isEmpty ? null : token;
+  }
+
   Future<Result<AuthState, LoginFlowError>> submitPassword(String password) =>
       _continueAttempt(PasswordInput(password: password));
 
@@ -248,6 +343,45 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> selectMethod(
     ChallengeStep method,
   ) => _continueAttempt(MethodSelectionInput(method: method));
+
+  /// Passkey (WebAuthn L3) sign-in: targeted when [loginHint] is given,
+  /// discoverable/conditional otherwise. The platform ceremony
+  /// ([PasskeyAuthenticator.getAssertion]) runs automatically once the
+  /// server answers with its options — same shape as [signInWithGoogle],
+  /// never surfaced as a [ChallengeRequired] state.
+  Future<Result<AuthState, LoginFlowError>> signInWithPasskey({
+    String? loginHint,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    loginHint: loginHint,
+    input: loginHint == null
+        ? const MethodSelectionInput(method: ChallengeStep.webauthnIdentify)
+        : IdentifierInput(
+            loginHint: loginHint,
+            method: ChallengeStep.webauthnIdentify,
+          ),
+  );
+
+  /// Identifier plus an admin-issued, single-use Temporary Access Pass in
+  /// one request: satisfies both the primary method and the second factor
+  /// in one step (`doc/server-contract.md` passkeys section). The server
+  /// never prompts for this method — an app offers it as its own entry
+  /// point (e.g. "I have a temporary access pass"), not as a reaction to a
+  /// challenge response.
+  Future<Result<AuthState, LoginFlowError>> signInWithTemporaryAccessPass({
+    required String loginHint,
+    required String code,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    loginHint: loginHint,
+    input: TemporaryAccessPassSignInInput(loginHint: loginHint, code: code),
+  );
+
+  /// Continues an attempt whose identity is already bound to the
+  /// `auth_session` (step-up/reauthentication) with just the code.
+  Future<Result<AuthState, LoginFlowError>> submitTemporaryAccessPass(
+    String code,
+  ) => _continueAttempt(TemporaryAccessPassInput(code: code));
 
   /// Google natively when a [GoogleIdTokenSource] is configured, otherwise in
   /// the system browser.
@@ -268,6 +402,36 @@ class LoginFlowAuth {
         input: const UpstreamStartInput(
           provider: UpstreamProvider.microsoft,
           flow: UpstreamFlow.browser,
+        ),
+      );
+
+  /// Apple natively on iOS/macOS when an [UpstreamTokenSource] is
+  /// configured for [UpstreamProvider.apple] and available on this
+  /// platform; the hosted page in the system browser otherwise — including
+  /// Android, where the native `sign_in_with_apple` ceremony is
+  /// deliberately not used (`doc/decisions.md`).
+  Future<Result<AuthState, LoginFlowError>> signInWithApple() => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    input: UpstreamStartInput(
+      provider: UpstreamProvider.apple,
+      flow: _nativeSourceFor(UpstreamProvider.apple) == null
+          ? UpstreamFlow.browser
+          : UpstreamFlow.native,
+    ),
+  );
+
+  /// Facebook natively (Limited Login on iOS, classic login on Android)
+  /// when an [UpstreamTokenSource] is configured for
+  /// [UpstreamProvider.facebook], otherwise the hosted page in the system
+  /// browser.
+  Future<Result<AuthState, LoginFlowError>> signInWithFacebook() =>
+      _startAttempt(
+        purpose: ChallengePurpose.signIn,
+        input: UpstreamStartInput(
+          provider: UpstreamProvider.facebook,
+          flow: _nativeSourceFor(UpstreamProvider.facebook) == null
+              ? UpstreamFlow.browser
+              : UpstreamFlow.native,
         ),
       );
 
@@ -538,6 +702,81 @@ class LoginFlowAuth {
     return _refreshing ?? _startRefresh();
   }
 
+  /// Enrolls a new passkey for the signed-in user: starts the ceremony,
+  /// runs it on the platform ([PasskeyAuthenticator.createCredential]) and
+  /// submits the result (`POST /v1/user/passkeys/enroll/{start,finish}`).
+  /// The server requires a recently authenticated access token (RFC 9470).
+  Future<Result<PasskeyCredential, LoginFlowError>> enrollPasskey({
+    required String username,
+    required String displayName,
+    String? name,
+  }) async {
+    final authenticator = _passkeyAuthenticator;
+    if (authenticator == null) {
+      return Err(
+        const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
+      );
+    }
+    final tokenResult = await accessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    final bearerToken = tokenResult.data;
+    final startResult = await _passkeyAccount.startEnroll(
+      bearerToken: bearerToken,
+      username: username,
+      displayName: displayName,
+    );
+    if (startResult case Err(:final error)) {
+      return Err(error);
+    }
+    final created = await authenticator.createCredential(
+      options: startResult.data,
+    );
+    if (created case Err(:final error)) {
+      return Err(error);
+    }
+    return _passkeyAccount.finishEnroll(
+      bearerToken: bearerToken,
+      credential: created.data,
+      name: name,
+    );
+  }
+
+  /// `GET /v1/user/passkeys`.
+  Future<Result<List<PasskeyCredential>, LoginFlowError>> listPasskeys() async {
+    final tokenResult = await accessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _passkeyAccount.list(bearerToken: tokenResult.data);
+  }
+
+  /// `PATCH /v1/user/passkeys/{id}`.
+  Future<Result<PasskeyCredential, LoginFlowError>> renamePasskey({
+    required String id,
+    required String name,
+  }) async {
+    final tokenResult = await accessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _passkeyAccount.rename(
+      bearerToken: tokenResult.data,
+      id: id,
+      name: name,
+    );
+  }
+
+  /// `DELETE /v1/user/passkeys/{id}`.
+  Future<Result<void, LoginFlowError>> deletePasskey(String id) async {
+    final tokenResult = await accessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
+  }
+
   Future<Result<AuthState, LoginFlowError>> signOut(SignOutScope scope) =>
       switch (scope) {
         SignOutScope.app => _signOutApp(),
@@ -688,6 +927,9 @@ class LoginFlowAuth {
     if (step.next == ChallengeStep.upstreamToken) {
       return _answerUpstream(step);
     }
+    if (step.next == ChallengeStep.webauthnAssertion) {
+      return _answerWebauthnAssertion(step);
+    }
     return Ok(
       _emit(
         ChallengeRequired(
@@ -713,8 +955,8 @@ class LoginFlowAuth {
         ),
       );
     }
-    final source = _googleIdTokenSource;
-    if (prompt.provider != UpstreamProvider.google || source == null) {
+    final source = _nativeSourceFor(prompt.provider);
+    if (source == null) {
       return _abandon(
         UpstreamFailed(
           provider: prompt.provider,
@@ -722,13 +964,45 @@ class LoginFlowAuth {
         ),
       );
     }
-    final token = await source.obtainIdToken(prompt);
-    if (token case Err(:final error)) {
+    final obtained = await source.obtainToken(prompt);
+    if (obtained case Err(:final error)) {
       return _abandon(error);
     }
+    final token = obtained.data;
     return _continueAttempt(
-      UpstreamTokenInput(provider: prompt.provider, idToken: token.data),
+      UpstreamTokenInput(
+        provider: prompt.provider,
+        token: token.token,
+        tokenType: token.tokenType,
+        givenName: token.givenName,
+        familyName: token.familyName,
+      ),
     );
+  }
+
+  Future<Result<AuthState, LoginFlowError>> _answerWebauthnAssertion(
+    ChallengeStepRequired step,
+  ) async {
+    final authenticator = _passkeyAuthenticator;
+    final options = step.options;
+    if (authenticator == null) {
+      return _abandon(
+        const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
+      );
+    }
+    if (options == null) {
+      return _abandon(
+        const ServerResponseInvalid(
+          statusCode: 403,
+          description: 'webauthn_assertion step without "options"',
+        ),
+      );
+    }
+    final assertion = await authenticator.getAssertion(options: options);
+    if (assertion case Err(:final error)) {
+      return _abandon(error);
+    }
+    return _continueAttempt(WebauthnAssertionInput(assertion: assertion.data));
   }
 
   Future<Result<AuthState, LoginFlowError>> _onRedirectToWeb(
@@ -1415,5 +1689,33 @@ class LoginFlowAuth {
       _states.add(state);
     }
     return state;
+  }
+}
+
+/// Wraps a [GoogleIdTokenSource] as an [UpstreamTokenSource] so
+/// [LoginFlowAuth._answerUpstream] handles Google the same way as every
+/// other provider, with no dedicated branch.
+class _GoogleUpstreamTokenSourceAdapter implements UpstreamTokenSource {
+  const _GoogleUpstreamTokenSourceAdapter(this._source);
+
+  final GoogleIdTokenSource _source;
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  Future<Result<ObtainedUpstreamToken, LoginFlowError>> obtainToken(
+    UpstreamPrompt prompt,
+  ) async {
+    final token = await _source.obtainIdToken(prompt);
+    return token.when(
+      ok: (idToken) => Ok(
+        ObtainedUpstreamToken(
+          token: idToken,
+          tokenType: UpstreamTokenType.idToken,
+        ),
+      ),
+      err: Err.new,
+    );
   }
 }

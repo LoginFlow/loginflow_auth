@@ -1,0 +1,23 @@
+name: loginflow_auth_facebook
+description: >-
+  Optional native Continue with Facebook for loginflow_auth: Limited Login
+  (iOS, id_token with the server nonce) and classic login (Android,
+  access_token), so apps without Facebook do not depend on the Facebook SDK.
+version: 0.6.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_facebook_auth: ^7.1.1
+  loginflow_auth:
+    path: ../..
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
