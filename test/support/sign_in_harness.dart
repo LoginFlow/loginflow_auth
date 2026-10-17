@@ -6,6 +6,7 @@ import 'package:loginflow_auth/loginflow_auth.dart';
 import 'fake_browser.dart';
 import 'fake_google_source.dart';
 import 'fake_login_flow_server.dart';
+import 'fake_passkey_authenticator.dart';
 
 /// Wires a [LoginFlowAuth] to an in-memory fake server and installs it in
 /// the sign-in UI, like an app's composition root does.
@@ -18,6 +19,7 @@ class SignInHarness {
     String clientId = 'app-one',
     SsoStore? ssoStore,
     FakeGoogleSource? google,
+    FakePasskeyAuthenticator? passkey,
     LoginFlowClock clock = const SystemLoginFlowClock(),
   }) {
     final auth = LoginFlowAuth(
@@ -32,6 +34,7 @@ class SignInHarness {
       ssoStore: ssoStore,
       userAgent: FakeBrowser(server),
       googleIdTokenSource: google,
+      passkeyAuthenticator: passkey,
       clock: clock,
     );
     LoginFlowSignInSetup.install(auth: auth, configuration: configuration);

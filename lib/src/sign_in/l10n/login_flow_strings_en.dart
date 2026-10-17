@@ -1,106 +1,136 @@
+import 'package:loginflow_auth/src/sign_in/l10n/generated/login_flow_localizations_en.dart';
 import 'package:loginflow_auth/src/sign_in/l10n/login_flow_strings.dart';
 
-/// English texts.
+/// English texts, sourced from the ARB-generated
+/// [LoginFlowLocalizationsEn]. Hand-written only to satisfy
+/// [LoginFlowStrings]; every value lives in
+/// `lib/src/sign_in/l10n/arb/login_flow_en.arb`.
 final class LoginFlowStringsEn implements LoginFlowStrings {
   const LoginFlowStringsEn();
 
+  static final LoginFlowLocalizationsEn _l10n = LoginFlowLocalizationsEn();
+
   @override
-  String get signInTitle => 'Sign in';
+  String get signInTitle => _l10n.signInTitle;
   @override
-  String get signInSubtitle => 'Choose how you want to continue';
+  String get signInSubtitle => _l10n.signInSubtitle;
   @override
-  String get continueWithPassword => 'Continue with password';
+  String get continueWithPassword => _l10n.continueWithPassword;
   @override
-  String get continueWithEmailCode => 'Email me a code';
+  String get continueWithEmailCode => _l10n.continueWithEmailCode;
   @override
-  String get continueWithGoogle => 'Continue with Google';
+  String get continueWithGoogle => _l10n.continueWithGoogle;
   @override
-  String get continueWithMicrosoft => 'Continue with Microsoft';
+  String get continueWithMicrosoft => _l10n.continueWithMicrosoft;
   @override
-  String get emailLabel => 'Email';
+  String get continueWithApple => _l10n.continueWithApple;
   @override
-  String get passwordLabel => 'Password';
+  String get continueWithFacebook => _l10n.continueWithFacebook;
   @override
-  String get showPassword => 'Show password';
+  String get continueWithPasskey => _l10n.continueWithPasskey;
   @override
-  String get hidePassword => 'Hide password';
+  String get temporaryAccessPassTitle => _l10n.temporaryAccessPassTitle;
   @override
-  String get signInButton => 'Sign in';
+  String get temporaryAccessPassInstructions =>
+      _l10n.temporaryAccessPassInstructions;
   @override
-  String get forgotPassword => 'Forgot your password?';
+  String get useTemporaryAccessPass => _l10n.useTemporaryAccessPass;
   @override
-  String get sendCodeButton => 'Send code';
+  String get emailLabel => _l10n.emailLabel;
   @override
-  String get codeLabel => 'Code';
+  String get passwordLabel => _l10n.passwordLabel;
   @override
-  String codeSentTo(String email) => 'We sent a code to $email';
+  String get showPassword => _l10n.showPassword;
   @override
-  String get verifyButton => 'Verify';
+  String get hidePassword => _l10n.hidePassword;
   @override
-  String get resendCode => 'Resend code';
+  String get signInButton => _l10n.signInButton;
   @override
-  String resendIn(int seconds) => 'Resend code in ${seconds}s';
+  String get forgotPassword => _l10n.forgotPassword;
   @override
-  String get twoStepTitle => 'Two-step verification';
+  String get sendCodeButton => _l10n.sendCodeButton;
   @override
-  String get authenticatorInstructions =>
-      'Enter the 6-digit code from your authenticator app.';
+  String get codeLabel => _l10n.codeLabel;
   @override
-  String get recoveryInstructions => 'Enter one of your recovery codes.';
+  String codeSentTo(String email) => _l10n.codeSentTo(email);
   @override
-  String get useRecoveryCode => 'Use a recovery code';
+  String get verifyButton => _l10n.verifyButton;
   @override
-  String get useAuthenticatorCode => 'Use your authenticator app';
+  String get resendCode => _l10n.resendCode;
   @override
-  String get back => 'Back';
+  String resendIn(int seconds) => _l10n.resendIn(seconds);
   @override
-  String get createAccount => 'Create an account';
+  String get sendMagicLink => _l10n.sendMagicLink;
   @override
-  String get continueInBrowser => 'Continue in your browser…';
+  String get twoStepTitle => _l10n.twoStepTitle;
   @override
-  String continueAs(String name) => 'Continue as $name';
+  String get authenticatorInstructions => _l10n.authenticatorInstructions;
   @override
-  String get ssoSubtitle =>
-      'You are already signed in to another app on this device.';
+  String get recoveryInstructions => _l10n.recoveryInstructions;
   @override
-  String get useAnotherAccount => 'Use another account';
+  String get useRecoveryCode => _l10n.useRecoveryCode;
   @override
-  String get lockedOutTitle => 'Too many attempts';
+  String get useAuthenticatorCode => _l10n.useAuthenticatorCode;
   @override
-  String lockedOutMessage(int seconds) => 'Try again in $seconds seconds.';
+  String get back => _l10n.back;
   @override
-  String get tryAgain => 'Try again';
+  String get createAccount => _l10n.createAccount;
   @override
-  String get optionsUnavailable => 'Sign-in options could not be loaded.';
+  String get continueInBrowser => _l10n.continueInBrowser;
   @override
-  String get noMethods => 'No sign-in method is available for this app.';
+  String continueAs(String name) => _l10n.continueAs(name);
   @override
-  String get notConfigured => 'Sign-in is not configured.';
+  String get ssoSubtitle => _l10n.ssoSubtitle;
   @override
-  String get feedbackInvalidCredential =>
-      'The details you entered are not correct.';
+  String get useAnotherAccount => _l10n.useAnotherAccount;
   @override
-  String get feedbackCodeExpired => 'That code expired. Request a new one.';
+  String get lockedOutTitle => _l10n.lockedOutTitle;
   @override
-  String get feedbackNetwork => 'Check your connection and try again.';
+  String lockedOutMessage(int seconds) => _l10n.lockedOutMessage(seconds);
   @override
-  String get feedbackSessionExpired => 'Signing in took too long. Start again.';
+  String get tryAgain => _l10n.tryAgain;
   @override
-  String get feedbackSessionRevoked => 'Your session ended. Sign in again.';
+  String get optionsUnavailable => _l10n.optionsUnavailable;
   @override
-  String get feedbackSsoUnavailable =>
-      'That session is no longer available. Sign in to continue.';
+  String get noMethods => _l10n.noMethods;
+  @override
+  String get notConfigured => _l10n.notConfigured;
+  @override
+  String get feedbackInvalidCredential => _l10n.feedbackInvalidCredential;
+  @override
+  String get feedbackCodeExpired => _l10n.feedbackCodeExpired;
+  @override
+  String get feedbackNetwork => _l10n.feedbackNetwork;
+  @override
+  String get feedbackSessionExpired => _l10n.feedbackSessionExpired;
+  @override
+  String get feedbackSessionRevoked => _l10n.feedbackSessionRevoked;
+  @override
+  String get feedbackSsoUnavailable => _l10n.feedbackSsoUnavailable;
   @override
   String get feedbackProviderUnavailable =>
-      'That sign-in option is not available on this device.';
+      _l10n.feedbackProviderUnavailable;
   @override
-  String get feedbackUnexpected => 'Something went wrong. Try again.';
+  String get feedbackUnexpected => _l10n.feedbackUnexpected;
   @override
-  String get emailRequired => 'Enter your email';
+  String get emailRequired => _l10n.emailRequired;
   @override
-  String get emailInvalid => 'Enter a valid email';
+  String get emailInvalid => _l10n.emailInvalid;
   @override
-  String get passwordRequired => 'Enter your password';
+  String get passwordRequired => _l10n.passwordRequired;
   @override
-  String get codeRequired => 'Enter the code';
+  String get codeRequired => _l10n.codeRequired;
+  @override
+  String get legalTermsLabel => _l10n.legalTermsLabel;
+  @override
+  String get legalPrivacyLabel => _l10n.legalPrivacyLabel;
+  @override
+  String legalFooterBoth(String terms, String policy) =>
+      _l10n.legalFooterBoth(terms, policy);
+  @override
+  String legalFooterTermsOnly(String terms) =>
+      _l10n.legalFooterTermsOnly(terms);
+  @override
+  String legalFooterPolicyOnly(String policy) =>
+      _l10n.legalFooterPolicyOnly(policy);
 }

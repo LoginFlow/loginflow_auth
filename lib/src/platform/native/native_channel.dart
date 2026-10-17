@@ -16,6 +16,8 @@ abstract final class NativeChannel {
   static const String ssoWrite = 'sso.write';
   static const String ssoDelete = 'sso.delete';
   static const String browserAuthenticate = 'browser.authenticate';
+  static const String dpopEnsureKey = 'dpop.ensureKey';
+  static const String dpopSign = 'dpop.sign';
 
   static const String cancelledCode = 'CANCELLED';
   static const String unavailableCode = 'UNAVAILABLE';

@@ -1,0 +1,94 @@
+{
+  "@@locale": "es",
+  "signInTitle": "Iniciar sesión",
+  "@signInTitle": {"description": "Title of the entry screen."},
+  "signInSubtitle": "Elige cómo quieres continuar",
+  "continueWithPassword": "Continuar con contraseña",
+  "continueWithEmailCode": "Enviarme un código por correo",
+  "continueWithGoogle": "Continuar con Google",
+  "continueWithMicrosoft": "Continuar con Microsoft",
+  "continueWithApple": "Continuar con Apple",
+  "continueWithFacebook": "Continuar con Facebook",
+  "continueWithPasskey": "Continuar con una llave de acceso",
+  "temporaryAccessPassTitle": "Código temporal de acceso",
+  "temporaryAccessPassInstructions": "Ingresa el código temporal de acceso que te dio tu administrador.",
+  "useTemporaryAccessPass": "Usar un código temporal de acceso",
+  "emailLabel": "Correo electrónico",
+  "passwordLabel": "Contraseña",
+  "showPassword": "Mostrar contraseña",
+  "hidePassword": "Ocultar contraseña",
+  "signInButton": "Iniciar sesión",
+  "forgotPassword": "¿Olvidaste tu contraseña?",
+  "sendCodeButton": "Enviar código",
+  "codeLabel": "Código",
+  "codeSentTo": "Enviamos un código a {email}",
+  "@codeSentTo": {
+    "description": "Confirms the code was sent to this email.",
+    "placeholders": {"email": {"type": "String"}}
+  },
+  "verifyButton": "Verificar",
+  "resendCode": "Reenviar código",
+  "resendIn": "Reenviar código en {seconds} s",
+  "@resendIn": {
+    "description": "Countdown before the resend button is enabled again.",
+    "placeholders": {"seconds": {"type": "int"}}
+  },
+  "sendMagicLink": "Enviarme un enlace de inicio de sesión",
+  "twoStepTitle": "Verificación en dos pasos",
+  "authenticatorInstructions": "Ingresa el código de 6 dígitos de tu app de autenticación.",
+  "recoveryInstructions": "Ingresa uno de tus códigos de recuperación.",
+  "useRecoveryCode": "Usar un código de recuperación",
+  "useAuthenticatorCode": "Usar tu app de autenticación",
+  "back": "Volver",
+  "createAccount": "Crear una cuenta",
+  "continueInBrowser": "Continúa en tu navegador…",
+  "continueAs": "Continuar como {name}",
+  "@continueAs": {
+    "description": "SSO confirmation: continue as the already signed-in account.",
+    "placeholders": {"name": {"type": "String"}}
+  },
+  "ssoSubtitle": "Ya iniciaste sesión en otra app de este dispositivo.",
+  "useAnotherAccount": "Usar otra cuenta",
+  "lockedOutTitle": "Demasiados intentos",
+  "lockedOutMessage": "Vuelve a intentarlo en {seconds} segundos.",
+  "@lockedOutMessage": {
+    "description": "Lockout countdown after too many failed attempts.",
+    "placeholders": {"seconds": {"type": "int"}}
+  },
+  "tryAgain": "Reintentar",
+  "optionsUnavailable": "No se pudieron cargar las opciones de inicio de sesión.",
+  "noMethods": "No hay métodos de inicio de sesión disponibles para esta app.",
+  "notConfigured": "El inicio de sesión no está configurado.",
+  "feedbackInvalidCredential": "Los datos que ingresaste no son correctos.",
+  "feedbackCodeExpired": "El código venció. Solicita uno nuevo.",
+  "feedbackNetwork": "Revisa tu conexión e inténtalo de nuevo.",
+  "feedbackSessionExpired": "El inicio de sesión tardó demasiado. Empieza de nuevo.",
+  "feedbackSessionRevoked": "Tu sesión terminó. Inicia sesión de nuevo.",
+  "feedbackSsoUnavailable": "Esa sesión ya no está disponible. Inicia sesión para continuar.",
+  "feedbackProviderUnavailable": "Esa opción de inicio de sesión no está disponible en este dispositivo.",
+  "feedbackUnexpected": "Algo salió mal. Inténtalo de nuevo.",
+  "emailRequired": "Ingresa tu correo",
+  "emailInvalid": "Ingresa un correo válido",
+  "passwordRequired": "Ingresa tu contraseña",
+  "codeRequired": "Ingresa el código",
+  "legalTermsLabel": "Términos",
+  "legalPrivacyLabel": "Política de privacidad",
+  "legalFooterBoth": "Al continuar, aceptas los {terms} y la {policy}.",
+  "@legalFooterBoth": {
+    "description": "Footer shown when both the terms-of-service and privacy-policy links are configured.",
+    "placeholders": {
+      "terms": {"type": "String"},
+      "policy": {"type": "String"}
+    }
+  },
+  "legalFooterTermsOnly": "Al continuar, aceptas los {terms}.",
+  "@legalFooterTermsOnly": {
+    "description": "Footer shown when only the terms-of-service link is configured.",
+    "placeholders": {"terms": {"type": "String"}}
+  },
+  "legalFooterPolicyOnly": "Al continuar, aceptas la {policy}.",
+  "@legalFooterPolicyOnly": {
+    "description": "Footer shown when only the privacy-policy link is configured.",
+    "placeholders": {"policy": {"type": "String"}}
+  }
+}

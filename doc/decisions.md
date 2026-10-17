@@ -153,10 +153,11 @@ recommended (RFC6749 §4.1.2); a callback for an older request is refused
 redirect URI with the pending `state` is ignored and the pending request is
 kept (RFC6749 §10.12; RFC9700 §2.1).
 
-**D18 — DPoP is deferred.** FIPA §9.5 says tokens SHOULD be
-sender-constrained and RFC9449 §5 binds refresh tokens of public clients.
-0.1.0 does not send DPoP proofs; the server must not require them until the
-library ships per-app hardware-backed keys. Open decision.
+**D18 — DPoP for native first-party clients.** FIPA §9.5 says tokens SHOULD
+be sender-constrained and RFC9449 §5 binds refresh tokens of public clients.
+The library holds a per-app key (`DpopKeyStore`) and attaches a proof
+(`DpopProofFactory`) to every challenge, token and resource request of a
+`native` + `first_party` client (`doc/server-contract.md` §13).
 
 **D19 — The built-in UI shows only methods the app configured AND the
 server allows for the client**, in the app's order (LoginFlow extension
@@ -178,3 +179,138 @@ serialized and are documented as such; they keep a `const` constructor,
 - `TransportReply`, `CompactJws`, `ActiveSession`, `AuthorizationAttempt`,
   `UserAgentOutcome`s, `SignInEnvironment`: internal holders of a live
   object, an HTTP response or in-flight secrets.
+
+**D21 — The server is the source of truth for a first-factor passkey
+button, same as D19 for methods.** `ClientLoginOptions.hasPasskey`/
+`passkeyMode` (`doc/server-contract.md` §4) decide whether "Continue with a
+passkey" may appear at all: `passwordless` allows it,
+`mfa_only`/`disabled` (the latter: no `passkey` field) never show it as a
+first factor — a passkey second factor mid-challenge is unaffected, it
+already runs automatically regardless of this flag.
+`SignInConfiguration.isPasskeySignInOffered` defaults to `true` and may
+only narrow this (hide a passkey the server allows), never widen it. Our
+design, mirroring D19.
+
+**D22 — i18n migrated to the house ARB pattern
+(`flutter-i18n-offline`).** `lib/src/sign_in/l10n/arb/login_flow_{es,en}.arb`
+are now the source of truth, compiled with `flutter gen-l10n`
+(`l10n.yaml`) into `generated/login_flow_localizations*.dart`.
+`LoginFlowStringsEn`/`Es` keep their existing shape (every widget already
+reads `context.loginFlowStrings`, never a locale directly) but are now
+thin delegates to the generated classes, so no widget changed. `es` is
+the base/template locale (`template-arb-file`) per the user's decision;
+adding a language is adding its `.arb` file and one line to
+`LoginFlowLocaleService.supportedLocales` — no widget touches a locale
+check. `flutter_localizations` moved from `dev_dependencies` to
+`dependencies`: the file `flutter gen-l10n` generates imports it
+unconditionally (for `GlobalMaterialLocalizations.delegate` et al. in its
+`localizationsDelegates` helper, which we do not use but which the
+generated file still references at the top level), and it ships with the
+Flutter SDK at zero extra download cost — there is no `l10n.yaml` option
+to omit that import. Completeness test:
+`test/sign_in/l10n/login_flow_locale_test.dart`.
+
+**D23 — Explicit locale override: `LoginFlowLocaleService`.** A new
+service-mixin singleton (`ReactiveNotifier<Locale?>`, consistent with
+`SignInService`'s existing pattern) resolves the effective locale in one
+place: an explicit `LoginFlowLocaleService.setLocale(...)` call wins,
+else the ambient `Localizations` locale, else `es`. `SignInPanel` wraps
+itself in a `ReactiveBuilder<Locale?>` on this notifier (on top of the
+`ReactiveViewModelBuilder` it already had) so a runtime language switch
+reconstructs the built-in UI without the host app needing to pop/push
+anything. No widget below `SignInPanel` branches on a locale; they all
+still go through `context.loginFlowStrings`/`context.languageCode`, which
+now reads `LoginFlowLocaleService.resolve(context)` instead of only the
+ambient locale with a hardcoded `en` fallback. This is a user decision
+(`es` is base, `en` second, more later — "adding a language = adding a
+file").
+
+**D24 — Per-app branding, including the legal-links footer.**
+`LoginFlowSignInTheme` (a real `ThemeExtension`, `copyWith`/`lerp`/`==`/
+`hashCode`) carries spacing, corner radius, card width, logo height,
+action height, progress thickness and an optional `cardColor`; colors and
+typography come from the host's `ColorScheme`/`TextTheme`, never
+hardcoded. The logo is a `Widget?` passed in by the host app (asset,
+`Image.network`, anything), not an asset path the library owns.
+`SignInCopy.title`/`.subtitle` let the server override those two texts
+per locale (`LocalizedText`).
+
+Privacy-policy/terms-of-service: `ClientLoginOptions.policyUri`/`.tosUri`
+parse the server's RFC 7591 `policy_uri`/`tos_uri`
+(`doc/server-contract.md` §4) into `SignInState.policyUri`/`.tosUri`.
+`SignInPanel` renders `SignInLegalFooter` below the current step only
+when at least one is set — "Al continuar, aceptas los Términos y la
+Política de privacidad", each configured link tappable, opening in the
+system browser (`url_launcher`, `LaunchMode.externalApplication`), never
+a `WebView` (RFC 8252 §8.12) and never through `ExternalUserAgent` (that
+abstraction waits for an OAuth callback that a legal document never
+sends). Texts are ARB (`legalFooterBoth`/`legalFooterTermsOnly`/
+`legalFooterPolicyOnly`/`legalTermsLabel`/`legalPrivacyLabel`), styled
+through the host's `TextTheme`/`ColorScheme`, same as every other text in
+the UI.
+
+**D25 — Goldens render without loading an extra test font.**
+`test/goldens/` (one file per screen, `test/goldens/README.md` documents
+the convention) renders every screen of the built-in sign-in UI through
+the real public `LoginFlowSignIn` widget, with `SignInState` forced
+directly on `SignInService.flow.notifier` via the ViewModel's own public
+`updateState` — a golden tests pixels, not the authorization-challenge
+flow (`sign_in_widget_test.dart` already covers that). No font is bundled
+or loaded for determinism: `pubspec.yaml` declares no custom font, so
+Flutter's test environment already renders every `Text` with its own
+bundled, version-locked test font rather than a real one — already
+deterministic across machines by construction, nothing to load. Verified:
+the same 64 goldens pass unchanged across repeated `flutter test
+test/goldens/` runs with no `--update-goldens`. A real bug was caught
+while building the harness: forcing the state **before** `pumpWidget` is
+silently overwritten by `ViewModel.init()`, which runs when the first
+consumer widget mounts and resets to `SignInNotConfigured` (no environment
+installed) — every screen rendered as the "not configured" message until
+the state is forced **after** `pumpWidget`, with one more `pump()`.
+
+**D26 — Exhaustive review of `doc/server-contract.md` against
+`loginflow_auth` and the real server (`../loginflow_api`,
+`feat/oidc-provider-cutover`).** Section by section: §1 general
+rules, §2 discovery, §3 JWKS, §4 login options, §5 authorization challenge
+(steps, errors, anti-enumeration, upstream validation, passkeys/TAP), §6
+browser authorization endpoint, §7 token endpoint (all three grants,
+response, errors), §8 token claims, §9 revocation, §10/§11 device/global
+logout, §12 RP-initiated logout, §13 DPoP, §15 passkey account API. The
+client already matched the contract everywhere checked — no library change
+was needed. Every divergence found was on the **server** side, all four
+fixed on `loginflow_api` (`feat/oidc-provider-cutover`):
+
+- **Discovery now publishes `authorization_response_iss_parameter_supported:
+  true` and `native_sso_supported: true`**
+  (`loginflow_api src/features/oidc_provider/service/discovery_document.rs::build`).
+  `discovery_client.dart:94` no longer refuses the document
+  (`DiscoveryInvalid`); native sign-in completes against the real server.
+  The authorization success response (hosted and native) already carried
+  `iss` (RFC 9207 §2, `authorization_service.rs::success_redirect`) — no
+  change needed there. `tests/discovery_document_test.rs` asserts both
+  booleans.
+- **`GET /oauth2/login-options` now serializes the typed
+  `LoginOptionsResolution` through a thin `LoginOptionsResponse` wrapper**
+  (`#[serde(flatten)]`, `client_id` echoed alongside it) instead of a
+  hand-built `json!({...})` — `facebook_app_id` is included when resolved,
+  and `passkey_mode`/`google_server_client_id`/`facebook_app_id` are
+  OMITTED, never `null`, when absent (contract §4).
+  `tests/login_options_wire_shape_test.rs` asserts the exact shape.
+- **`/oauth2/device-logout` and `/oauth2/logout-everywhere` now accept
+  `Authorization: DPoP <token>` with a matching proof** (contract §13.3),
+  the same split `authenticate_access` (`shared/helper/jwt_middleware.rs`)
+  already enforced on `/v1/user`/`/v1/master` — extracted to a shared, pure
+  `dpop_service::classify_resource_authorization` both now call, so the
+  decision logic lives in one place. A DPoP-bound token presented as
+  `Bearer` is rejected (`invalid_dpop_proof`); a non-bound token keeps
+  working as plain `Bearer`, unchanged. `SessionService::device_logout`/
+  `logout_everywhere` take the caller's scheme/proof/`htm`/`htu` and run
+  the same check `TokenEndpointService` already uses for `/oauth2/token`.
+  `tests/dpop_resource_classification_test.rs` covers the pure
+  classification; `session_handler.rs` wires the HTTP boundary.
+
+Nothing in `loginflow_auth` itself needed a line changed by this review —
+the library already enforces every rule above (refusing the bad
+discovery document, sending `DPoP` not `Bearer`, reading `client_id`-only
+revocation correctly, etc.); the findings are all on the server side of
+the line.

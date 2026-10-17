@@ -108,6 +108,20 @@ class _PasswordStepState extends State<PasswordStep> {
             label: strings.signInButton,
             onPressed: isEnabled ? _submit : null,
           ),
+          if (state.isPasskeySignInOffered)
+            PasskeyButton(
+              label: strings.continueWithPasskey,
+              onPressed: isEnabled
+                  ? () => unawaited(widget.viewModel.signInWithPasskey())
+                  : null,
+            ),
+          if (state.isTemporaryAccessPassOffered)
+            SignInTextAction(
+              label: strings.useTemporaryAccessPass,
+              onPressed: isEnabled
+                  ? widget.viewModel.useTemporaryAccessPass
+                  : null,
+            ),
           if (state.canGoBack)
             SignInTextAction(
               label: strings.back,

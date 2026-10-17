@@ -68,6 +68,13 @@ class _OtpStepState extends State<OtpStep> {
               ? () => unawaited(widget.viewModel.resendEmailCode())
               : null,
         ),
+        if (widget.state.isMagicLinkOffered)
+          SignInTextAction(
+            label: strings.sendMagicLink,
+            onPressed: isEnabled
+                ? () => unawaited(widget.viewModel.sendMagicLink())
+                : null,
+          ),
         if (widget.state.canGoBack)
           SignInTextAction(
             label: strings.back,

@@ -1,7 +1,9 @@
 /// Federated identity providers reachable through the challenge flow.
 enum UpstreamProvider {
   google('google'),
-  microsoft('microsoft');
+  microsoft('microsoft'),
+  apple('apple'),
+  facebook('facebook');
 
   const UpstreamProvider(this.wireName);
 

@@ -4,9 +4,11 @@ import 'package:loginflow_auth/src/core/browser/external_user_agent.dart';
 import 'package:loginflow_auth/src/core/browser/in_memory_pending_authorization_store.dart';
 import 'package:loginflow_auth/src/core/browser/pending_authorization_store.dart';
 import 'package:loginflow_auth/src/core/config/login_flow_config.dart';
+import 'package:loginflow_auth/src/core/dpop/dpop_key_store.dart';
 import 'package:loginflow_auth/src/core/sso/sso_store.dart';
 import 'package:loginflow_auth/src/core/storage/in_memory_session_store.dart';
 import 'package:loginflow_auth/src/core/storage/session_store.dart';
+import 'package:loginflow_auth/src/platform/native/native_dpop_key_store.dart';
 import 'package:loginflow_auth/src/platform/native/native_session_store.dart';
 import 'package:loginflow_auth/src/platform/native/native_sso_store.dart';
 import 'package:loginflow_auth/src/platform/native/native_user_agent.dart';
@@ -53,6 +55,7 @@ class PlatformBindings {
       userAgent: NativeUserAgent(
         prefersEphemeralSession: prefersEphemeralBrowserSession,
       ),
+      dpopKeyStore: NativeDpopKeyStore(clientId: config.clientId),
     );
   }
 
@@ -61,10 +64,12 @@ class PlatformBindings {
     required this.pendingAuthorizationStore,
     this.ssoStore,
     this.userAgent,
+    this.dpopKeyStore,
   });
 
   final SessionStore sessionStore;
   final PendingAuthorizationStore pendingAuthorizationStore;
   final SsoStore? ssoStore;
   final ExternalUserAgent? userAgent;
+  final DpopKeyStore? dpopKeyStore;
 }

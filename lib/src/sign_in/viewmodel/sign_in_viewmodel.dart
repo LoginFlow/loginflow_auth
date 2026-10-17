@@ -40,6 +40,7 @@ class SignInViewModel extends ViewModel<SignInState> {
   List<AuthMethod> _available = const <AuthMethod>[];
   AuthState? _lastAuthState;
   bool _isRunning = false;
+  bool _hasTriedPasskeyAutoSuggest = false;
 
   /// Methods shown for this client, in configured order.
   List<AuthMethod> get availableMethods => _available;
@@ -72,6 +73,9 @@ class SignInViewModel extends ViewModel<SignInState> {
       ? const SignInState(phase: SignInNotConfigured())
       : SignInState(
           phase: const SignInLoadingOptions(),
+          isPasskeySignInOffered: environment.configuration.isPasskeySignInOffered,
+          isTemporaryAccessPassOffered:
+              environment.configuration.isTemporaryAccessPassOffered,
           copy: environment.configuration.copy,
         );
 
@@ -93,6 +97,10 @@ class SignInViewModel extends ViewModel<SignInState> {
         unawaited(_run((auth) => auth.signInWithGoogle()));
       case MicrosoftMethod():
         unawaited(_run((auth) => auth.signInWithMicrosoft()));
+      case AppleMethod():
+        unawaited(_run((auth) => auth.signInWithApple()));
+      case FacebookMethod():
+        unawaited(_run((auth) => auth.signInWithFacebook()));
     }
   }
 
@@ -165,6 +173,18 @@ class SignInViewModel extends ViewModel<SignInState> {
     }
   }
 
+  /// The `email_otp` step's "email me a sign-in link instead" button
+  /// (contract: magic link), shown only when
+  /// [SignInState.isMagicLinkOffered]. Same email as the code the step
+  /// already sent — this just adds the link to it.
+  Future<void> sendMagicLink() async {
+    final phase = data.phase;
+    if (phase is! SignInOtpEntry || !data.isMagicLinkOffered) {
+      return;
+    }
+    await _run((auth) => auth.requestMagicLink());
+  }
+
   Future<void> submitSecondFactor(String code) async {
     final phase = data.phase;
     if (phase is! SignInTotpEntry) {
@@ -179,6 +199,58 @@ class SignInViewModel extends ViewModel<SignInState> {
       (auth) => phase.isRecoveryCode
           ? auth.submitRecoveryCode(code.trim())
           : auth.submitTotp(code.trim()),
+    );
+  }
+
+  /// The "Sign in with a passkey" button on the method picker.
+  Future<void> signInWithPasskey() => _run(
+    (auth) => auth.signInWithPasskey(
+      loginHint: data.rememberedEmail.isEmpty ? null : data.rememberedEmail,
+    ),
+  );
+
+  /// Leaves the current screen for the Temporary Access Pass entry
+  /// screen — a local navigation, never a server call: the server never
+  /// prompts for this method (`doc/server-contract.md` §5.7).
+  void useTemporaryAccessPass() {
+    updateState(
+      data.withoutMessages().copyWith(
+        phase: const SignInTemporaryAccessPassEntry(),
+        canGoBack: true,
+      ),
+    );
+  }
+
+  Future<void> submitTemporaryAccessPass({
+    required String email,
+    required String code,
+  }) async {
+    final phase = data.phase;
+    if (phase is! SignInTemporaryAccessPassEntry) {
+      return;
+    }
+    final emailError = phase.isIdentifierLocked
+        ? FieldError.none
+        : email.toEmailError();
+    final codeError = code.toRequiredError();
+    if (emailError != FieldError.none || codeError != FieldError.none) {
+      updateState(
+        data.withoutMessages().copyWith(
+          emailError: emailError,
+          codeError: codeError,
+        ),
+      );
+      return;
+    }
+    final loginHint = email.trim();
+    updateState(data.copyWith(rememberedEmail: loginHint));
+    await _run(
+      (auth) => phase.isIdentifierLocked
+          ? auth.submitTemporaryAccessPass(code.trim())
+          : auth.signInWithTemporaryAccessPass(
+              loginHint: loginHint,
+              code: code.trim(),
+            ),
     );
   }
 
@@ -233,6 +305,7 @@ class SignInViewModel extends ViewModel<SignInState> {
     unawaited(_authStates?.cancel());
     _authStates = null;
     _options = null;
+    _hasTriedPasskeyAutoSuggest = false;
     final auth = environment.auth;
     if (auth == null) {
       return;
@@ -256,6 +329,9 @@ class SignInViewModel extends ViewModel<SignInState> {
         _available = _allowedMethods(options);
         _lastAuthState = auth.state;
         final configuration = _environment.configuration;
+        final isPasskeySignInOffered =
+            configuration.isPasskeySignInOffered &&
+            options.isFirstFactorPasskeyOffered;
         _apply(
           auth.state,
           data.copyWith(
@@ -263,8 +339,18 @@ class SignInViewModel extends ViewModel<SignInState> {
             isSignUpOffered:
                 configuration.isSelfSignUpOffered &&
                 options.isSelfSignUpEnabled,
+            isPasskeySignInOffered: isPasskeySignInOffered,
+            isTemporaryAccessPassOffered:
+                configuration.isTemporaryAccessPassOffered,
+            isMagicLinkOffered: options.isMagicLinkOffered,
+            policyUri: options.policyUri,
+            tosUri: options.tosUri,
           ),
         );
+        if (isPasskeySignInOffered &&
+            configuration.isPasskeyAutoSuggestOffered) {
+          unawaited(_tryPasskeyAutoSuggest());
+        }
       },
       err: (error) {
         Log.w('Login options unavailable: ${error.message}');
@@ -320,6 +406,32 @@ class SignInViewModel extends ViewModel<SignInState> {
     );
   }
 
+  /// Best-effort, silent passkey suggestion on the first screen of a fresh
+  /// flow (`SignInConfiguration.isPasskeyAutoSuggestOffered`): a failure
+  /// (no saved passkey, not supported, the user dismissed the platform
+  /// sheet) leaves the normal picker showing, with no feedback banner — the
+  /// user never manually asked for this attempt. Only runs once per flow,
+  /// and never while another request (manual or this one) is already in
+  /// flight, so it cannot steal the single in-flight `auth_session` a
+  /// manual action is using.
+  Future<void> _tryPasskeyAutoSuggest() async {
+    final auth = _environment.auth;
+    if (auth == null || _isRunning || _hasTriedPasskeyAutoSuggest) {
+      return;
+    }
+    _hasTriedPasskeyAutoSuggest = true;
+    _isRunning = true;
+    final result = await auth.signInWithPasskey();
+    _isRunning = false;
+    if (isDisposed) {
+      return;
+    }
+    _lastAuthState = auth.state;
+    if (result case Ok(data: final authState)) {
+      _apply(authState, data.withoutMessages());
+    }
+  }
+
   void _applyError(
     LoginFlowError error,
     AuthState authState,
@@ -360,6 +472,7 @@ class SignInViewModel extends ViewModel<SignInState> {
           SignInPasswordEntry() ||
           SignInEmailEntry() ||
           SignInTotpEntry() ||
+          SignInTemporaryAccessPassEntry() ||
           SignInAwaitingBrowser() ||
           SignInSsoConfirm() ||
           SignInCompleted():
@@ -440,7 +553,24 @@ class SignInViewModel extends ViewModel<SignInState> {
         phase: SignInChoosingMethod(methods: _available),
         canGoBack: false,
       ),
-      ChallengeStep.upstreamToken => base,
+      // Defensive only: the real server never sends this as a `next` (TAP
+      // is submitted on the user's own initiative, never server-prompted —
+      // `doc/server-contract.md` §5.7). Kept so the switch stays exhaustive
+      // without a wildcard, and so a future server behavior would still
+      // render something sane instead of silently doing nothing.
+      ChallengeStep.temporaryAccessPass => withFeedback.copyWith(
+        phase: const SignInTemporaryAccessPassEntry(isIdentifierLocked: true),
+      ),
+      // Intercepted by `LoginFlowAuth` before it ever reaches a
+      // `ChallengeRequired` state: `upstreamToken`/`webauthnAssertion` run
+      // their native ceremony automatically, and `webauthnIdentify`/
+      // `magicLink` are client-initiated method names, never a `next`
+      // value the server sends (it always answers `next: email_otp` for a
+      // magic-link request, contract: magic link).
+      ChallengeStep.upstreamToken ||
+      ChallengeStep.webauthnIdentify ||
+      ChallengeStep.webauthnAssertion ||
+      ChallengeStep.magicLink => base,
     };
   }
 
@@ -474,7 +604,10 @@ class SignInViewModel extends ViewModel<SignInState> {
         phase: const SignInEmailEntry(),
         canGoBack: canGoBack,
       ),
-      GoogleMethod() || MicrosoftMethod() => base.copyWith(
+      GoogleMethod() ||
+      MicrosoftMethod() ||
+      AppleMethod() ||
+      FacebookMethod() => base.copyWith(
         phase: SignInChoosingMethod(methods: <AuthMethod>[method]),
         canGoBack: false,
       ),
@@ -509,6 +642,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       SignInPasswordEntry() ||
       SignInEmailEntry() ||
       SignInTotpEntry() ||
+      SignInTemporaryAccessPassEntry() ||
       SignInAwaitingBrowser() ||
       SignInSsoConfirm() ||
       SignInCompleted() => false,

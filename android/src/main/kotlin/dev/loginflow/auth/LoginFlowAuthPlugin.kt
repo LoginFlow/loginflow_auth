@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import dev.loginflow.auth.browser.BrowserAuthenticator
 import dev.loginflow.auth.browser.ExpectedCallback
+import dev.loginflow.auth.dpop.DpopKeystore
 import dev.loginflow.auth.sso.SsoBridge
 import dev.loginflow.auth.storage.EncryptedPreferences
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -12,6 +13,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.security.GeneralSecurityException
 import java.security.ProviderException
 import java.util.concurrent.ExecutorService
@@ -83,6 +85,13 @@ class LoginFlowAuthPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Acti
                 ssoBridge(appContext, call).delete(call.requiredString("issuer"))
                 null
             }
+            "dpop.ensureKey" -> runStorage(result) {
+                val jwk = JSONObject(dpopKeystore(call).ensurePublicJwk())
+                JSONObject(mapOf("key_id" to call.requiredString("alias"), "public_jwk" to jwk)).toString()
+            }
+            "dpop.sign" -> runStorage(result) {
+                dpopKeystore(call).sign(call.requiredString("signingInput").decodeBase64Url())
+            }
             "browser.authenticate" -> {
                 val url = call.argument<String>("url")
                 val scheme = call.argument<String>("callbackScheme")
@@ -126,6 +135,8 @@ class LoginFlowAuthPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Acti
     private fun privateStore(appContext: Context) =
         EncryptedPreferences.named(appContext, PRIVATE_PREFERENCES)
 
+    private fun dpopKeystore(call: MethodCall) = DpopKeystore(call.requiredString("alias"))
+
     private fun ssoBridge(appContext: Context, call: MethodCall) = SsoBridge(
         appContext,
         call.argument<List<String>>("authorities").orEmpty(),
@@ -133,6 +144,12 @@ class LoginFlowAuthPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Acti
 
     private fun MethodCall.requiredString(name: String): String =
         argument<String>(name) ?: throw IllegalArgumentException("Missing argument '$name'.")
+
+    /** Base64url without padding, as produced by `Base64UrlEncoding` on the Dart side. */
+    private fun String.decodeBase64Url(): ByteArray {
+        val padded = this + "=".repeat((4 - length % 4) % 4)
+        return android.util.Base64.decode(padded, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+    }
 
     private companion object {
         const val CHANNEL = "dev.loginflow.auth/native"

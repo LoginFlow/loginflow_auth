@@ -37,6 +37,24 @@ void main() {
     expect(arguments['serverClientId'], prompt.clientId);
   });
 
+  test('an explicit serverClientId overrides prompt.clientId', () async {
+    MethodCall? received;
+    messenger.setMockMethodCallHandler(NativeGoogleIdTokenSource.channel, (
+      call,
+    ) async {
+      received = call;
+      return 'google.id.token';
+    });
+
+    final token = await const NativeGoogleIdTokenSource(
+      serverClientId: 'override.apps.googleusercontent.com',
+    ).obtainIdToken(prompt);
+
+    expect(token.data, 'google.id.token');
+    final arguments = received?.arguments as Map<Object?, Object?>;
+    expect(arguments['serverClientId'], 'override.apps.googleusercontent.com');
+  });
+
   test('a dismissed sheet is a typed cancellation', () async {
     messenger.setMockMethodCallHandler(
       NativeGoogleIdTokenSource.channel,

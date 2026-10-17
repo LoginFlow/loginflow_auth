@@ -70,6 +70,28 @@ void main() {
       expect(find.text('Create an account'), findsNothing);
     });
 
+    testWidgets('Apple and Facebook buttons appear only when the server '
+        'lists them', (tester) async {
+      server.loginMethods = <String>['password', 'apple'];
+      final harness = SignInHarness.install(
+        server,
+        const SignInConfiguration(
+          methods: <AuthMethod>[
+            PasswordMethod(),
+            AppleMethod(),
+            FacebookMethod(),
+          ],
+        ),
+      );
+
+      await harness.pump(tester);
+
+      expect(method('apple'), findsOneWidget);
+      expect(method('facebook'), findsNothing);
+      expect(find.byKey(SignInKeys.appleButton), findsOneWidget);
+      expect(find.byKey(SignInKeys.facebookButton), findsNothing);
+    });
+
     testWidgets('sign-up is hidden when the server disables it', (
       tester,
     ) async {

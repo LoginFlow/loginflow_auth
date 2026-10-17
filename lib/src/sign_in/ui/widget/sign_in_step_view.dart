@@ -11,6 +11,7 @@ import 'package:loginflow_auth/src/sign_in/ui/widget/otp_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/password_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sign_in_message_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sso_confirm_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/temporary_access_pass_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/totp_step.dart';
 import 'package:loginflow_auth/src/sign_in/viewmodel/sign_in_viewmodel.dart';
 
@@ -67,6 +68,12 @@ class SignInStepView extends StatelessWidget {
         key: ValueKey<String>(
           '${SignInKeys.totpStepPrefix}.${phase.isRecoveryCode}',
         ),
+        phase: phase,
+        state: state,
+        viewModel: viewModel,
+      ),
+      final SignInTemporaryAccessPassEntry phase => TemporaryAccessPassStep(
+        key: SignInKeys.temporaryAccessPassStep,
         phase: phase,
         state: state,
         viewModel: viewModel,

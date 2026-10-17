@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0
+
+Aligned with LoginFlow API and `loginflow_sdk` 0.6.0 (LTS line).
+
+- DPoP (RFC 9449): non-exportable ES256 key per platform (Secure Enclave,
+  Android Keystore/StrongBox, non-extractable WebCrypto key), proof on every
+  request, `DPoP-Nonce` handshake; retries only on `use_dpop_nonce`.
+- Passkeys: sign-in (targeted and discoverable), account management
+  (enroll, list, rename, delete) and Temporary Access Pass, through the
+  bundled Corbado `passkeys` adapter.
+- Sign in with Apple and Continue with Facebook as optional packages
+  (`loginflow_auth_apple`, `loginflow_auth_facebook`), sharing one generic
+  upstream-token step with Google; browser fallback when no native source.
+- Magic link per app: `magicLinkTokenFromUri` accepts only
+  `https://<host>/login/magic/<this app's client_id>`.
+- Sign-in UI driven by `GET /oauth2/login-options`: methods, passkey policy,
+  provider buttons, sign-up and reset are shown only when the server allows
+  them; legal links footer (`policy_uri`, `tos_uri`).
+- Spanish and English (ARB), per-app branding (colors, logo, typography).
+- Goldens for every sign-in screen (light/dark, phone/tablet).
+
 ## 0.1.0
 
 First version.

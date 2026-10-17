@@ -1,6 +1,7 @@
 import 'package:loginflow_auth/src/core/error/authorization_response_problem.dart';
 import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
+import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
@@ -361,4 +362,21 @@ final class UpstreamFailed extends LoginFlowError {
 
   @override
   int get hashCode => Object.hash(UpstreamFailed, provider, reason);
+}
+
+/// A passkey (WebAuthn) ceremony could not produce a credential.
+final class PasskeyFailed extends LoginFlowError {
+  const PasskeyFailed({required this.reason});
+
+  final PasskeyFailureReason reason;
+
+  @override
+  String get message => 'Passkey ceremony failed: ${reason.name}';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is PasskeyFailed && reason == other.reason;
+
+  @override
+  int get hashCode => Object.hash(PasskeyFailed, reason);
 }

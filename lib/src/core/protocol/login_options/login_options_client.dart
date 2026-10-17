@@ -4,7 +4,9 @@ import 'package:loginflow_auth/src/core/http/oauth_error_body.dart';
 import 'package:loginflow_auth/src/core/protocol/login_options/client_login_options.dart';
 import 'package:result_controller/result_controller.dart';
 
-/// Reads the login methods the server enables for this client.
+/// Reads what the server enables for this client: login methods, self
+/// sign-up, password reset, the company's passkey policy, and Google's
+/// server client ID.
 class LoginOptionsClient {
   const LoginOptionsClient({required this.transport, required this.clientId});
 

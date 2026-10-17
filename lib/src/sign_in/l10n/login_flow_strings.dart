@@ -6,6 +6,12 @@ abstract interface class LoginFlowStrings {
   String get continueWithEmailCode;
   String get continueWithGoogle;
   String get continueWithMicrosoft;
+  String get continueWithApple;
+  String get continueWithFacebook;
+  String get continueWithPasskey;
+  String get temporaryAccessPassTitle;
+  String get temporaryAccessPassInstructions;
+  String get useTemporaryAccessPass;
   String get emailLabel;
   String get passwordLabel;
   String get showPassword;
@@ -18,6 +24,7 @@ abstract interface class LoginFlowStrings {
   String get verifyButton;
   String get resendCode;
   String resendIn(int seconds);
+  String get sendMagicLink;
   String get twoStepTitle;
   String get authenticatorInstructions;
   String get recoveryInstructions;
@@ -47,4 +54,9 @@ abstract interface class LoginFlowStrings {
   String get emailInvalid;
   String get passwordRequired;
   String get codeRequired;
+  String get legalTermsLabel;
+  String get legalPrivacyLabel;
+  String legalFooterBoth(String terms, String policy);
+  String legalFooterTermsOnly(String terms);
+  String legalFooterPolicyOnly(String policy);
 }

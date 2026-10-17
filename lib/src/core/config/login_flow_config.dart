@@ -15,6 +15,7 @@ class LoginFlowConfig {
     this.uiLocales = const <String>[],
     this.clockSkew = const Duration(seconds: 60),
     this.requestTimeout = const Duration(seconds: 30),
+    this.enableDpop = false,
   });
 
   factory LoginFlowConfig.fromJson(Map<String, Object?> json) {
@@ -31,6 +32,7 @@ class LoginFlowConfig {
       requestTimeout: Duration(
         seconds: json.requireInt('request_timeout_seconds'),
       ),
+      enableDpop: json.optionalBool('enable_dpop', absent: false),
     );
   }
 
@@ -62,6 +64,12 @@ class LoginFlowConfig {
 
   /// Upper bound for a single HTTP request.
   final Duration requestTimeout;
+
+  /// Whether this client must prove possession of its DPoP key (RFC 9449) on
+  /// every request to the token endpoint, the authorization challenge
+  /// endpoint, and resource endpoints. The LoginFlow profile requires this
+  /// for `native` + `first_party` clients (`doc/server-contract.md` §13).
+  final bool enableDpop;
 
   /// Refuses a configuration that could leak codes or tokens: the issuer
   /// must be `https` without query or fragment, and every redirect URI must
@@ -99,6 +107,7 @@ class LoginFlowConfig {
     List<String>? uiLocales,
     Duration? clockSkew,
     Duration? requestTimeout,
+    bool? enableDpop,
   }) => LoginFlowConfig(
     issuer: issuer ?? this.issuer,
     clientId: clientId ?? this.clientId,
@@ -108,6 +117,7 @@ class LoginFlowConfig {
     uiLocales: uiLocales ?? this.uiLocales,
     clockSkew: clockSkew ?? this.clockSkew,
     requestTimeout: requestTimeout ?? this.requestTimeout,
+    enableDpop: enableDpop ?? this.enableDpop,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -119,6 +129,7 @@ class LoginFlowConfig {
     'ui_locales': uiLocales,
     'clock_skew_seconds': clockSkew.inSeconds,
     'request_timeout_seconds': requestTimeout.inSeconds,
+    'enable_dpop': enableDpop,
   };
 
   @override
@@ -132,7 +143,8 @@ class LoginFlowConfig {
           postLogoutRedirectUri == other.postLogoutRedirectUri &&
           uiLocales.hasSameValues(other.uiLocales) &&
           clockSkew == other.clockSkew &&
-          requestTimeout == other.requestTimeout;
+          requestTimeout == other.requestTimeout &&
+          enableDpop == other.enableDpop;
 
   @override
   int get hashCode => Object.hash(
@@ -144,5 +156,6 @@ class LoginFlowConfig {
     uiLocales.valuesHash,
     clockSkew,
     requestTimeout,
+    enableDpop,
   );
 }

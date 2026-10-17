@@ -19,7 +19,12 @@ class SignInState {
     this.rememberedEmail = '',
     this.canGoBack = false,
     this.isSignUpOffered = false,
+    this.isPasskeySignInOffered = false,
+    this.isTemporaryAccessPassOffered = false,
+    this.isMagicLinkOffered = false,
     this.copy = const SignInCopy(),
+    this.policyUri,
+    this.tosUri,
   });
 
   final SignInPhase phase;
@@ -38,7 +43,31 @@ class SignInState {
   /// A "Back" action leads to the method picker.
   final bool canGoBack;
   final bool isSignUpOffered;
+
+  /// Shows "Sign in with a passkey" on the method picker
+  /// ([SignInConfiguration.isPasskeySignInOffered]).
+  final bool isPasskeySignInOffered;
+
+  /// Shows "Use a temporary access pass"
+  /// ([SignInConfiguration.isTemporaryAccessPassOffered]).
+  final bool isTemporaryAccessPassOffered;
+
+  /// Shows "Email me a sign-in link instead" on the email-OTP step
+  /// (`ClientLoginOptions.isMagicLinkOffered` — server-driven only, no
+  /// matching `SignInConfiguration` flag: a company turns this on per
+  /// client, not per app build).
+  final bool isMagicLinkOffered;
   final SignInCopy copy;
+
+  /// The company's privacy-policy page
+  /// (`ClientLoginOptions.policyUri` — server-driven only), shown in the
+  /// footer below the current step. `null` hides that link.
+  final Uri? policyUri;
+
+  /// The company's terms-of-service page
+  /// (`ClientLoginOptions.tosUri` — server-driven only), shown in the
+  /// footer below the current step. `null` hides that link.
+  final Uri? tosUri;
 
   SignInState copyWith({
     SignInPhase? phase,
@@ -50,7 +79,12 @@ class SignInState {
     String? rememberedEmail,
     bool? canGoBack,
     bool? isSignUpOffered,
+    bool? isPasskeySignInOffered,
+    bool? isTemporaryAccessPassOffered,
+    bool? isMagicLinkOffered,
     SignInCopy? copy,
+    Uri? policyUri,
+    Uri? tosUri,
   }) => SignInState(
     phase: phase ?? this.phase,
     isBusy: isBusy ?? this.isBusy,
@@ -61,7 +95,14 @@ class SignInState {
     rememberedEmail: rememberedEmail ?? this.rememberedEmail,
     canGoBack: canGoBack ?? this.canGoBack,
     isSignUpOffered: isSignUpOffered ?? this.isSignUpOffered,
+    isPasskeySignInOffered:
+        isPasskeySignInOffered ?? this.isPasskeySignInOffered,
+    isTemporaryAccessPassOffered:
+        isTemporaryAccessPassOffered ?? this.isTemporaryAccessPassOffered,
+    isMagicLinkOffered: isMagicLinkOffered ?? this.isMagicLinkOffered,
     copy: copy ?? this.copy,
+    policyUri: policyUri ?? this.policyUri,
+    tosUri: tosUri ?? this.tosUri,
   );
 
   /// The same screen with no message and no field errors.
@@ -85,7 +126,13 @@ class SignInState {
           rememberedEmail == other.rememberedEmail &&
           canGoBack == other.canGoBack &&
           isSignUpOffered == other.isSignUpOffered &&
-          copy == other.copy;
+          isPasskeySignInOffered == other.isPasskeySignInOffered &&
+          isTemporaryAccessPassOffered ==
+              other.isTemporaryAccessPassOffered &&
+          isMagicLinkOffered == other.isMagicLinkOffered &&
+          copy == other.copy &&
+          policyUri == other.policyUri &&
+          tosUri == other.tosUri;
 
   @override
   int get hashCode => Object.hash(
@@ -98,6 +145,11 @@ class SignInState {
     rememberedEmail,
     canGoBack,
     isSignUpOffered,
+    isPasskeySignInOffered,
+    isTemporaryAccessPassOffered,
+    isMagicLinkOffered,
     copy,
+    policyUri,
+    tosUri,
   );
 }

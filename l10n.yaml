@@ -1,0 +1,6 @@
+arb-dir: lib/src/sign_in/l10n/arb
+template-arb-file: login_flow_es.arb
+output-localization-file: login_flow_localizations.dart
+output-class: LoginFlowLocalizations
+output-dir: lib/src/sign_in/l10n/generated
+nullable-getter: false

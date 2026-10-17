@@ -14,6 +14,8 @@ extension AuthMethodPresentation on AuthMethod {
     EmailOtpMethod() => strings.continueWithEmailCode,
     GoogleMethod() => strings.continueWithGoogle,
     MicrosoftMethod() => strings.continueWithMicrosoft,
+    AppleMethod() => strings.continueWithApple,
+    FacebookMethod() => strings.continueWithFacebook,
   };
 
   /// Stable key of the method's button, for tests and integration drivers.
@@ -21,11 +23,14 @@ extension AuthMethodPresentation on AuthMethod {
       ValueKey<String>('${SignInKeys.methodButtonPrefix}.$wireName');
 
   /// Federated providers carry no icon: their marks are trademarks the app
-  /// adds per the providers' branding guidelines.
+  /// adds per the providers' branding guidelines (Apple and Facebook render
+  /// their own branded button widgets instead of this generic one — see
+  /// `MethodPickerStep`).
   IconData? toIcon() => switch (this) {
     PasswordMethod() => Icons.password,
     EmailOtpMethod() => Icons.mail_outline,
-    GoogleMethod() || MicrosoftMethod() => null,
+    GoogleMethod() || MicrosoftMethod() || AppleMethod() || FacebookMethod() =>
+      null,
   };
 }
 

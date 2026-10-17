@@ -1,0 +1,23 @@
+name: loginflow_auth_apple
+description: >-
+  Optional native Sign in with Apple for loginflow_auth: obtains an Apple ID
+  token through AuthenticationServices on iOS/macOS, with the server nonce,
+  so apps without Apple do not depend on the Apple SDK.
+version: 0.6.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  loginflow_auth:
+    path: ../..
+  sign_in_with_apple: ^7.0.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

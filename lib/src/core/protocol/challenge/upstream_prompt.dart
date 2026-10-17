@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:loginflow_auth/src/core/crypto/sha256_hashing.dart';
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
 
@@ -26,6 +29,15 @@ class UpstreamPrompt {
 
   final UpstreamProvider provider;
   final String nonce;
+
+  /// Lowercase hex SHA-256 of [nonce]: what Sign in with Apple must receive as
+  /// the request nonce. Apple returns it in the ID token's `nonce` claim and the
+  /// server compares it with the digest it stored for this attempt.
+  String get nonceSha256Hex => utf8
+      .encode(nonce)
+      .toSha256()
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
 
   /// For Google: the company's Google *web* client ID, passed to the SDK as
   /// `serverClientId` so the ID token audience is the one LoginFlow verifies.

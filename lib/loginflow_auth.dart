@@ -6,6 +6,8 @@ library;
 export 'loginflow_auth_core.dart';
 export 'src/platform/login_flow_platform.dart';
 export 'src/platform/native_sso_options.dart';
+export 'src/platform/webauthn/corbado_passkey_authenticator.dart';
+export 'src/sign_in/l10n/login_flow_locale_service.dart';
 export 'src/sign_in/l10n/login_flow_strings.dart';
 export 'src/sign_in/l10n/login_flow_strings_context.dart';
 export 'src/sign_in/model/auth_method.dart';
