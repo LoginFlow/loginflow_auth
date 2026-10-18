@@ -24,10 +24,10 @@ import 'package:web/web.dart' as web;
 /// the very next request: not a cosmetic gap, a forced sign-out on every
 /// reload. If IndexedDB is unavailable or the stored key cannot be read
 /// back (private browsing, a cleared store, a corrupt record), a fresh key
-/// is generated instead of failing outright; the existing refresh token no
-/// longer matches its `jkt` and the next refresh is rejected by the server,
-/// which the library already treats as a normal, explicit sign-out
-/// (`SessionRevoked`) rather than a silent failure.
+/// is generated instead of failing outright; the stored session's `jkt` no
+/// longer matches it, and `LoginFlowAuth.initialize` ends that session
+/// locally (`SignedOut(reason: sessionRevoked)`) instead of presenting its
+/// refresh token with the wrong key.
 final class WebDpopKeyStore implements DpopKeyStore {
   WebDpopKeyStore({required String clientId}) : _keyId = 'dpop|$clientId';
 

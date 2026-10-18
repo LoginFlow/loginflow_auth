@@ -7,6 +7,7 @@ import 'package:loginflow_auth/src/core/crypto/secure_random_source.dart';
 import 'package:loginflow_auth/src/core/crypto/sha256_hashing.dart';
 import 'package:loginflow_auth/src/core/dpop/dpop_key_store.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
+import 'package:loginflow_auth/src/core/jose/ec_jwk_thumbprint.dart';
 import 'package:result_controller/result_controller.dart';
 
 /// Builds a DPoP proof JWT (RFC 9449 §4.2) over the platform's non-exportable
@@ -62,6 +63,13 @@ class DpopProofFactory {
       return Err(error);
     }
     return Ok('$signingInput.${signatureResult.data}');
+  }
+
+  /// The RFC 7638 thumbprint of the platform key every proof is signed
+  /// with: the `jkt` the server binds DPoP tokens and refresh families to.
+  Future<Result<String, LoginFlowError>> keyThumbprint() async {
+    final keyResult = await keyStore.ensureKey();
+    return keyResult.map((key) => key.publicJwk.toEcThumbprint());
   }
 
   String _encodeSegment(Map<String, Object?> json) =>

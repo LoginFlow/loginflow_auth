@@ -13,11 +13,13 @@ import 'package:loginflow_auth/src/platform/webauthn/corbado_passkey_authenticat
 /// shared SSO storage, system browser and passkeys.
 abstract final class LoginFlowPlatform {
   /// [nativeSso] enables OpenID Connect Native SSO with the publisher's
-  /// other apps (ignored on the web).
+  /// other apps (ignored on the web and on Linux).
   ///
   /// Passkeys work out of the box: when [passkeyAuthenticator] is not
   /// given, this method wires [CorbadoPasskeyAuthenticator] — an app does
-  /// not have to write any platform code for it. Set [enablePasskeys] to
+  /// not have to write any platform code for it. On Linux, which has no
+  /// passkey API, passkey ceremonies fail as
+  /// `PasskeyFailed(reason: notSupported)` instead. Set [enablePasskeys] to
   /// `false` for an app that does not offer passkeys, or pass your own
   /// [passkeyAuthenticator] (a test double, or a different provider) to
   /// override the default outright.
@@ -60,7 +62,7 @@ abstract final class LoginFlowPlatform {
       facebookTokenSource: facebookTokenSource,
       passkeyAuthenticator:
           passkeyAuthenticator ??
-          (enablePasskeys ? CorbadoPasskeyAuthenticator() : null),
+          (enablePasskeys ? bindings.passkeyAuthenticator : null),
       dpopKeyStore: config.enableDpop ? bindings.dpopKeyStore : null,
     );
   }

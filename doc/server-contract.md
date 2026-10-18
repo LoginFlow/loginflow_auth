@@ -57,7 +57,23 @@ reads every endpoint from discovery and never builds a path itself.
    Lockouts per account use the same 429, so the response does not reveal
    whether the account exists (RFC6749 §10.10, FIPA §9.3).
 7. CORS: allowed on discovery, JWKS, token, revocation and the login options
-   endpoint; never on `/oauth2/authorize` (RFC9700 §2.6).
+   endpoint, and on the REST scopes `/v1/user`, `/v1/admin` and `/v1/master`,
+   for the server's configured origins (`CORS_ALLOWED_ORIGINS`); never on
+   `/oauth2/authorize` (RFC9700 §2.6). Those endpoints allow the request
+   headers `Authorization, Content-Type, Accept, X-Requested-With, DPoP` and
+   expose `DPoP-Nonce, WWW-Authenticate, Retry-After, X-Request-Id,
+   X-Total-Count`, so a browser app can send a DPoP proof (§13) and read the
+   nonce to retry with and the `Bearer`/`DPoP` challenge of a refused token.
+   `userinfo`, device logout and global logout are not CORS-enabled. The authorization
+   challenge endpoint (§5) is CORS-enabled **only** for the exact browser
+   origins a first-party client registered (`allowed_web_origins`,
+   **LoginFlow profile**, opt-in per client): the preflight is granted
+   (`Access-Control-Allow-Origin: <origin>`, methods `POST`, headers
+   `Content-Type, DPoP`, exposed `DPoP-Nonce, Retry-After`) when the origin
+   belongs to some active first-party client; the actual request is then held
+   to its own client (§5.1). Never `Access-Control-Allow-Credentials`: the
+   challenge uses no cookie. A request without `Origin` (a native app) is
+   unaffected.
 
 ## 2. Discovery: `GET /.well-known/openid-configuration`
 
@@ -180,6 +196,15 @@ Only clients registered `public` + `native` + `first_party = true`
 (FIPA §1.1, §9.1). Others: `400 {"error":"unauthorized_client"}`. Public
 clients identify themselves with `client_id`; no client secret is accepted
 (RFC8252 §8.4–8.5).
+
+**LoginFlow profile — first-party web apps.** A `first_party` client that
+runs in a browser registers its exact origins (`allowed_web_origins`,
+`https://host[:port]`). A request that carries an `Origin` header is only
+served when that origin is in the `allowed_web_origins` of the request's own
+client (`client_id` on the opening request, the authorization's client on a
+continuation); otherwise `400 {"error":"unauthorized_client"}` with no CORS
+header (§1.7). Every method, passkeys included (§5.7), works the same from
+such an origin.
 
 ### 5.2 Authorizations and requests
 
@@ -434,6 +459,16 @@ Both methods, on success, satisfy the primary method AND the second factor
 in the same step (a passkey is possession + user verification; a TAP is an
 admin-issued credential), so neither is ever followed by `next: totp`.
 
+**Related origins (WebAuthn L3, LoginFlow profile).** The RP ID is the
+company's (`<slug>.id.loginflow.dev` or its custom domain), so a first-party
+web app on another origin (§5.1) runs the ceremony against that RP ID as a
+related origin: the browser fetches `https://<rp_id>/.well-known/webauthn`,
+which lists `{"origins": [...]}` — the `allowed_web_origins` of the company's
+active first-party clients — and the server verifies the assertion's
+`clientDataJSON.origin` against the company's RP origin plus the requesting
+client's `allowed_web_origins`. A browser without Related Origin Requests
+support refuses the ceremony on the client side.
+
 ## 6. Authorization endpoint (browser): `GET {authorization_endpoint}`
 
 Used by `redirect_to_web` and by Flutter web (top-level redirect).
@@ -653,12 +688,27 @@ app-level logout when the app asks for it).
 
 ## 13. DPoP (RFC 9449)
 
-**Mandatory for every client registered `native` + `first_party`.** The
+**Mandatory for every `first_party` client that is registered `native` or
+that registered browser origins (`allowed_web_origins`, §1.7 and §5.1).** The
 library attaches a proof to the authorization challenge endpoint (§5), the
 token endpoint (§7) and every resource request that carries an access token
-(§10, §11): the device-logout and global-logout endpoints today.
+(§10, §11): the device-logout and global-logout endpoints, `userinfo`, and
+the REST scopes `/v1/user` (including the passkey account API of §15),
+`/v1/admin` and `/v1/master`. Every one of those resource endpoints runs the
+same check (§13.3–§13.5): a DPoP-bound token only as `DPoP` with a matching
+proof, a plain token only as `Bearer`.
 `token_endpoint_auth_method=none` public clients outside that combination
-(web, SPA) are unaffected and keep sending `Authorization: Bearer <token>`.
+(web, SPA without registered browser origins) are unaffected and keep sending
+`Authorization: Bearer <token>`.
+
+**Browser first-party apps (LoginFlow profile).** A first-party client with
+`allowed_web_origins` signs in natively from those origins and MUST bind its
+tokens: the token endpoint refuses its code, refresh and token-exchange
+grants without a valid proof (`400 invalid_dpop_proof`) and issues
+`token_type: "DPoP"` with `cnf.jkt` and a key-bound refresh family. The
+browser keeps the non-extractable WebCrypto key of §13.1, so a persisted
+refresh token is useless without it. The refresh family of a public web
+client keeps its 24 h absolute lifetime.
 
 ### 13.1 The key
 
@@ -716,10 +766,12 @@ different key. `token_type` in the token response is `"DPoP"` instead of
 
 ### 13.4 Nonces
 
-RFC 9449 §8: the server MAY require a server-provided nonce in the proof.
+RFC 9449 §8: the server requires a server-provided nonce in every proof.
 When a protected request is missing one, or presents a stale one, the server
-answers `400 {"error":"use_dpop_nonce"}` with a `DPoP-Nonce` response header
-carrying the nonce to use. **The library retries that same request exactly
+answers with a `DPoP-Nonce` response header carrying the nonce to use: on
+the token and authorization challenge endpoints as
+`400 {"error":"use_dpop_nonce"}`, on a resource endpoint as `401` with
+`WWW-Authenticate: DPoP error="use_dpop_nonce"` (RFC 9449 §9). **The library retries that same request exactly
 once**, with a fresh proof carrying `nonce` set to the value from
 `DPoP-Nonce`. A `DPoP-Nonce` header on a *successful* response is cached the
 same way, pre-supplying the nonce for the next proof so steady-state traffic
@@ -735,8 +787,8 @@ not retried again.
   a resource endpoint is treated the same as the `400` form above.
 - Discovery publishes `dpop_signing_alg_values_supported: ["ES256"]` when
   DPoP is offered; the library does not currently gate on this field (every
-  `native` + `first_party` client is assumed to need DPoP per the registered
-  client type, not per discovery), but a future version may.
+  `first_party` client that is `native` or has browser origins is assumed to
+  need DPoP per its registration, not per discovery), but a future version may.
 
 ### 13.6 Not part of 0.1.0
 
@@ -795,6 +847,13 @@ change): a stale token answers `401` with
 `WWW-Authenticate: Bearer error="insufficient_user_authentication",
 max_age=300` before anything else runs. Never the public key, the AAGUID or
 the transports — only what the user needs to recognize and manage their own
-passkeys. Error bodies follow this server's general `ApiResponse` envelope
+passkeys. `enroll/finish` verifies `clientDataJSON.origin` against the
+company's RP origin and, when the request carries an `Origin` header that
+is in the `allowed_web_origins` of the active first-party client the access
+token was issued to (`client_id` claim), against that origin too (§5.7
+related origins, LoginFlow profile): a first-party web app enrolls from its
+own origin. Any other origin is still held to the RP origin; a request
+without `Origin` (a native app) is unchanged. Error bodies follow this server's general
+`ApiResponse` envelope
 (`{"error": {"code", "message"}}`), not the RFC6749 §5.2 shape of §1.5 —
 this is account-management REST, not an OAuth/OIDC endpoint.

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.0
+
+The same native sign-in on Android, iOS, macOS, Linux and the web.
+
+- Web: the challenge-based sign-in (every method, passkeys included) runs
+  from the origins a first-party client registered (`allowed_web_origins`);
+  `signInWithBrowser` stays available. Requires `enableDpop: true` and the
+  app origin in the server's `CORS_ALLOWED_ORIGINS`; passkeys need
+  Corbado's `bundle.js` in `web/index.html`.
+- Web: a DPoP-bound session persists in `localStorage` (refresh token, ID
+  token, metadata — never key material; the key stays a non-extractable
+  WebCrypto key in IndexedDB). `initialize()` checks the stored key
+  thumbprint and refreshes with the same key; a missing key or a refused
+  refresh ends the session locally (`SignedOut(reason: sessionRevoked)`).
+  Without DPoP the session stays in memory, as before.
+- Sessions record the thumbprint of the DPoP key their tokens are bound to
+  (`StoredSession.dpopJkt`); a restored DPoP-bound session is verified and
+  refreshed at start-up on every platform.
+- A refresh adopts a refresh token another instance over the same store
+  already rotated (a second browser tab), instead of presenting the used
+  one and revoking the family.
+- New `LoginFlowAuth.authorizeResourceRequest` / `shouldRetryResourceRequest`
+  and `ResourceAuthorization`: the `Authorization` and `DPoP` headers for
+  the app's own API, with the per-server nonce cache and the single
+  `use_dpop_nonce` retry. The library's own resource requests use the same
+  code; DPoP nonces are now cached per origin.
+- Linux: session and DPoP key in the Secret Service keyring through
+  libsecret, via `flutter_secure_storage_linux` (plus its platform
+  interface). Chosen over a hand-written libsecret channel: a maintained,
+  widely used plugin (GNOME Keyring and KWallet), no C++ of ours to build
+  and audit on a platform this library cannot test in CI, and it registers
+  only on Linux, so Android/iOS/macOS/web apps carry no extra native code.
+- Linux: browser steps open the default browser and wait on an RFC 8252
+  §7.3 loopback redirect (`http://127.0.0.1:<fixed port>/<path>`, which the
+  server accepts for native clients; ports are compared exactly, so the
+  port is fixed and registered, not ephemeral).
+- Linux: the DPoP key is a software ES256 key in the keyring (no OS API for
+  a non-exportable key).
+- Linux: passkeys fail as `PasskeyFailed(reason: notSupported)` instead of
+  reaching a plugin that does not exist there.
+
 ## 0.6.0
 
 Aligned with LoginFlow API and `loginflow_sdk` 0.6.0 (LTS line).

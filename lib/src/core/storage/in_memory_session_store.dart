@@ -5,10 +5,12 @@ import 'package:result_controller/result_controller.dart';
 
 /// [SessionStore] that keeps the session in memory only.
 ///
-/// The default on Flutter web: nothing reaches `localStorage`,
-/// `sessionStorage` or IndexedDB, so a reload loses the session and the app
-/// restores it with a top-level redirect (`prompt=none`) instead
-/// (draft-ietf-oauth-browser-based-apps §6.3, `doc/decisions.md` D10).
+/// The Flutter web store of a client WITHOUT DPoP: a bearer refresh token
+/// never reaches `localStorage`, `sessionStorage` or IndexedDB, so a reload
+/// loses the session and the app restores it with a top-level redirect
+/// (`prompt=none`) instead (draft-ietf-oauth-browser-based-apps §6.3,
+/// `doc/decisions.md` D10). A DPoP client persists its key-bound session
+/// with `WebSessionStore` instead.
 final class InMemorySessionStore implements SessionStore {
   StoredSession? _session;
 

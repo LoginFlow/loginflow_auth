@@ -3,10 +3,12 @@
 Flutter client library for **LoginFlow**, the OAuth 2.0 / OpenID Connect
 provider. It gives first-party apps:
 
-- **Native sign-in** (password, email one-time code, TOTP step-up, Google,
-  passkeys, a Temporary Access Pass) through the OAuth 2.0 *Authorization
-  Challenge Endpoint* (draft-ietf-oauth-first-party-apps-04), ending in an
-  authorization code redeemed with PKCE S256.
+- **Native sign-in** (password, email one-time code, magic link, TOTP and
+  recovery codes, passkeys, a Temporary Access Pass, Google, Microsoft and
+  Apple) through the OAuth 2.0 *Authorization Challenge Endpoint*
+  (draft-ietf-oauth-first-party-apps-04), ending in an authorization code
+  redeemed with PKCE S256 — the same flow on Android, iOS, macOS, Linux and
+  the web (from origins the client registered, see [Web](#web)).
 - **Passkeys** (WebAuthn L3 — Android Credential Manager, iOS/macOS
   AuthenticationServices, the browser's WebAuthn API) work out of the box
   through `LoginFlowPlatform.createAuth`: no extra package, no platform
@@ -20,6 +22,9 @@ provider. It gives first-party apps:
   `azp`, `nonce`, `exp`, `iat`) before any claim is trusted.
 - **Token lifecycle**: in-memory access tokens, refresh with rotation,
   single-flight refresh, and a rejected refresh treated as a logout.
+- **DPoP** (RFC 9449): tokens bound to a non-exportable platform key, and
+  [the same DPoP headers for your own API](#calling-your-own-api-dpop)
+  without reimplementing the proof.
 - **Native SSO** (OpenID Connect Native SSO, draft 07) between apps of the
   same publisher: a shared `device_secret` + ID token, exchanged by each app
   for its own tokens (RFC 8693).
@@ -34,7 +39,7 @@ The exact HTTP contract the library expects from the server is in
 
 | Package | What | Platforms |
 |---|---|---|
-| `loginflow_auth` | Core, platform layer, sign-in UI, and the real passkey adapter ([`CorbadoPasskeyAuthenticator`](lib/src/platform/webauthn/corbado_passkey_authenticator.dart), the `passkeys` pub package) | Android, iOS, macOS, web (Windows/Linux: see Limitations) |
+| `loginflow_auth` | Core, platform layer, sign-in UI, and the real passkey adapter ([`CorbadoPasskeyAuthenticator`](lib/src/platform/webauthn/corbado_passkey_authenticator.dart), the `passkeys` pub package) | Android, iOS, macOS, web, Linux (Windows: see [Limitations](#limitations)) |
 | `packages/loginflow_auth_google` | Optional native Google sign-in ([`NativeGoogleIdTokenSource`](packages/loginflow_auth_google/lib/src/native_google_id_token_source.dart): Credential Manager, `GIDSignIn`) — its own native plugin, so apps without Google carry no Google SDK | Android, iOS |
 | `packages/loginflow_auth_apple` | Optional native Sign in with Apple ([`NativeAppleTokenSource`](packages/loginflow_auth_apple/lib/src/native_apple_token_source.dart), over the `sign_in_with_apple` pub package) | iOS, macOS |
 | `packages/loginflow_auth_facebook` | Optional native Continue with Facebook ([`NativeFacebookTokenSource`](packages/loginflow_auth_facebook/lib/src/native_facebook_token_source.dart), over the `flutter_facebook_auth` pub package: Limited Login on iOS, classic login on Android) | Android, iOS |
@@ -83,6 +88,17 @@ dependencies:
       ref: main
       path: packages/loginflow_auth_facebook
 ```
+
+## Platform support
+
+| | Android | iOS | macOS | Web | Linux |
+|---|---|---|---|---|---|
+| Native sign-in (every challenge method) | yes | yes | yes | yes, from `allowed_web_origins` | yes |
+| Session survives a restart | Keystore AES-GCM | Keychain | Keychain | `localStorage`, DPoP clients only | Secret Service (libsecret) |
+| DPoP key | Keystore / StrongBox | Secure Enclave | Secure Enclave | non-extractable WebCrypto key in IndexedDB | software key in the Secret Service |
+| Browser steps (`redirect_to_web`) | Custom Tabs | ASWebAuthenticationSession | ASWebAuthenticationSession | top-level redirect | default browser + loopback redirect |
+| Passkeys | Credential Manager | AuthenticationServices | AuthenticationServices | WebAuthn (`passkeys_web`) | no (fails as `notSupported`) |
+| Native SSO | yes | yes | yes | no (authorization-server cookie) | no |
 
 ## Quick start (API only)
 
@@ -141,6 +157,57 @@ Challenge steps: `requestEmailOtp`, `submitEmailOtp`, `resendEmailOtp`,
 `cancelChallenge`. Step-up: `auth.stepUp(StepUpRequirement(acrValues: ['mfa']))`
 or `StepUpRequirement.fromWwwAuthenticate(header)` from a 401 of your API
 (RFC 9470).
+
+### Calling your own API (DPoP)
+
+With `enableDpop: true` the access token is bound to the app's DPoP key:
+your API must receive `Authorization: DPoP <token>` plus a `DPoP` proof for
+that exact request, never a bare `Bearer`. The library builds both — with
+the cached server nonce — so the app does not reimplement RFC 9449:
+
+```dart
+Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
+  Future<http.Response?> send() async {
+    final authorization = await auth.authorizeResourceRequest(
+      method: 'GET',
+      uri: uri,
+    );
+    return authorization.when(
+      ok: (credentials) => http.get(uri, headers: credentials.toHeaders()),
+      err: (_) async => null, // NotSignedIn / SessionRevoked: show sign-in
+    );
+  }
+
+  final first = await send();
+  if (first == null) {
+    return null;
+  }
+  final shouldRetry = auth.shouldRetryResourceRequest(
+    uri: uri,
+    statusCode: first.statusCode,
+    dpopNonce: first.headers['dpop-nonce'],
+    wwwAuthenticate: first.headers['www-authenticate'],
+  );
+  return shouldRetry ? send() : first;
+}
+```
+
+- `authorizeResourceRequest({required String method, required Uri uri})`
+  → `Future<Result<ResourceAuthorization, LoginFlowError>>`: refreshes the
+  token when needed and returns `authorization` (`DPoP …`, or `Bearer …`
+  for a client without DPoP) and `dpopProof` (`htm` = `method`, `htu` = the
+  URI without query/fragment, `ath`, a fresh `jti`, the last nonce of that
+  server). `toHeaders()` gives both. A proof is single use: authorize every
+  request, retries included.
+- `shouldRetryResourceRequest({required Uri uri, required int statusCode,
+  String? dpopNonce, String? wwwAuthenticate})` → `bool`: report EVERY
+  response. It caches a `DPoP-Nonce` header (also on successes) for the next
+  proof to that origin, and answers `true` only for `401` +
+  `WWW-Authenticate: DPoP error="use_dpop_nonce"` (RFC 9449 §9): retry that
+  request once, never twice.
+- Your API (and, for a browser app, its CORS policy) must accept the `DPoP`
+  request header and expose `DPoP-Nonce` and `WWW-Authenticate`.
+  LoginFlow's own `/v1/*` scopes already do.
 
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
@@ -496,30 +563,106 @@ sign-in link instead" button, shown only when the server publishes
 
 ### Web
 
-- Tokens live **in memory only**; a reload loses them. Restore the session
-  with a silent top-level redirect, and complete the redirect on start-up:
+The web runs the **same native sign-in** as the apps (password, email code,
+passkeys, TOTP, recovery codes, Temporary Access Pass, and
+Google/Microsoft/Apple through the hosted page), with the session bound to a
+non-extractable DPoP key so it survives reloads. `signInWithBrowser` (the
+authorization-code redirect) remains available.
 
-  ```dart
-  final auth = LoginFlowPlatform.createAuth(config: config);
-  final started = await auth.initialize(launchUri: Uri.base); // completes a callback
-  if (started case Ok(data: SignedOut(reason: SignOutReason.none))) {
-    await auth.signInWithBrowser(prompt: AuthorizationPrompt.none);
-  }
-  // On SignedOut(reason: loginRequired) show a "Sign in" button that calls
-  // auth.signInWithBrowser().
+**Server configuration** (once per app):
+
+1. The OAuth client is **first-party** and lists the app's exact origins:
+   `PATCH /v1/master/oauth-clients/{client_id}/web-origins` with
+   `{"allowed_web_origins": ["https://app.acme.com"]}` (`https://host[:port]`;
+   `http://localhost` only in a development `APP_ENV`). This opens CORS on
+   `POST /oauth2/authorize-challenge` for those origins only, makes DPoP
+   mandatory for the client (`doc/server-contract.md` §5.1, §13), and lists
+   the origins in the company RP host's `/.well-known/webauthn` (passkeys).
+2. The same origins are in the server's `CORS_ALLOWED_ORIGINS`: discovery,
+   JWKS, login options, token, revocation and the `/v1/*` scopes (the passkey
+   account API) are called from JavaScript.
+3. A registered `https` redirect URI on the app's origin for the browser
+   steps (Microsoft, sign-up, password reset, Google/Apple without a native
+   source).
+
+**App configuration**:
+
+```dart
+final auth = LoginFlowPlatform.createAuth(
+  config: LoginFlowConfig(
+    issuer: LoginFlowEnvironment.production.issuer,
+    clientId: 'acme-orders-web',
+    redirectUri: Uri.parse('https://app.acme.com/oauth/callback'),
+    enableDpop: true, // mandatory for clients with allowed_web_origins
+  ),
+);
+// Restores the stored session (refreshing it with the same key) and
+// completes a browser-step callback when the page is one.
+final started = await auth.initialize(launchUri: Uri.base);
+```
+
+- **Persistence.** With `enableDpop: true` the refresh token, ID token and
+  session metadata live in `localStorage`; the ES256 private key is a
+  non-extractable WebCrypto `CryptoKey` in IndexedDB that JavaScript (this
+  library included) can use but never read. A copied refresh token is
+  useless without that key. `initialize()` checks the stored session's key
+  thumbprint (`cnf.jkt`) against the browser's key and refreshes with it:
+  a missing key (cleared site data, private browsing) or a refused refresh
+  (`invalid_grant`, e.g. the 24 h absolute lifetime of web refresh tokens)
+  ends the session locally with `SignedOut(reason: sessionRevoked)`. Without
+  DPoP, tokens stay in memory only and a reload loses them.
+- **Tabs** share the stored session; before refreshing, each one adopts a
+  refresh token another tab already rotated, so the server never sees an
+  old token presented again (which would revoke the whole family).
+- **Browser steps** are a top-level redirect: the PKCE verifier, `state` and
+  `nonce` survive it in `sessionStorage`, are deleted as soon as the matching
+  callback is consumed, expire after 10 minutes, and the callback parameters
+  are removed from the address bar.
+- **Passkeys** run through the browser's WebAuthn API (`passkeys_web`)
+  against the company's RP ID; the app's origin is a *related origin*
+  (WebAuthn L3 Related Origin Requests), so a browser without that feature
+  refuses the ceremony. `passkeys_web` needs Corbado's `bundle.js` in
+  `web/index.html` **before** `flutter_bootstrap.js` — without it the plugin
+  closes the window at start-up:
+
+  ```html
+  <script src="https://github.com/corbado/flutter-passkeys/releases/download/2.4.0/bundle.js"></script>
   ```
 
-- The PKCE verifier, `state` and `nonce` survive the redirect in
-  `sessionStorage` and are deleted as soon as the matching callback is
-  consumed; a callback with another `state` or target is ignored, and a
-  pending request expires after 10 minutes. The callback parameters are
-  removed from the address bar.
-- Refresh tokens of web clients last 24 h (absolute). When one expires the
-  library signs out locally (`SignOutReason.sessionRevoked`); restore with
-  `signInWithBrowser(prompt: AuthorizationPrompt.none)`.
-- SSO across dashboard domains comes from the LoginFlow session cookie on the
-  authorization server's own domain (top-level navigation, no iframes, no
-  third-party cookies).
+  Self-host the file with an integrity hash in production.
+- **Magic link**: see [Limitations](#limitations).
+- SSO across dashboard domains still comes from the LoginFlow session cookie
+  on the authorization server's own domain for the browser steps (top-level
+  navigation, no iframes, no third-party cookies).
+
+### Linux
+
+The native sign-in, its challenge methods and the browser steps work as on
+the other desktops:
+
+- **Secure storage**: the session (and the DPoP key) live in the user's
+  Secret Service keyring (GNOME Keyring, KWallet) through libsecret, via the
+  `flutter_secure_storage_linux` plugin. Building needs the libsecret
+  development package (`libsecret-1-dev` on Debian/Ubuntu); at runtime a
+  Secret Service must be running and unlocked, otherwise storage reports
+  `StorageFailure`.
+- **Browser steps** (`redirect_to_web`: Microsoft, sign-up, password reset,
+  Google/Apple) open the default browser (`xdg-open`) and wait on an
+  RFC 8252 §7.3 loopback redirect. Register a **native** client with a
+  fixed-port loopback redirect URI and use exactly that URI:
+  `redirectUri: Uri.parse('http://127.0.0.1:53682/oauth/callback')`.
+  LoginFlow compares redirect URIs exactly (port included), so ephemeral
+  ports are not supported; if the port is taken, the step fails as
+  `BrowserFailed(failed)`.
+- **DPoP**: Linux has no OS API for a non-exportable key, so the ES256 key
+  is a software key generated with the platform CSPRNG and kept in the same
+  keyring as the session. Tokens are still bound to it, but it is weaker
+  than the hardware-backed keys of the other platforms.
+- **Passkeys are not available**: there is no OS WebAuthn API a Flutter app
+  can call. Passkey sign-in and enrollment fail with
+  `PasskeyFailed(reason: notSupported)` (shown by the sign-in UI as an
+  unsupported device), never a crash; offer the other methods on Linux.
+- Native SSO does not apply.
 
 ### Google
 
@@ -630,11 +773,11 @@ the platform association below is what makes the OS trust that host for
   name and signing certificate SHA-256. Register the SHA-256 of the
   certificate you release with (the Play App Signing certificate in
   production, not your local debug key) with the company admin.
-- **Web**: `navigator.credentials` works against the page's own origin;
-  `passkeys_web` implements the ceremonies there too, so this works
-  without extra setup beyond the RP's own `.well-known` files above
-  (which a browser checks implicitly through the RP ID, not through an
-  app association file).
+- **Web**: `passkeys_web` runs `navigator.credentials` with the company's
+  RP ID from a registered origin (a related origin, listed by the server
+  in `https://<rp_id>/.well-known/webauthn`); see [Web](#web) for the
+  required `bundle.js` and the server configuration.
+- **Linux**: no passkeys (see [Linux](#linux)).
 
 #### Managing enrolled passkeys: API + example
 
@@ -700,13 +843,23 @@ RFC 9470 recently-authenticated gate the server enforces on `enroll/*`
   device secret and the ID token bound to it.
 - Tokens, secrets and codes are never logged (`toString` of models that hold
   them is redacted).
+- On the web a session is persisted only when it is DPoP-bound, and never
+  the private key material: the key is a non-extractable WebCrypto key.
 
-## Limitations of 0.1.0
+## Limitations
 
-- Windows and Linux: no secure storage, system browser or passkey
-  implementation; the session lives in memory and browser/passkey steps
-  fail as unavailable (`passkeys_windows` exists upstream but is not wired
-  here in 0.1.0).
+- Windows: no secure storage or system browser implementation; the session
+  lives in memory and browser steps fail as unavailable.
+- Linux: no passkeys; the DPoP key is a software key in the keyring (see
+  [Linux](#linux)); the loopback redirect needs a fixed, registered port.
+- Web, magic link: the emailed link opens `https://<company host>/login/magic/<client_id>`
+  in a new tab, not in the tab whose attempt requested it, and that attempt
+  (its `auth_session`) lives only in the requesting tab's memory, so the
+  library cannot continue it from the link; use the code from the same
+  email on the web.
+- Web, tabs: two tabs refreshing at the very same moment can still present
+  one refresh token twice (there is no cross-tab lock); the server then
+  revokes the family and both tabs sign out.
 - Google and Microsoft buttons have no brand marks; add them per each
   provider's branding guidelines.
 - Passkeys on web: no conditional UI/autofill (the browser's
@@ -720,10 +873,11 @@ RFC 9470 recently-authenticated gate the server enforces on `enroll/*`
   `deletePasskey`) and the example in [Passkeys](#passkeys); an app builds
   its own screen against it.
 
-## Manual test plan (native)
+## Manual test plan
 
 The Dart layer and the pure Kotlin decisions are covered by automated tests.
-These checks need a device and are not automated:
+These checks need a device, a browser or a Linux desktop and are not
+automated:
 
 | # | Platform | Steps | Expected |
 |---|---|---|---|
@@ -742,6 +896,13 @@ These checks need a device and are not automated:
 | 13 | iOS/macOS | Tap "Continue with a passkey" with an enrolled passkey in iCloud Keychain | AuthenticationServices sheet, then signed in |
 | 14 | Android/iOS | Enroll a passkey (`enrollPasskey`) without a recent sign-in | `ServerResponseInvalid(statusCode: 401, ...)` — re-authenticate first |
 | 15 | Android/iOS | "Use a temporary access pass" with a code issued by a company admin | Signs in directly, no TOTP step even on an account with TOTP enabled |
+| 16 | Web | From a registered origin, sign in with password + TOTP, reload the page | Still signed in; the session is in `localStorage`, the key is a non-extractable `CryptoKey` in IndexedDB |
+| 17 | Web | Signed in, delete the site's IndexedDB only, reload | `SignedOut(reason: sessionRevoked)`, the stored session is removed |
+| 18 | Web | "Continue with a passkey" from the app origin | Browser passkey sheet for the company RP ID, then signed in |
+| 19 | Web | The same app served from an origin NOT in `allowed_web_origins` | Sign-in fails (CORS refused / `unauthorized_client`) |
+| 20 | Linux | Sign in, quit, reopen | Still signed in (Secret Service) |
+| 21 | Linux | Microsoft / sign-up | Default browser opens; after login the app is signed in and the tab says it can be closed |
+| 22 | Linux | "Continue with a passkey" | The "not supported" message, no crash |
 
 ## Development
 

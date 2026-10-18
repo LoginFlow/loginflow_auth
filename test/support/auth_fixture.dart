@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'package:loginflow_auth/loginflow_auth_core.dart';
+import 'package:loginflow_auth/src/core/dpop/dpop_key_store.dart';
 
 import 'fake_apple_source.dart';
 import 'fake_browser.dart';
@@ -34,6 +35,7 @@ class AuthFixture {
     FakePasskeyAuthenticator? passkey,
     bool hasBrowser = true,
     bool enableDpop = false,
+    DpopKeyStore? dpopKeyStore,
   }) {
     final store = sessionStore ?? InMemorySessionStore();
     final browser = FakeBrowser(server);
@@ -57,7 +59,7 @@ class AuthFixture {
       appleTokenSource: apple,
       facebookTokenSource: facebook,
       passkeyAuthenticator: passkey,
-      dpopKeyStore: enableDpop ? TestDpopKeyStore() : null,
+      dpopKeyStore: enableDpop ? dpopKeyStore ?? TestDpopKeyStore() : null,
       clock: clock,
     );
     return AuthFixture._(

@@ -24,6 +24,8 @@ import 'package:loginflow_auth/src/core/flow/active_session.dart';
 import 'package:loginflow_auth/src/core/flow/authorization_attempt.dart';
 import 'package:loginflow_auth/src/core/flow/flow_origin.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
+import 'package:loginflow_auth/src/core/http/resource_authorization.dart';
+import 'package:loginflow_auth/src/core/http/transport_reply.dart';
 import 'package:loginflow_auth/src/core/id_token/id_token_claims.dart';
 import 'package:loginflow_auth/src/core/id_token/id_token_expectations.dart';
 import 'package:loginflow_auth/src/core/id_token/id_token_validator.dart';
@@ -93,17 +95,19 @@ class LoginFlowAuth {
     this._randomSource = const PlatformSecureRandomSource(),
   }) : _pendingStore = pendingAuthorizationStore,
        _clock = clock {
+    _dpop = config.enableDpop && dpopKeyStore != null
+        ? DpopProofFactory(
+            keyStore: dpopKeyStore,
+            randomSource: _randomSource,
+            clock: clock,
+          )
+        : null;
     final transport = LoginFlowTransport(
       client: httpClient,
       timeout: config.requestTimeout,
-      dpop: config.enableDpop && dpopKeyStore != null
-          ? DpopProofFactory(
-              keyStore: dpopKeyStore,
-              randomSource: _randomSource,
-              clock: clock,
-            )
-          : null,
+      dpop: _dpop,
     );
+    _transport = transport;
     _discovery = DiscoveryClient(
       issuer: config.issuer,
       transport: transport,
@@ -172,6 +176,8 @@ class LoginFlowAuth {
     return source != null && source.isAvailable ? source : null;
   }
 
+  late final DpopProofFactory? _dpop;
+  late final LoginFlowTransport _transport;
   late final DiscoveryClient _discovery;
   late final IdTokenValidator _idTokens;
   late final AuthorizationChallengeClient _challenge;
@@ -226,13 +232,13 @@ class LoginFlowAuth {
       return Ok(_state);
     }
     final candidate = await _ssoCandidate();
-    return Ok(
-      _emit(
-        candidate == null
-            ? const SignedOut()
-            : SsoAvailable(candidate: candidate),
-      ),
-    );
+    if (candidate != null) {
+      return Ok(_emit(SsoAvailable(candidate: candidate)));
+    }
+    // A stored session that could not be restored already reported why
+    // (e.g. `sessionRevoked` when its DPoP key is gone); keep that reason.
+    final current = _state;
+    return Ok(_emit(current is SignedOut ? current : const SignedOut()));
   }
 
   /// The login methods, sign-up and password-reset switches the server
@@ -777,6 +783,55 @@ class LoginFlowAuth {
     return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
   }
 
+  /// The `Authorization` and `DPoP` headers for ONE request of the app to
+  /// its own API (or to LoginFlow's `/v1/*` REST scopes) with the current
+  /// access token, refreshed when needed — the same headers the library
+  /// sends on its own resource requests:
+  ///
+  /// - with DPoP: `Authorization: DPoP <token>` plus a proof whose `htm` is
+  ///   [method], `htu` is [uri] without query and fragment, `ath` hashes the
+  ///   token and `nonce` is the last `DPoP-Nonce` that server sent
+  ///   (RFC 9449 §4.2, §7.1, §8);
+  /// - without DPoP: `Authorization: Bearer <token>`.
+  ///
+  /// [method] is the exact HTTP method of the request (`GET`, `POST`, ...).
+  /// A proof is single use: call this again for every request, a retry
+  /// included. Report every response to [shouldRetryResourceRequest].
+  Future<Result<ResourceAuthorization, LoginFlowError>>
+  authorizeResourceRequest({required String method, required Uri uri}) async {
+    final tokenResult = await accessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _transport.authorize(
+      httpMethod: method,
+      uri: uri,
+      accessToken: tokenResult.data,
+    );
+  }
+
+  /// Reports the response to a request authorized with
+  /// [authorizeResourceRequest]: caches its `DPoP-Nonce` (the header, when
+  /// present) for the next proof to that server, and returns `true` when the
+  /// server refused the request for a missing or stale nonce (`401` with
+  /// `WWW-Authenticate: DPoP error="use_dpop_nonce"`, RFC 9449 §9). Then send
+  /// the request once more with a NEW [authorizeResourceRequest]; never
+  /// retry a second time for the same request. Always `false` without DPoP.
+  bool shouldRetryResourceRequest({
+    required Uri uri,
+    required int statusCode,
+    String? dpopNonce,
+    String? wwwAuthenticate,
+  }) => _transport.acceptReply(
+    uri,
+    TransportReply(
+      statusCode: statusCode,
+      body: '',
+      dpopNonce: dpopNonce,
+      wwwAuthenticate: wwwAuthenticate,
+    ),
+  );
+
   Future<Result<AuthState, LoginFlowError>> signOut(SignOutScope scope) =>
       switch (scope) {
         SignOutScope.app => _signOutApp(),
@@ -813,7 +868,68 @@ class LoginFlowAuth {
         return;
       }
     }
+    final boundKey = stored.dpopJkt;
+    if (boundKey != null) {
+      await _resumeKeyBoundSession(boundKey);
+      return;
+    }
     _emit(SignedIn(session: session.toPublic()));
+  }
+
+  /// A DPoP-bound session is only as good as the key it is bound to, and a
+  /// browser can drop that key (cleared site data, private browsing) while
+  /// keeping the stored refresh token. The key is checked locally first,
+  /// then the session is refreshed with it before it is reported signed in,
+  /// so a refused refresh (`invalid_grant`, e.g. the 24 h web lifetime)
+  /// signs out at start-up instead of on the app's first API call.
+  Future<void> _resumeKeyBoundSession(String boundKey) async {
+    if (!await _holdsKey(boundKey)) {
+      Log.w('The DPoP key of the stored session is gone; signing out.');
+      await _endLocalSession(SignOutReason.sessionRevoked);
+      return;
+    }
+    final refreshed = await _startRefresh();
+    if (refreshed case Err(:final error)) {
+      Log.w('Refreshing the restored session failed: ${error.message}');
+    }
+    final session = _session;
+    if (session != null && _state is! SignedIn && _attempt == null) {
+      _emit(SignedIn(session: session.toPublic()));
+    }
+  }
+
+  /// Whether the platform still holds the DPoP key with thumbprint
+  /// [boundKey].
+  Future<bool> _holdsKey(String boundKey) async {
+    final dpop = _dpop;
+    if (dpop == null) {
+      return false;
+    }
+    final thumbprint = await dpop.keyThumbprint();
+    return thumbprint.when(
+      ok: (current) => current == boundKey,
+      err: (error) {
+        Log.w('Reading the DPoP key failed: ${error.message}');
+        return false;
+      },
+    );
+  }
+
+  /// The thumbprint of the DPoP key a `DPoP` token response was bound to,
+  /// or `null` for a Bearer response.
+  Future<String?> _boundKeyOf(TokenResponse response) async {
+    final dpop = _dpop;
+    if (dpop == null || !response.isDpop) {
+      return null;
+    }
+    final thumbprint = await dpop.keyThumbprint();
+    return thumbprint.when(
+      ok: (value) => value,
+      err: (error) {
+        Log.w('The DPoP key thumbprint is unavailable: ${error.message}');
+        return null;
+      },
+    );
   }
 
   /// Claims of an ID token this library validated before storing it.
@@ -1205,6 +1321,7 @@ class LoginFlowAuth {
       discovery: discovery,
       expectations: expectations,
     );
+    final boundKey = await _boundKeyOf(response);
     if (!_isCurrentOrigin(origin)) {
       await _discardLate(response);
       return Err(const NoChallengeInProgress());
@@ -1224,6 +1341,7 @@ class LoginFlowAuth {
       isBrowserSessionUsed:
           isBrowserUsed || (previous?.isBrowserSessionUsed ?? false),
       isSsoBound: isSsoBound || (deviceSecret != null && store != null),
+      dpopJkt: boundKey,
     );
     _generation++;
     _refreshing = null;
@@ -1290,8 +1408,12 @@ class LoginFlowAuth {
   }
 
   Future<Result<String, LoginFlowError>> _refresh(int generation) async {
-    final session = _session;
-    if (session == null) {
+    final current = _session;
+    if (current == null) {
+      return Err(const NotSignedIn());
+    }
+    final session = await _withLatestRefreshToken(current);
+    if (!_isCurrent(generation)) {
       return Err(const NotSignedIn());
     }
     final discoveryResult = await _discovery.load();
@@ -1314,6 +1436,26 @@ class LoginFlowAuth {
   }
 
   bool _isCurrent(int generation) => generation == _generation;
+
+  /// [session] with the refresh token currently in the store when another
+  /// instance over the same store (a second browser tab of the app) rotated
+  /// it since this one read it: presenting the older, already-used token
+  /// would look like reuse and revoke the whole family (RFC 9700 §4.14.2).
+  Future<ActiveSession> _withLatestRefreshToken(ActiveSession session) async {
+    final storedResult = await _sessionStore.read();
+    final latest = storedResult.when(
+      ok: (stored) => stored,
+      err: (error) {
+        Log.w('Re-reading the stored session failed: ${error.message}');
+        return null;
+      },
+    );
+    final isRotatedElsewhere =
+        latest != null &&
+        latest.refreshToken != session.stored.refreshToken &&
+        _readStoredClaims(latest.idToken)?.subject == session.identity.subject;
+    return isRotatedElsewhere ? session.copyWith(stored: latest) : session;
+  }
 
   /// Tokens that arrive after the session or attempt they belonged to
   /// ended: never stored, and their refresh token is revoked.

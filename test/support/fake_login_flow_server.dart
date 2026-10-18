@@ -206,6 +206,10 @@ class FakeLoginFlowServer {
 
   final Set<String> _usedDpopJti = <String>{};
 
+  /// The last nonce this server challenged with: once issued, every later
+  /// proof must carry it (RFC 9449 §8).
+  String? _requiredDpopNonce;
+
   final List<Map<String, String>> challengeRequests = <Map<String, String>>[];
   final List<Map<String, String>> tokenRequests = <Map<String, String>>[];
   final List<Map<String, String>> revocationRequests = <Map<String, String>>[];
@@ -318,7 +322,11 @@ class FakeLoginFlowServer {
     '/oauth2/token',
     '/oauth2/device-logout',
     '/oauth2/logout-everywhere',
+    userProfilePath,
   };
+
+  /// A DPoP/Bearer-protected resource of the `/v1/user` REST scope.
+  static const String userProfilePath = '/v1/user/me';
 
   /// Handles one request; both transports end here.
   Future<FakeHttpResponse> respond(FakeHttpRequest request) async {
@@ -329,6 +337,14 @@ class FakeLoginFlowServer {
     response.headers['cache-control'] = 'no-store';
     if (requiresDpop && _dpopProtectedPaths.contains(request.uri.path)) {
       final dpopError = _checkDpop(request, response);
+      if (dpopError != null && request.uri.path == userProfilePath) {
+        // RFC 9449 §9: a resource answers 401 with the error in
+        // `WWW-Authenticate`, not the token endpoint's 400 body.
+        response
+          ..statusCode = 401
+          ..headers['www-authenticate'] = 'DPoP error="$dpopError"';
+        return response;
+      }
       if (dpopError != null) {
         _oauthError(response, 400, dpopError);
         return response;
@@ -384,6 +400,8 @@ class FakeLoginFlowServer {
         _endSessions(request, response, everywhere: false);
       case ('POST', '/oauth2/logout-everywhere'):
         _endSessions(request, response, everywhere: true);
+      case ('GET', userProfilePath):
+        _userProfile(request, response);
       case ('GET', '/oauth2/end-session'):
         endSessionRequests.add(request.uri);
         hasBrowserSession = false;
@@ -1007,6 +1025,22 @@ class FakeLoginFlowServer {
     response.statusCode = 204;
   }
 
+  void _userProfile(FakeHttpRequest request, FakeHttpResponse response) {
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _accessTokens[header.substring(scheme.length)]
+        : null;
+    if (access == null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] =
+            '${scheme.trim()} error="invalid_token"';
+      return;
+    }
+    _json(response, 200, <String, Object?>{'sub': access.subject});
+  }
+
   /// Validates the `DPoP` header against RFC 9449 §4.3: well-formed proof
   /// JWT, `typ: dpop+jwt`, `alg: ES256`, signature verifies against its own
   /// embedded `jwk`, `htm`/`htu` match this request, `jti` single use, and
@@ -1018,6 +1052,7 @@ class FakeLoginFlowServer {
     final nextNonce = nextDpopNonceChallenge;
     if (nextNonce != null) {
       nextDpopNonceChallenge = null;
+      _requiredDpopNonce = nextNonce;
       response.headers['dpop-nonce'] = nextNonce;
       return 'use_dpop_nonce';
     }
@@ -1034,6 +1069,11 @@ class FakeLoginFlowServer {
     }
     if (!_usedDpopJti.add(proof.jwtId)) {
       return 'invalid_dpop_proof';
+    }
+    final requiredNonce = _requiredDpopNonce;
+    if (requiredNonce != null && proof.nonce != requiredNonce) {
+      response.headers['dpop-nonce'] = requiredNonce;
+      return 'use_dpop_nonce';
     }
     final authorization = request.headers['authorization'];
     if (authorization != null && authorization.startsWith('DPoP ')) {
@@ -1090,6 +1130,7 @@ class FakeLoginFlowServer {
       httpUri: Uri.tryParse(payload['htu'] as String? ?? '')?.path,
       jwtId: jti,
       accessTokenHash: payload['ath'] as String?,
+      nonce: payload['nonce'] as String?,
       jwkThumbprint: '${jwk.x}:${jwk.y}',
     );
   }
@@ -1271,6 +1312,7 @@ class _DpopProof {
     required this.httpUri,
     required this.jwtId,
     required this.accessTokenHash,
+    required this.nonce,
     required this.jwkThumbprint,
   });
 
@@ -1278,5 +1320,6 @@ class _DpopProof {
   final String? httpUri;
   final String jwtId;
   final String? accessTokenHash;
+  final String? nonce;
   final String jwkThumbprint;
 }

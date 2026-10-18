@@ -12,12 +12,15 @@ import 'package:result_controller/result_controller.dart';
 /// [DpopKeyStore] for tests: an in-memory P-256 key via pointycastle. Real
 /// apps never hold the private key in Dart (`NativeDpopKeyStore`,
 /// `WebDpopKeyStore`); a test has no secure hardware to hold it in instead.
+///
+/// The same [seed] always yields the same key, so two instances with one
+/// seed model the key surviving a reload; another seed models it being gone.
 class TestDpopKeyStore implements DpopKeyStore {
-  TestDpopKeyStore() : _keyId = 'test-dpop-key' {
+  TestDpopKeyStore({int seed = 1}) : _keyId = 'test-dpop-key' {
     _random = FortunaRandom()
       ..seed(
         KeyParameter(
-          Uint8List.fromList(List<int>.generate(32, (index) => index + 1)),
+          Uint8List.fromList(List<int>.generate(32, (index) => index + seed)),
         ),
       );
     final generator = ECKeyGenerator()

@@ -14,7 +14,8 @@ void main() {
     redirectUri: Uri.parse('https://dashboard.example.com/callback'),
   );
 
-  test('tokens live in memory; Native SSO is off in the browser', () {
+  test('without DPoP, tokens live in memory; Native SSO is off in the '
+      'browser', () {
     final bindings = PlatformBindings(
       config: config,
       nativeSso: const NativeSsoOptions(appleAccessGroup: 'ignored'),
@@ -23,6 +24,31 @@ void main() {
 
     expect(bindings.sessionStore, isA<InMemorySessionStore>());
     expect(bindings.ssoStore, isNull);
+  });
+
+  test('with DPoP, the key-bound session survives a reload in browser '
+      'storage and is removed on sign-out', () async {
+    final dpopConfig = config.copyWith(enableDpop: true);
+    PlatformBindings reload() => PlatformBindings(
+      config: dpopConfig,
+      nativeSso: null,
+      prefersEphemeralBrowserSession: false,
+    );
+    const session = StoredSession(
+      refreshToken: 'rt_bound',
+      idToken: 'header.payload.signature',
+      scope: 'openid offline_access',
+      dpopJkt: 'thumbprint-1',
+    );
+
+    await reload().sessionStore.write(session);
+    final restored = await reload().sessionStore.read();
+    await reload().sessionStore.clear();
+    final cleared = await reload().sessionStore.read();
+
+    expect(restored.data, session);
+    expect(cleared.data, isNull);
+    expect(web.window.localStorage.length, 0);
   });
 
   test(

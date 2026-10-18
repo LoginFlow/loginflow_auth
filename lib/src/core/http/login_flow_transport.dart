@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:logger_rs/logger_rs.dart';
 import 'package:loginflow_auth/src/core/dpop/dpop_proof_factory.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
+import 'package:loginflow_auth/src/core/http/resource_authorization.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
 import 'package:result_controller/result_controller.dart';
 
@@ -21,10 +22,12 @@ class LoginFlowTransport {
   /// (`doc/server-contract.md` §13: only `native` + `first_party` clients).
   final DpopProofFactory? dpop;
 
-  /// The last `DPoP-Nonce` this authorization server sent, reused as the
-  /// `nonce` claim of the next proof (RFC 9449 §8). One transport per
-  /// [LoginFlowAuth] instance, so this is per-app state, not global.
-  String? _nonce;
+  /// The last `DPoP-Nonce` each server sent, keyed by origin, reused as the
+  /// `nonce` claim of the next proof to that server (RFC 9449 §8: a nonce is
+  /// issued by, and only valid for, one authorization or resource server).
+  /// One transport per [LoginFlowAuth] instance, so this is per-app state,
+  /// not global.
+  final Map<String, String> _nonces = <String, String>{};
 
   static const Map<String, String> _acceptJson = <String, String>{
     'Accept': 'application/json',
@@ -81,72 +84,56 @@ class LoginFlowTransport {
     Uri uri,
     Map<String, String> form, {
     String? bearerToken,
-  }) async {
-    final proofFactory = dpop;
-    if (proofFactory == null) {
-      return _send(
-        () => client.post(
-          uri,
-          headers: <String, String>{
-            ..._acceptJson,
-            'Authorization': ?bearerToken.toBearerHeader(),
-          },
-          body: form,
-        ),
-      );
-    }
-    final first = await _postFormWithProof(
-      proofFactory,
+  }) => _sendAuthorized(
+    httpMethod: 'POST',
+    uri: uri,
+    accessToken: bearerToken,
+    send: (headers) => client.post(
       uri,
-      form,
-      bearerToken: bearerToken,
-      nonce: _nonce,
-    );
-    return first.flatMapAsync((reply) async {
-      if (reply.dpopNonce != null) {
-        _nonce = reply.dpopNonce;
-      }
-      if (reply.requiresDpopNonceRetry) {
-        return _postFormWithProof(
-          proofFactory,
-          uri,
-          form,
-          bearerToken: bearerToken,
-          nonce: reply.dpopNonce,
-        );
-      }
-      return Ok(reply);
-    });
-  }
+      headers: <String, String>{..._acceptJson, ...headers},
+      body: form,
+    ),
+  );
 
-  Future<Result<TransportReply, LoginFlowError>> _postFormWithProof(
-    DpopProofFactory proofFactory,
-    Uri uri,
-    Map<String, String> form, {
-    required String? bearerToken,
-    required String? nonce,
+  /// The `Authorization` and `DPoP` headers for one request to [uri] with
+  /// [accessToken], using the nonce last cached for that server. The same
+  /// headers every request of this transport carries, exposed for the app's
+  /// own resource servers (`LoginFlowAuth.authorizeResourceRequest`).
+  Future<Result<ResourceAuthorization, LoginFlowError>> authorize({
+    required String httpMethod,
+    required Uri uri,
+    required String accessToken,
   }) async {
-    final proofResult = await proofFactory.buildProof(
-      httpMethod: 'POST',
-      httpUri: uri,
-      nonce: nonce,
-      accessToken: bearerToken,
+    final proofResult = await _proof(
+      httpMethod: httpMethod,
+      uri: uri,
+      accessToken: accessToken,
+      nonce: _nonces[uri.nonceScope],
     );
-    if (proofResult case Err(:final error)) {
-      Log.e('Building the DPoP proof failed: ${error.message}');
-      return Err(error);
-    }
-    return _send(
-      () => client.post(
-        uri,
-        headers: <String, String>{
-          ..._acceptJson,
-          'DPoP': proofResult.data,
-          'Authorization': ?bearerToken.toDpopHeader(),
-        },
-        body: form,
+    return proofResult.map(
+      (proof) => ResourceAuthorization(
+        authorization: proof == null
+            ? 'Bearer $accessToken'
+            : 'DPoP $accessToken',
+        dpopProof: proof,
       ),
     );
+  }
+
+  /// Caches the `DPoP-Nonce` of [reply] for [uri]'s server and tells whether
+  /// the request must be sent once more with it: a `400 use_dpop_nonce`
+  /// from an authorization server or a `401` whose `WWW-Authenticate`
+  /// carries `error="use_dpop_nonce"` from a resource (RFC 9449 §8, §9).
+  /// Always `false` without DPoP.
+  bool acceptReply(Uri uri, TransportReply reply) {
+    if (dpop == null) {
+      return false;
+    }
+    final nonce = reply.dpopNonce;
+    if (nonce != null) {
+      _nonces[uri.nonceScope] = nonce;
+    }
+    return reply.requiresDpopNonceRetry;
   }
 
   /// Same proof-and-nonce-retry shape as [postForm], generalized to any
@@ -157,80 +144,100 @@ class LoginFlowTransport {
     required Uri uri,
     required String bearerToken,
     Map<String, Object?>? jsonBody,
-  }) async {
+  }) {
     final body = jsonBody == null ? null : jsonEncode(jsonBody);
-    final proofFactory = dpop;
-    if (proofFactory == null) {
-      return _send(
-        () => _rawRequest(
-          httpMethod,
-          uri,
-          body: body,
-          headers: <String, String>{
-            ..._acceptJson,
-            if (body != null) 'Content-Type': 'application/json',
-            'Authorization': ?bearerToken.toBearerHeader(),
-          },
-        ),
-      );
-    }
-    final first = await _sendJsonWithProof(
-      proofFactory,
-      httpMethod,
-      uri,
-      body: body,
-      bearerToken: bearerToken,
-      nonce: _nonce,
-    );
-    return first.flatMapAsync((reply) async {
-      if (reply.dpopNonce != null) {
-        _nonce = reply.dpopNonce;
-      }
-      if (reply.requiresDpopNonceRetry) {
-        return _sendJsonWithProof(
-          proofFactory,
-          httpMethod,
-          uri,
-          body: body,
-          bearerToken: bearerToken,
-          nonce: reply.dpopNonce,
-        );
-      }
-      return Ok(reply);
-    });
-  }
-
-  Future<Result<TransportReply, LoginFlowError>> _sendJsonWithProof(
-    DpopProofFactory proofFactory,
-    String httpMethod,
-    Uri uri, {
-    required String? body,
-    required String bearerToken,
-    required String? nonce,
-  }) async {
-    final proofResult = await proofFactory.buildProof(
+    return _sendAuthorized(
       httpMethod: httpMethod,
-      httpUri: uri,
-      nonce: nonce,
+      uri: uri,
       accessToken: bearerToken,
-    );
-    if (proofResult case Err(:final error)) {
-      Log.e('Building the DPoP proof failed: ${error.message}');
-      return Err(error);
-    }
-    return _send(
-      () => _rawRequest(
+      send: (headers) => _rawRequest(
         httpMethod,
         uri,
         body: body,
         headers: <String, String>{
           ..._acceptJson,
           if (body != null) 'Content-Type': 'application/json',
-          'DPoP': proofResult.data,
-          'Authorization': ?bearerToken.toDpopHeader(),
+          ...headers,
         },
       ),
     );
+  }
+
+  /// Sends with the authorization headers of [_proof] and, when the server
+  /// asks for a nonce, once more with a fresh proof carrying it.
+  Future<Result<TransportReply, LoginFlowError>> _sendAuthorized({
+    required String httpMethod,
+    required Uri uri,
+    required String? accessToken,
+    required Future<http.Response> Function(Map<String, String> headers) send,
+  }) async {
+    final first = await _sendWithProof(
+      httpMethod: httpMethod,
+      uri: uri,
+      accessToken: accessToken,
+      send: send,
+    );
+    return first.flatMapAsync(
+      (reply) async => acceptReply(uri, reply)
+          ? _sendWithProof(
+              httpMethod: httpMethod,
+              uri: uri,
+              accessToken: accessToken,
+              send: send,
+            )
+          : Ok(reply),
+    );
+  }
+
+  Future<Result<TransportReply, LoginFlowError>> _sendWithProof({
+    required String httpMethod,
+    required Uri uri,
+    required String? accessToken,
+    required Future<http.Response> Function(Map<String, String> headers) send,
+  }) async {
+    final proofResult = await _proof(
+      httpMethod: httpMethod,
+      uri: uri,
+      accessToken: accessToken,
+      nonce: _nonces[uri.nonceScope],
+    );
+    if (proofResult case Err(:final error)) {
+      return Err(error);
+    }
+    final proof = proofResult.data;
+    return _send(
+      () => send(<String, String>{
+        'DPoP': ?proof,
+        'Authorization': ?(proof == null
+            ? accessToken.toBearerHeader()
+            : accessToken.toDpopHeader()),
+      }),
+    );
+  }
+
+  /// The DPoP proof for one request, or `null` for a client without DPoP.
+  /// [accessToken], when given, becomes the `ath` claim.
+  Future<Result<String?, LoginFlowError>> _proof({
+    required String httpMethod,
+    required Uri uri,
+    required String? accessToken,
+    required String? nonce,
+  }) async {
+    final proofFactory = dpop;
+    if (proofFactory == null) {
+      return Ok(null);
+    }
+    final proofResult = await proofFactory.buildProof(
+      httpMethod: httpMethod,
+      httpUri: uri,
+      nonce: nonce,
+      accessToken: accessToken,
+    );
+    if (proofResult case Err(:final error)) {
+      Log.e('Building the DPoP proof failed: ${error.message}');
+      return Err(error);
+    }
+    return Ok(proofResult.data);
   }
 
   Future<http.Response> _rawRequest(
@@ -292,6 +299,11 @@ extension<T> on Result<T, LoginFlowError> {
   Future<Result<T, LoginFlowError>> flatMapAsync(
     Future<Result<T, LoginFlowError>> Function(T value) transform,
   ) => when(ok: transform, err: (error) async => Err(error));
+}
+
+extension on Uri {
+  /// The server a DPoP nonce belongs to (RFC 6454 origin).
+  String get nonceScope => '$scheme://$host:$port';
 }
 
 extension on String {

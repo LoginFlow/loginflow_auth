@@ -22,6 +22,7 @@ export 'src/core/error/id_token_failure.dart';
 export 'src/core/error/login_flow_error.dart';
 export 'src/core/error/passkey_failure_reason.dart';
 export 'src/core/error/upstream_failure_reason.dart';
+export 'src/core/http/resource_authorization.dart';
 export 'src/core/id_token/id_token_claims.dart';
 export 'src/core/login_flow_auth.dart';
 export 'src/core/protocol/browser/authorization_prompt.dart';

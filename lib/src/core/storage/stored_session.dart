@@ -13,6 +13,7 @@ class StoredSession {
     this.nonce,
     this.isBrowserSessionUsed = false,
     this.isSsoBound = false,
+    this.dpopJkt,
   });
 
   factory StoredSession.fromJson(Map<String, Object?> json) => StoredSession(
@@ -26,6 +27,7 @@ class StoredSession {
       absent: false,
     ),
     isSsoBound: json.optionalBool('sso_bound', absent: false),
+    dpopJkt: json.optionalString('dpop_jkt'),
   );
 
   final String refreshToken;
@@ -48,6 +50,12 @@ class StoredSession {
   /// The session was issued with `device_sso` and has a shared device secret.
   final bool isSsoBound;
 
+  /// The RFC 7638 thumbprint of the DPoP key the refresh family is bound to
+  /// (the token's `cnf.jkt`, RFC 9449 §6.1), or `null` for a session issued
+  /// without DPoP. A restored session whose key is no longer held by the
+  /// platform cannot be refreshed and is ended locally.
+  final String? dpopJkt;
+
   StoredSession copyWith({
     String? refreshToken,
     String? idToken,
@@ -56,6 +64,7 @@ class StoredSession {
     String? nonce,
     bool? isBrowserSessionUsed,
     bool? isSsoBound,
+    String? dpopJkt,
   }) => StoredSession(
     refreshToken: refreshToken ?? this.refreshToken,
     idToken: idToken ?? this.idToken,
@@ -64,6 +73,7 @@ class StoredSession {
     nonce: nonce ?? this.nonce,
     isBrowserSessionUsed: isBrowserSessionUsed ?? this.isBrowserSessionUsed,
     isSsoBound: isSsoBound ?? this.isSsoBound,
+    dpopJkt: dpopJkt ?? this.dpopJkt,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -74,6 +84,7 @@ class StoredSession {
     'nonce': ?nonce,
     'browser_session_used': isBrowserSessionUsed,
     'sso_bound': isSsoBound,
+    'dpop_jkt': ?dpopJkt,
   };
 
   @override
@@ -86,7 +97,8 @@ class StoredSession {
           authSession == other.authSession &&
           nonce == other.nonce &&
           isBrowserSessionUsed == other.isBrowserSessionUsed &&
-          isSsoBound == other.isSsoBound;
+          isSsoBound == other.isSsoBound &&
+          dpopJkt == other.dpopJkt;
 
   @override
   int get hashCode => Object.hash(
@@ -97,6 +109,7 @@ class StoredSession {
     nonce,
     isBrowserSessionUsed,
     isSsoBound,
+    dpopJkt,
   );
 
   @override
