@@ -56,15 +56,17 @@ reads every endpoint from discovery and never builds a path itself.
    the header is missing it waits 30 s. The 429 body may be any JSON object.
    Lockouts per account use the same 429, so the response does not reveal
    whether the account exists (RFC6749 §10.10, FIPA §9.3).
-7. CORS: allowed on discovery, JWKS, token, revocation and the login options
-   endpoint, and on the REST scopes `/v1/user`, `/v1/admin` and `/v1/master`,
+7. CORS: allowed on discovery, JWKS, token, revocation, the login options
+   endpoint, device logout and global logout, and on the REST scopes `/v1/user`, `/v1/admin` and `/v1/master`,
    for the server's configured origins (`CORS_ALLOWED_ORIGINS`); never on
    `/oauth2/authorize` (RFC9700 §2.6). Those endpoints allow the request
    headers `Authorization, Content-Type, Accept, X-Requested-With, DPoP` and
    expose `DPoP-Nonce, WWW-Authenticate, Retry-After, X-Request-Id,
    X-Total-Count`, so a browser app can send a DPoP proof (§13) and read the
    nonce to retry with and the `Bearer`/`DPoP` challenge of a refused token.
-   `userinfo`, device logout and global logout are not CORS-enabled. The authorization
+   `userinfo` is not CORS-enabled. Device logout and global logout are, because
+   a browser first-party app (§13) signs out through them with its DPoP-bound
+   access token; they accept no cookie, so a cross-site page cannot trigger them. The authorization
    challenge endpoint (§5) is CORS-enabled **only** for the exact browser
    origins a first-party client registered (`allowed_web_origins`,
    **LoginFlow profile**, opt-in per client): the preflight is granted
@@ -833,7 +835,16 @@ endpoint), authenticated with the user's access token
 (`Authorization: Bearer` or `DPoP`, §13 applies the same way it does to
 every other resource endpoint).
 
-| Route | Body | Response |
+Every response, success or error, uses this server's general `ApiResponse`
+envelope (`response_entity.rs`): success wraps the payload in
+`{"data": <payload>, "meta": {"status", "timestamp", "request_id", "path"}}`;
+error wraps it in `{"error": {"code", "message", "details"?}, "meta": {...}}`
+(not the RFC 6749 §5.2 shape of §1.5 — this is account-management REST, not
+an OAuth/OIDC endpoint). The "Response" column below is the `data` of that
+envelope, not the raw body — `PasskeyAccountClient`
+(`lib/src/core/http/login_flow_envelope.dart`) unwraps it on every call.
+
+| Route | Body | Response (the envelope's `data`) |
 |---|---|---|
 | `POST /v1/user/passkeys/enroll/start` | `{"username", "display_name"}` | `200` `webauthn-rs`'s `CreationChallengeResponse`, unmodified — pass to `PasskeyAuthenticator.createCredential` |
 | `POST /v1/user/passkeys/enroll/finish` | `{"credential", "name"?}` | `201` the stored credential (`id`, `name`, `created_at`, `last_used_at`) |
@@ -853,7 +864,4 @@ is in the `allowed_web_origins` of the active first-party client the access
 token was issued to (`client_id` claim), against that origin too (§5.7
 related origins, LoginFlow profile): a first-party web app enrolls from its
 own origin. Any other origin is still held to the RP origin; a request
-without `Origin` (a native app) is unchanged. Error bodies follow this server's general
-`ApiResponse` envelope
-(`{"error": {"code", "message"}}`), not the RFC6749 §5.2 shape of §1.5 —
-this is account-management REST, not an OAuth/OIDC endpoint.
+without `Origin` (a native app) is unchanged.

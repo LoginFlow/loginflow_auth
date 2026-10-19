@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
+import 'package:loginflow_auth/src/core/http/login_flow_envelope.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
@@ -41,7 +40,7 @@ class PasskeyAccountClient {
     );
     return reply.flatMap(
       (reply) => reply.isSuccess
-          ? reply.jsonObject()
+          ? reply.envelopeObject()
           : Err(_toLoginFlowError(reply)),
     );
   }
@@ -65,35 +64,26 @@ class PasskeyAccountClient {
   Future<Result<List<PasskeyCredential>, LoginFlowError>> list({
     required String bearerToken,
   }) async {
-    final reply = await transport.getJson(_collection, bearerToken: bearerToken);
+    final reply = await transport.getJson(
+      _collection,
+      bearerToken: bearerToken,
+    );
     return reply.flatMap((reply) {
       if (!reply.isSuccess) {
         return Err(_toLoginFlowError(reply));
       }
-      try {
-        final decoded = jsonDecode(reply.body);
-        if (decoded is! List<Object?>) {
+      return reply.envelopeList().flatMap((items) {
+        try {
+          return Ok(items.map(PasskeyCredential.fromJson).toList());
+        } on FormatException catch (error) {
           return Err(
             ServerResponseInvalid(
               statusCode: reply.statusCode,
-              description: 'The body is not a JSON array.',
+              description: error.message,
             ),
           );
         }
-        return Ok(
-          decoded
-              .cast<Map<String, Object?>>()
-              .map(PasskeyCredential.fromJson)
-              .toList(),
-        );
-      } on FormatException catch (error) {
-        return Err(
-          ServerResponseInvalid(
-            statusCode: reply.statusCode,
-            description: error.message,
-          ),
-        );
-      }
+      });
     });
   }
 
@@ -103,11 +93,9 @@ class PasskeyAccountClient {
     required String id,
     required String name,
   }) async {
-    final reply = await transport.patchJson(
-      _credential(id),
-      <String, Object?>{'name': name},
-      bearerToken: bearerToken,
-    );
+    final reply = await transport.patchJson(_credential(id), <String, Object?>{
+      'name': name,
+    }, bearerToken: bearerToken);
     return reply.flatMap(_toCredential);
   }
 
@@ -131,7 +119,7 @@ class PasskeyAccountClient {
     if (!reply.isSuccess) {
       return Err(_toLoginFlowError(reply));
     }
-    return reply.jsonObject().flatMap((json) {
+    return reply.envelopeObject().flatMap((json) {
       try {
         return Ok(PasskeyCredential.fromJson(json));
       } on FormatException catch (error) {

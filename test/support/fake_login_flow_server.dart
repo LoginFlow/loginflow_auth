@@ -8,7 +8,8 @@ import 'package:http/testing.dart';
 import 'package:loginflow_auth/src/core/crypto/base64_url_encoding.dart';
 import 'package:loginflow_auth/src/core/crypto/pkce_pair.dart';
 import 'package:loginflow_auth/src/core/crypto/sha256_hashing.dart';
-import 'package:loginflow_auth/src/core/dpop/dpop_proof_factory.dart' show AccessTokenHash;
+import 'package:loginflow_auth/src/core/dpop/dpop_proof_factory.dart'
+    show AccessTokenHash;
 import 'package:loginflow_auth/src/core/jose/compact_jws.dart';
 import 'package:loginflow_auth/src/core/jose/json_web_key.dart';
 import 'package:loginflow_auth/src/core/jose/jws_header.dart';
@@ -151,8 +152,7 @@ class FakeLoginFlowServer {
   /// did before the server started publishing it.
   bool hasPasskey = true;
   PasskeyMode? passkeyMode = PasskeyMode.passwordless;
-  String? googleServerClientId =
-      '1234567890-fake.apps.googleusercontent.com';
+  String? googleServerClientId = '1234567890-fake.apps.googleusercontent.com';
   String? facebookAppId = '1234567890123456';
   bool isNativeSsoSupported = true;
   String idTokenAlgorithm = 'RS256';
@@ -328,6 +328,18 @@ class FakeLoginFlowServer {
   /// A DPoP/Bearer-protected resource of the `/v1/user` REST scope.
   static const String userProfilePath = '/v1/user/me';
 
+  /// The passkey account-management REST surface
+  /// (`doc/server-contract.md` §15): `data`/`meta` envelope on success,
+  /// `error`/`meta` on failure — same `ApiResponse` shape as every other
+  /// `/v1/user` resource.
+  static const String passkeysCollectionPath = '/v1/user/passkeys';
+
+  /// Enrolled passkeys, keyed by credential id, scoped to their owner's
+  /// subject the same way `WebauthnRepository` scopes them to a company
+  /// user.
+  final Map<String, _EnrolledPasskey> _enrolledPasskeys =
+      <String, _EnrolledPasskey>{};
+
   /// Handles one request; both transports end here.
   Future<FakeHttpResponse> respond(FakeHttpRequest request) async {
     final form = request.method == 'POST'
@@ -402,6 +414,18 @@ class FakeLoginFlowServer {
         _endSessions(request, response, everywhere: true);
       case ('GET', userProfilePath):
         _userProfile(request, response);
+      case ('POST', '$passkeysCollectionPath/enroll/start'):
+        _passkeysEnrollStart(request, response);
+      case ('POST', '$passkeysCollectionPath/enroll/finish'):
+        _passkeysEnrollFinish(request, response);
+      case ('GET', passkeysCollectionPath):
+        _passkeysList(request, response);
+      case ('PATCH', final path)
+          when path.startsWith('$passkeysCollectionPath/'):
+        _passkeysRename(request, response, path.split('/').last);
+      case ('DELETE', final path)
+          when path.startsWith('$passkeysCollectionPath/'):
+        _passkeysDelete(request, response, path.split('/').last);
       case ('GET', '/oauth2/end-session'):
         endSessionRequests.add(request.uri);
         hasBrowserSession = false;
@@ -1041,6 +1065,154 @@ class FakeLoginFlowServer {
     _json(response, 200, <String, Object?>{'sub': access.subject});
   }
 
+  /// `POST /v1/user/passkeys/enroll/start`: `webauthn-rs`'s
+  /// `CreationChallengeResponse` is opaque to the client, so any JSON
+  /// object under `data` is enough to exercise the envelope.
+  void _passkeysEnrollStart(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+  ) {
+    if (_authenticatedPasskeyCaller(request, response) == null) {
+      return;
+    }
+    final body = jsonDecode(request.body) as Map<String, Object?>;
+    _envelopeSuccess(response, 200, <String, Object?>{
+      'challenge': _token32(),
+      'rp': <String, Object?>{'id': issuer.host, 'name': 'LoginFlow'},
+      'user': <String, Object?>{
+        'id': _token32(),
+        'name': body['username'],
+        'displayName': body['display_name'],
+      },
+    });
+  }
+
+  /// `POST /v1/user/passkeys/enroll/finish`.
+  void _passkeysEnrollFinish(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+  ) {
+    final access = _authenticatedPasskeyCaller(request, response);
+    if (access == null) {
+      return;
+    }
+    final body = jsonDecode(request.body) as Map<String, Object?>;
+    final credential = body['credential'] as Map<String, Object?>?;
+    final id = credential?['id'] as String? ?? 'credential-${_token32()}';
+    final enrolled = _EnrolledPasskey(
+      id: id,
+      name: body['name'] as String?,
+      createdAt: DateTime.now().toUtc(),
+      lastUsedAt: null,
+      owner: access.subject,
+    );
+    _enrolledPasskeys[id] = enrolled;
+    _envelopeSuccess(response, 201, enrolled.toJson());
+  }
+
+  /// `GET /v1/user/passkeys` — only the caller's own credentials.
+  void _passkeysList(FakeHttpRequest request, FakeHttpResponse response) {
+    final access = _authenticatedPasskeyCaller(request, response);
+    if (access == null) {
+      return;
+    }
+    final items = _enrolledPasskeys.values
+        .where((passkey) => passkey.owner == access.subject)
+        .map((passkey) => passkey.toJson())
+        .toList();
+    _envelopeSuccess(response, 200, items);
+  }
+
+  /// `PATCH /v1/user/passkeys/{id}`.
+  void _passkeysRename(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String id,
+  ) {
+    final access = _authenticatedPasskeyCaller(request, response);
+    if (access == null) {
+      return;
+    }
+    final enrolled = _enrolledPasskeys[id];
+    if (enrolled == null || enrolled.owner != access.subject) {
+      return _envelopeError(response, 404, 'not_found', 'Passkey not found.');
+    }
+    final body = jsonDecode(request.body) as Map<String, Object?>;
+    final renamed = enrolled.copyWith(name: body['name'] as String?);
+    _enrolledPasskeys[id] = renamed;
+    _envelopeSuccess(response, 200, renamed.toJson());
+  }
+
+  /// `DELETE /v1/user/passkeys/{id}`.
+  void _passkeysDelete(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String id,
+  ) {
+    final access = _authenticatedPasskeyCaller(request, response);
+    if (access == null) {
+      return;
+    }
+    final enrolled = _enrolledPasskeys[id];
+    if (enrolled == null || enrolled.owner != access.subject) {
+      return _envelopeError(response, 404, 'not_found', 'Passkey not found.');
+    }
+    _enrolledPasskeys.remove(id);
+    _envelopeSuccess(response, 200, <String, Object?>{
+      'message': 'Passkey removed',
+    });
+  }
+
+  /// The caller of a `/v1/user/passkeys*` request, or `null` after writing a
+  /// `401` to [response] — same Bearer/DPoP check as [_userProfile].
+  _AccessRecord? _authenticatedPasskeyCaller(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+  ) {
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _accessTokens[header.substring(scheme.length)]
+        : null;
+    if (access == null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] =
+            '${scheme.trim()} error="invalid_token"';
+    }
+    return access;
+  }
+
+  /// LoginFlow's standard success envelope (`response_entity.rs`'s
+  /// `ApiResponse::success`/`created`): `{"data": <payload>, "meta": {...}}`.
+  void _envelopeSuccess(FakeHttpResponse response, int status, Object? data) {
+    _json(response, status, <String, Object?>{
+      'data': data,
+      'meta': _envelopeMeta(status),
+    });
+  }
+
+  /// LoginFlow's standard error envelope (`ApiResponse::error`):
+  /// `{"error": {"code", "message"}, "meta": {...}}`.
+  void _envelopeError(
+    FakeHttpResponse response,
+    int status,
+    String code,
+    String message,
+  ) {
+    _json(response, status, <String, Object?>{
+      'error': <String, Object?>{'code': code, 'message': message},
+      'meta': _envelopeMeta(status),
+    });
+  }
+
+  Map<String, Object?> _envelopeMeta(int status) => <String, Object?>{
+    'status': status,
+    'timestamp': DateTime.now().toUtc().toIso8601String(),
+    'request_id': 'req_${_token32()}',
+    'path': passkeysCollectionPath,
+  };
+
   /// Validates the `DPoP` header against RFC 9449 §4.3: well-formed proof
   /// JWT, `typ: dpop+jwt`, `alg: ES256`, signature verifies against its own
   /// embedded `jwk`, `htm`/`htu` match this request, `jti` single use, and
@@ -1064,7 +1236,8 @@ class FakeLoginFlowServer {
     if (proof == null) {
       return 'invalid_dpop_proof';
     }
-    if (proof.httpMethod != request.method || proof.httpUri != request.uri.path) {
+    if (proof.httpMethod != request.method ||
+        proof.httpUri != request.uri.path) {
       return 'invalid_dpop_proof';
     }
     if (!_usedDpopJti.add(proof.jwtId)) {
@@ -1303,6 +1476,39 @@ class _AccessRecord {
 
   final String subject;
   final String sid;
+}
+
+/// A passkey enrolled through the account API (`doc/server-contract.md`
+/// §15), field names matching the real server's `PasskeyCredentialResponse`.
+class _EnrolledPasskey {
+  const _EnrolledPasskey({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+    required this.lastUsedAt,
+    required this.owner,
+  });
+
+  final String id;
+  final String? name;
+  final DateTime createdAt;
+  final DateTime? lastUsedAt;
+  final String owner;
+
+  _EnrolledPasskey copyWith({String? name}) => _EnrolledPasskey(
+    id: id,
+    name: name ?? this.name,
+    createdAt: createdAt,
+    lastUsedAt: lastUsedAt,
+    owner: owner,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'created_at': createdAt.toIso8601String(),
+    'last_used_at': lastUsedAt?.toIso8601String(),
+  };
 }
 
 /// A parsed, signature-verified DPoP proof (RFC 9449 §4.3).

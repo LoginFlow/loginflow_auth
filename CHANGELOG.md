@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.1
+
+- Fixed: `PasskeyAccountClient` (`enrollPasskey`, `listPasskeys`,
+  `renamePasskey`, `deletePasskey`) parsed the raw response body of every
+  `/v1/user/passkeys*` call as the payload, instead of unwrapping LoginFlow's
+  standard `{"data": <payload>, "meta": {...}}` envelope — `listPasskeys`
+  always failed with `ServerResponseInvalid` ("not a JSON array"), and the
+  other three failed as soon as `PasskeyCredential.fromJson` could not find
+  `id`/`name`/`created_at` on the envelope object. All four now go through
+  `TransportReply.envelopeObject()`/`envelopeList()`
+  (`lib/src/core/http/login_flow_envelope.dart`), the one place every
+  `/v1/user` route reads its `data`.
+- Contract: device logout and global logout are CORS-enabled for browser
+  first-party apps (server-side change, no library code change).
+
 ## 0.7.0
 
 The same native sign-in on Android, iOS, macOS, Linux and the web.
