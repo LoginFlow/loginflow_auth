@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:loginflow_auth/src/core/access_code/access_code_format.dart';
 import 'package:loginflow_auth/src/core/sso/sso_candidate.dart';
 import 'package:loginflow_auth/src/sign_in/l10n/login_flow_strings.dart';
 import 'package:loginflow_auth/src/sign_in/model/auth_method.dart';
@@ -46,6 +47,11 @@ extension SignInFeedbackPresentation on SignInFeedback {
     SignInFeedback.ssoUnavailable => strings.feedbackSsoUnavailable,
     SignInFeedback.providerUnavailable => strings.feedbackProviderUnavailable,
     SignInFeedback.unexpected => strings.feedbackUnexpected,
+    SignInFeedback.invalidAccessCode => strings.feedbackInvalidAccessCode,
+    SignInFeedback.accessCodesUnavailable =>
+      strings.feedbackAccessCodesUnavailable,
+    SignInFeedback.accessCodeNotConfigured =>
+      strings.feedbackAccessCodeNotConfigured,
   };
 }
 
@@ -54,17 +60,23 @@ extension FieldErrorPresentation on FieldError {
   String? toEmailMessage(LoginFlowStrings strings) => switch (this) {
     FieldError.none => null,
     FieldError.required => strings.emailRequired,
-    FieldError.invalidEmail => strings.emailInvalid,
+    FieldError.invalidEmail ||
+    FieldError.incompleteAccessCode => strings.emailInvalid,
   };
 
   String? toPasswordMessage(LoginFlowStrings strings) => switch (this) {
     FieldError.none => null,
-    FieldError.required || FieldError.invalidEmail => strings.passwordRequired,
+    FieldError.required ||
+    FieldError.invalidEmail ||
+    FieldError.incompleteAccessCode => strings.passwordRequired,
   };
 
   String? toCodeMessage(LoginFlowStrings strings) => switch (this) {
     FieldError.none => null,
     FieldError.required || FieldError.invalidEmail => strings.codeRequired,
+    FieldError.incompleteAccessCode => strings.accessCodeIncomplete(
+      AccessCodeFormat.length,
+    ),
   };
 }
 

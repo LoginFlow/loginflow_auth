@@ -122,6 +122,12 @@ class _PasswordStepState extends State<PasswordStep> {
                   ? widget.viewModel.useTemporaryAccessPass
                   : null,
             ),
+          if (state.isAccessCodeOffered && !widget.phase.isIdentifierLocked)
+            SignInTextAction(
+              key: SignInKeys.useAccessCodeButton,
+              label: strings.useAccessCode,
+              onPressed: isEnabled ? widget.viewModel.useAccessCode : null,
+            ),
           if (state.canGoBack)
             SignInTextAction(
               label: strings.back,

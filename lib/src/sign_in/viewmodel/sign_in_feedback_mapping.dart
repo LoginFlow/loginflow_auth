@@ -43,8 +43,8 @@ extension LoginFlowErrorFeedback on LoginFlowError {
           PasskeyFailureReason.unknown,
     ) =>
       SignInFeedback.unexpected,
-    InvalidAccessCode() => SignInFeedback.invalidCredential,
-    AccessCodesUnavailable() => SignInFeedback.providerUnavailable,
+    InvalidAccessCode() => SignInFeedback.invalidAccessCode,
+    AccessCodesUnavailable() => SignInFeedback.accessCodesUnavailable,
     ServerResponseInvalid() ||
     OAuthProtocolError() ||
     RateLimited() ||
@@ -61,6 +61,41 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     StorageFailure() ||
     UnsupportedByServer() ||
     StepUpRequired() => SignInFeedback.unexpected,
+  };
+}
+
+/// Which message a refused access-code redemption shows
+/// (`LoginFlowAuth.signInWithAccessCode`, `doc/server-contract.md` §16).
+/// Two errors mean something specific there: [ConfigurationInvalid] is the
+/// client without the DPoP key store the method requires, and
+/// [UnsupportedByServer] a server with no challenge endpoint to redeem the
+/// code at. `AccessCodeThrottled` never reaches here: it is a lockout
+/// countdown (`SignInViewModel`), not a message.
+extension AccessCodeErrorFeedback on LoginFlowError {
+  SignInFeedback toAccessCodeFeedback() => switch (this) {
+    ConfigurationInvalid() => SignInFeedback.accessCodeNotConfigured,
+    UnsupportedByServer() => SignInFeedback.accessCodesUnavailable,
+    NetworkFailure() ||
+    ServerResponseInvalid() ||
+    OAuthProtocolError() ||
+    RateLimited() ||
+    DiscoveryInvalid() ||
+    IdTokenRejected() ||
+    InsufficientAuthorization() ||
+    SessionRevoked() ||
+    ReauthenticationRequired() ||
+    NotSignedIn() ||
+    NoChallengeInProgress() ||
+    BrowserFailed() ||
+    AuthorizationResponseRejected() ||
+    AuthorizationDenied() ||
+    StorageFailure() ||
+    UpstreamFailed() ||
+    PasskeyFailed() ||
+    InvalidAccessCode() ||
+    AccessCodeThrottled() ||
+    AccessCodesUnavailable() ||
+    StepUpRequired() => toFeedback(),
   };
 }
 

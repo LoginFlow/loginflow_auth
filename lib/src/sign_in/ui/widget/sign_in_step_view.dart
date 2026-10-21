@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/sign_in/l10n/login_flow_strings_context.dart'
 import 'package:loginflow_auth/src/sign_in/model/sign_in_phase.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_state.dart';
 import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/access_code_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/email_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/method_picker_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/otp_step.dart';
@@ -75,6 +76,11 @@ class SignInStepView extends StatelessWidget {
       final SignInTemporaryAccessPassEntry phase => TemporaryAccessPassStep(
         key: SignInKeys.temporaryAccessPassStep,
         phase: phase,
+        state: state,
+        viewModel: viewModel,
+      ),
+      SignInAccessCodeEntry() => AccessCodeStep(
+        key: SignInKeys.accessCodeStep,
         state: state,
         viewModel: viewModel,
       ),

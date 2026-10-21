@@ -62,6 +62,42 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.emailInvalid,
   (l) => l.passwordRequired,
   (l) => l.codeRequired,
+  (l) => l.useAccessCode,
+  (l) => l.accessCodeTitle,
+  (l) => l.accessCodeInstructions,
+  (l) => l.accessCodeHint,
+  (l) => l.feedbackInvalidAccessCode,
+  (l) => l.feedbackAccessCodesUnavailable,
+  (l) => l.feedbackAccessCodeNotConfigured,
+  (l) => l.passkeysTitle,
+  (l) => l.passkeysSubtitle,
+  (l) => l.passkeysEmpty,
+  (l) => l.passkeysLoadFailed,
+  (l) => l.passkeysSignedOut,
+  (l) => l.passkeysSharedDevice,
+  (l) => l.addPasskey,
+  (l) => l.passkeyUnnamed,
+  (l) => l.renamePasskey,
+  (l) => l.deletePasskey,
+  (l) => l.passkeyNameLabel,
+  (l) => l.passkeyNameRequired,
+  (l) => l.saveButton,
+  (l) => l.cancelButton,
+  (l) => l.deletePasskeyTitle,
+  (l) => l.reauthenticateTitle,
+  (l) => l.reauthenticateMessage,
+  (l) => l.feedbackPasskeyNotConfigured,
+  (l) => l.feedbackPasskeyNotSupported,
+  (l) => l.feedbackPasskeyNoCredentials,
+  (l) => l.feedbackPasskeySecurityError,
+  (l) => l.feedbackPasskeyDomainNotAssociated,
+  (l) => l.feedbackPasskeyAlreadyRegistered,
+  (l) => l.feedbackPasskeyTimeout,
+  (l) => l.feedbackPasskeyInvalidResponse,
+  (l) => l.feedbackPasskeyFailed,
+  (l) => l.feedbackPasskeyNotFound,
+  (l) => l.feedbackReauthenticationRequired,
+  (l) => l.feedbackRateLimited,
 ];
 
 void main() {
@@ -101,6 +137,10 @@ void main() {
         expect(l10n.resendIn(7), contains('7'));
         expect(l10n.continueAs('Ana'), contains('Ana'));
         expect(l10n.lockedOutMessage(30), contains('30'));
+        expect(l10n.accessCodeIncomplete(8), contains('8'));
+        expect(l10n.passkeyAddedOn('3 Mar 2026'), contains('3 Mar 2026'));
+        expect(l10n.passkeyLastUsedOn('2 Oct 2026'), contains('2 Oct 2026'));
+        expect(l10n.deletePasskeyMessage('MacBook'), contains('MacBook'));
       }
     });
   });

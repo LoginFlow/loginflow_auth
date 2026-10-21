@@ -11,6 +11,7 @@ void main() {
         MicrosoftMethod(),
       ],
       isSelfSignUpOffered: true,
+      isAccessCodeOffered: true,
       copy: SignInCopy(
         title: LocalizedText(english: 'Welcome', spanish: 'Bienvenido'),
       ),

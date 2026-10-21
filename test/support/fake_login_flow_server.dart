@@ -388,12 +388,21 @@ class FakeLoginFlowServer {
   final Map<String, _EnrolledPasskey> _enrolledPasskeys =
       <String, _EnrolledPasskey>{};
 
-  /// When `true`, `enroll/start` answers like the real recent-auth gate
-  /// (`recent_auth.rs::recent_auth_required`) does for an access token
-  /// whose `auth_time` is older than 300 s: `401`, the standard error
+  /// Device sessions (`sid`) whose authentication is older than the
+  /// recent-auth window. `enroll/start` refuses their access tokens like the
+  /// real gate does for an `auth_time` older than 300 s
+  /// (`loginflow_api/src/shared/helper/recent_auth.rs:28` `is_stale`,
+  /// answered by `recent_auth_required` at :40): `401`, the standard error
   /// envelope, and `WWW-Authenticate: Bearer
-  /// error="insufficient_user_authentication", max_age=300`.
-  bool isRecentAuthenticationStale = false;
+  /// error="insufficient_user_authentication", max_age=300` (:54). A
+  /// refresh keeps its session's `auth_time`, so it stays stale; only a new
+  /// authentication (a new `sid`) is recent again.
+  final Set<String> _staleAuthentications = <String>{};
+
+  /// Plays the 300 s recent-auth window passing for every authentication
+  /// done so far; one done afterwards (a step-up) is recent.
+  void expireRecentAuthentications() =>
+      _staleAuthentications.addAll(_deviceSessions.keys);
 
   /// Handles one request; both transports end here.
   Future<FakeHttpResponse> respond(FakeHttpRequest request) async {
@@ -541,6 +550,19 @@ class FakeLoginFlowServer {
       session
         ..email = _emailOfIdToken(idTokenHint)
         ..isPrimaryAuthenticated = false
+        ..isIdentifiedByHint = true;
+    }
+    if (form['max_age'] != null) {
+      // A step-up for a recent authentication (`LoginFlowAuth.stepUp` with
+      // the gate's `max_age`): the real server never reuses an earlier
+      // authentication for an opening request — `open()` starts every
+      // transaction from `TxnState::start()`
+      // (`loginflow_api/src/features/login_engine/service/challenge_service.rs:409`,
+      // reached from `challenge_handler.rs:353-360`) — so the known user
+      // is asked for a primary factor again.
+      session
+        ..isPrimaryAuthenticated = false
+        ..isSecondFactorDone = false
         ..isIdentifiedByHint = true;
     }
     if (form['prompt'] == 'create' || form['intent'] == 'password_reset') {
@@ -1176,10 +1198,11 @@ class FakeLoginFlowServer {
     FakeHttpRequest request,
     FakeHttpResponse response,
   ) {
-    if (_authenticatedPasskeyCaller(request, response) == null) {
+    final access = _authenticatedPasskeyCaller(request, response);
+    if (access == null) {
       return;
     }
-    if (isRecentAuthenticationStale) {
+    if (_staleAuthentications.contains(access.sid)) {
       response.headers['www-authenticate'] =
           'Bearer error="insufficient_user_authentication", max_age=300';
       return _envelopeError(

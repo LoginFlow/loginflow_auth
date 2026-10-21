@@ -454,6 +454,246 @@ abstract class LoginFlowLocalizations {
   /// In es, this message translates to:
   /// **'Al continuar, aceptas la {policy}.'**
   String legalFooterPolicyOnly(String policy);
+
+  /// Entry action that opens the access-code step.
+  ///
+  /// In es, this message translates to:
+  /// **'Tengo un código de acceso'**
+  String get useAccessCode;
+
+  /// Title of the access-code step.
+  ///
+  /// In es, this message translates to:
+  /// **'Código de acceso'**
+  String get accessCodeTitle;
+
+  /// Instructions of the access-code step.
+  ///
+  /// In es, this message translates to:
+  /// **'Ingresa el código de acceso que te entregaron.'**
+  String get accessCodeInstructions;
+
+  /// Shape of an access code, shown as the field hint.
+  ///
+  /// In es, this message translates to:
+  /// **'XXXX-XXXX'**
+  String get accessCodeHint;
+
+  /// Field error: the access code is shorter than its fixed length.
+  ///
+  /// In es, this message translates to:
+  /// **'Ingresa los {length} caracteres del código'**
+  String accessCodeIncomplete(int length);
+
+  /// The server refused the access code (unknown, expired, used or revoked — never told apart).
+  ///
+  /// In es, this message translates to:
+  /// **'Ese código de acceso no es válido: puede estar mal escrito, vencido o ya usado. Revísalo o pide uno nuevo.'**
+  String get feedbackInvalidAccessCode;
+
+  /// Access codes are disabled for the application, or the server does not support them.
+  ///
+  /// In es, this message translates to:
+  /// **'Los códigos de acceso no están disponibles para esta app.'**
+  String get feedbackAccessCodesUnavailable;
+
+  /// The client has no DPoP key store, which access codes require.
+  ///
+  /// In es, this message translates to:
+  /// **'Esta app no está configurada para iniciar sesión con códigos de acceso.'**
+  String get feedbackAccessCodeNotConfigured;
+
+  /// Title of the passkey manager.
+  ///
+  /// In es, this message translates to:
+  /// **'Llaves de acceso'**
+  String get passkeysTitle;
+
+  /// Subtitle of the passkey manager.
+  ///
+  /// In es, this message translates to:
+  /// **'Inicia sesión sin contraseña con el bloqueo de pantalla de tu dispositivo.'**
+  String get passkeysSubtitle;
+
+  /// The signed-in user has no enrolled passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Todavía no tienes llaves de acceso.'**
+  String get passkeysEmpty;
+
+  /// The passkey list could not be read.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudieron cargar tus llaves de acceso.'**
+  String get passkeysLoadFailed;
+
+  /// The passkey manager is shown with nobody signed in.
+  ///
+  /// In es, this message translates to:
+  /// **'Inicia sesión para administrar tus llaves de acceso.'**
+  String get passkeysSignedOut;
+
+  /// An access-code device subject cannot enroll a passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Esta cuenta pertenece a un dispositivo compartido, así que no puede tener llaves de acceso.'**
+  String get passkeysSharedDevice;
+
+  /// Action that enrolls a new passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Agregar una llave de acceso'**
+  String get addPasskey;
+
+  /// Name shown for a passkey the user never named.
+  ///
+  /// In es, this message translates to:
+  /// **'Llave de acceso'**
+  String get passkeyUnnamed;
+
+  /// When the passkey was enrolled.
+  ///
+  /// In es, this message translates to:
+  /// **'Agregada el {date}'**
+  String passkeyAddedOn(String date);
+
+  /// When the passkey last signed the user in.
+  ///
+  /// In es, this message translates to:
+  /// **'Usada por última vez el {date}'**
+  String passkeyLastUsedOn(String date);
+
+  /// Action that renames a passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Cambiar nombre'**
+  String get renamePasskey;
+
+  /// Action that deletes a passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Eliminar'**
+  String get deletePasskey;
+
+  /// Label of the passkey name field.
+  ///
+  /// In es, this message translates to:
+  /// **'Nombre'**
+  String get passkeyNameLabel;
+
+  /// Field error: the passkey name is empty.
+  ///
+  /// In es, this message translates to:
+  /// **'Ingresa un nombre'**
+  String get passkeyNameRequired;
+
+  /// Confirms a dialog that saves a change.
+  ///
+  /// In es, this message translates to:
+  /// **'Guardar'**
+  String get saveButton;
+
+  /// Dismisses a dialog without changes.
+  ///
+  /// In es, this message translates to:
+  /// **'Cancelar'**
+  String get cancelButton;
+
+  /// Title of the delete confirmation.
+  ///
+  /// In es, this message translates to:
+  /// **'¿Eliminar esta llave de acceso?'**
+  String get deletePasskeyTitle;
+
+  /// Body of the delete confirmation.
+  ///
+  /// In es, this message translates to:
+  /// **'Ya no podrás iniciar sesión con «{name}».'**
+  String deletePasskeyMessage(String name);
+
+  /// Title shown while the user signs in again to add a passkey.
+  ///
+  /// In es, this message translates to:
+  /// **'Confirma que eres tú'**
+  String get reauthenticateTitle;
+
+  /// Explains why the user is asked to sign in again.
+  ///
+  /// In es, this message translates to:
+  /// **'Para agregar una llave de acceso, vuelve a iniciar sesión.'**
+  String get reauthenticateMessage;
+
+  /// PasskeyFailureReason.notConfigured.
+  ///
+  /// In es, this message translates to:
+  /// **'Las llaves de acceso no están configuradas en esta app.'**
+  String get feedbackPasskeyNotConfigured;
+
+  /// PasskeyFailureReason.notSupported.
+  ///
+  /// In es, this message translates to:
+  /// **'Este dispositivo no puede usar llaves de acceso.'**
+  String get feedbackPasskeyNotSupported;
+
+  /// PasskeyFailureReason.noCredentialsAvailable.
+  ///
+  /// In es, this message translates to:
+  /// **'No hay ninguna llave de acceso disponible en este dispositivo.'**
+  String get feedbackPasskeyNoCredentials;
+
+  /// PasskeyFailureReason.securityError.
+  ///
+  /// In es, this message translates to:
+  /// **'Esta app no tiene permiso para usar llaves de acceso de esta cuenta.'**
+  String get feedbackPasskeySecurityError;
+
+  /// PasskeyFailureReason.domainNotAssociated.
+  ///
+  /// In es, this message translates to:
+  /// **'Esta app todavía no está vinculada al dominio de las llaves de acceso.'**
+  String get feedbackPasskeyDomainNotAssociated;
+
+  /// PasskeyFailureReason.alreadyRegistered.
+  ///
+  /// In es, this message translates to:
+  /// **'Este dispositivo ya tiene una llave de acceso para tu cuenta.'**
+  String get feedbackPasskeyAlreadyRegistered;
+
+  /// PasskeyFailureReason.timeout.
+  ///
+  /// In es, this message translates to:
+  /// **'La llave de acceso tardó demasiado en responder. Inténtalo de nuevo.'**
+  String get feedbackPasskeyTimeout;
+
+  /// PasskeyFailureReason.invalidResponse.
+  ///
+  /// In es, this message translates to:
+  /// **'El dispositivo devolvió una respuesta no válida. Inténtalo de nuevo.'**
+  String get feedbackPasskeyInvalidResponse;
+
+  /// PasskeyFailureReason.unknown.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudo crear la llave de acceso.'**
+  String get feedbackPasskeyFailed;
+
+  /// Rename or delete of a passkey the server no longer has.
+  ///
+  /// In es, this message translates to:
+  /// **'Esa llave de acceso ya no existe.'**
+  String get feedbackPasskeyNotFound;
+
+  /// The server still asks for a recent sign-in after one step-up.
+  ///
+  /// In es, this message translates to:
+  /// **'Vuelve a iniciar sesión para agregar una llave de acceso.'**
+  String get feedbackReauthenticationRequired;
+
+  /// The server answered 429 to a passkey request.
+  ///
+  /// In es, this message translates to:
+  /// **'Demasiados intentos. Espera un momento e inténtalo de nuevo.'**
+  String get feedbackRateLimited;
 }
 
 class _LoginFlowLocalizationsDelegate

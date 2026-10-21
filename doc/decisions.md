@@ -314,3 +314,27 @@ the library already enforces every rule above (refusing the bad
 discovery document, sending `DPoP` not `Bearer`, reading `client_id`-only
 revocation correctly, etc.); the findings are all on the server side of
 the line.
+
+**D27 — Access codes in the bundled UI are an app opt-in, and the
+passkey manager reuses the sign-in steps for its step-up.** The server's
+login options never advertise `access_code` (it is not a client login
+method; `loginflow_api/docs/api/oauth2/login-options.md`), so unlike D19
+there is nothing to intersect with: `SignInConfiguration.isAccessCodeOffered`
+decides whether the entry appears, and the server stays the authority by
+refusing (`access_codes_disabled` → `AccessCodesUnavailable`). With no
+other method, the access-code step is the entry screen, so a kiosk or
+driver app needs no picker. The code's shape is checked locally before
+the request, so a typo never counts against the server's per-key and
+per-application failure thresholds.
+
+`LoginFlowPasskeys` handles `StepUpRequired` exactly as `enrollPasskey`
+documents (`stepUp(requirement)`, then one retry). The step the server asks
+for is rendered by the sign-in UI's own `SignInStepView`, driven by
+`SignInViewModel`, which already follows every `ChallengeRequired` with
+`purpose: stepUp` — no second set of password/TOTP/OTP widgets. The manager
+tells a completed step-up from a cancelled one by the session it ends in:
+a cancel returns to the resting `SignedIn` with the SAME session, a
+completed step-up yields a new one (new ID token: new `sid`, later
+`auth_time`). Only the latter retries, and only once; a second
+`StepUpRequired` is shown as a message, never looped. Our design.
+

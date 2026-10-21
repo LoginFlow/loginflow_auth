@@ -21,6 +21,7 @@ class SignInState {
     this.isSignUpOffered = false,
     this.isPasskeySignInOffered = false,
     this.isTemporaryAccessPassOffered = false,
+    this.isAccessCodeOffered = false,
     this.isMagicLinkOffered = false,
     this.copy = const SignInCopy(),
     this.policyUri,
@@ -52,6 +53,10 @@ class SignInState {
   /// ([SignInConfiguration.isTemporaryAccessPassOffered]).
   final bool isTemporaryAccessPassOffered;
 
+  /// Shows "I have an access code"
+  /// ([SignInConfiguration.isAccessCodeOffered]).
+  final bool isAccessCodeOffered;
+
   /// Shows "Email me a sign-in link instead" on the email-OTP step
   /// (`ClientLoginOptions.isMagicLinkOffered` — server-driven only, no
   /// matching `SignInConfiguration` flag: a company turns this on per
@@ -81,6 +86,7 @@ class SignInState {
     bool? isSignUpOffered,
     bool? isPasskeySignInOffered,
     bool? isTemporaryAccessPassOffered,
+    bool? isAccessCodeOffered,
     bool? isMagicLinkOffered,
     SignInCopy? copy,
     Uri? policyUri,
@@ -99,6 +105,7 @@ class SignInState {
         isPasskeySignInOffered ?? this.isPasskeySignInOffered,
     isTemporaryAccessPassOffered:
         isTemporaryAccessPassOffered ?? this.isTemporaryAccessPassOffered,
+    isAccessCodeOffered: isAccessCodeOffered ?? this.isAccessCodeOffered,
     isMagicLinkOffered: isMagicLinkOffered ?? this.isMagicLinkOffered,
     copy: copy ?? this.copy,
     policyUri: policyUri ?? this.policyUri,
@@ -129,6 +136,7 @@ class SignInState {
           isPasskeySignInOffered == other.isPasskeySignInOffered &&
           isTemporaryAccessPassOffered ==
               other.isTemporaryAccessPassOffered &&
+          isAccessCodeOffered == other.isAccessCodeOffered &&
           isMagicLinkOffered == other.isMagicLinkOffered &&
           copy == other.copy &&
           policyUri == other.policyUri &&
@@ -147,6 +155,7 @@ class SignInState {
     isSignUpOffered,
     isPasskeySignInOffered,
     isTemporaryAccessPassOffered,
+    isAccessCodeOffered,
     isMagicLinkOffered,
     copy,
     policyUri,

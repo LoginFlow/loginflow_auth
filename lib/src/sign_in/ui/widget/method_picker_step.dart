@@ -6,6 +6,7 @@ import 'package:loginflow_auth/src/sign_in/model/auth_method.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_phase.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_state.dart';
 import 'package:loginflow_auth/src/sign_in/ui/presentation/sign_in_presentation.dart';
+import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
 import 'package:loginflow_auth/src/sign_in/ui/theme/login_flow_sign_in_theme.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sign_in_buttons.dart';
 import 'package:loginflow_auth/src/sign_in/viewmodel/sign_in_viewmodel.dart';
@@ -42,6 +43,12 @@ class MethodPickerStep extends StatelessWidget {
           onPressed: state.isBusy ? null : () => viewModel.chooseMethod(method),
         ),
       ),
+      if (state.isAccessCodeOffered)
+        SignInTextAction(
+          key: SignInKeys.useAccessCodeButton,
+          label: context.loginFlowStrings.useAccessCode,
+          onPressed: state.isBusy ? null : viewModel.useAccessCode,
+        ),
       if (state.isSignUpOffered)
         SignInTextAction(
           label: context.loginFlowStrings.createAccount,

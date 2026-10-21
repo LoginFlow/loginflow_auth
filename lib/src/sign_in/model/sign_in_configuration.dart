@@ -16,6 +16,7 @@ class SignInConfiguration {
     this.isPasskeySignInOffered = true,
     this.isPasskeyAutoSuggestOffered = false,
     this.isTemporaryAccessPassOffered = false,
+    this.isAccessCodeOffered = false,
     this.copy = const SignInCopy(),
   });
 
@@ -42,6 +43,7 @@ class SignInConfiguration {
         'temporary_access_pass',
         absent: false,
       ),
+      isAccessCodeOffered: json.optionalBool('access_code', absent: false),
       copy: copy == null ? const SignInCopy() : SignInCopy.fromJson(copy),
     );
   }
@@ -80,6 +82,15 @@ class SignInConfiguration {
   /// admin-issued, single-use recovery code — `doc/server-contract.md`
   /// §5.7). Like [isPasskeySignInOffered], never gated by `login_methods`.
   final bool isTemporaryAccessPassOffered;
+
+  /// Shows "I have an access code" on the entry screen: a single-use code
+  /// the tenant's own backend issued (`doc/server-contract.md` §16,
+  /// `LoginFlowAuth.signInWithAccessCode`). Opt-in per app: the server's
+  /// login options never advertise access codes, it only refuses them
+  /// (`access_codes_disabled`) when the application has them turned off.
+  /// With no other method allowed, the access-code step is the entry
+  /// screen itself. Needs `LoginFlowConfig.enableDpop`.
+  final bool isAccessCodeOffered;
   final SignInCopy copy;
 
   SignInConfiguration copyWith({
@@ -88,6 +99,7 @@ class SignInConfiguration {
     bool? isPasskeySignInOffered,
     bool? isPasskeyAutoSuggestOffered,
     bool? isTemporaryAccessPassOffered,
+    bool? isAccessCodeOffered,
     SignInCopy? copy,
   }) => SignInConfiguration(
     methods: methods ?? this.methods,
@@ -98,6 +110,7 @@ class SignInConfiguration {
         isPasskeyAutoSuggestOffered ?? this.isPasskeyAutoSuggestOffered,
     isTemporaryAccessPassOffered:
         isTemporaryAccessPassOffered ?? this.isTemporaryAccessPassOffered,
+    isAccessCodeOffered: isAccessCodeOffered ?? this.isAccessCodeOffered,
     copy: copy ?? this.copy,
   );
 
@@ -107,6 +120,7 @@ class SignInConfiguration {
     'passkey_sign_in': isPasskeySignInOffered,
     'passkey_auto_suggest': isPasskeyAutoSuggestOffered,
     'temporary_access_pass': isTemporaryAccessPassOffered,
+    'access_code': isAccessCodeOffered,
     'copy': copy.toJson(),
   };
 
@@ -120,6 +134,7 @@ class SignInConfiguration {
           isPasskeyAutoSuggestOffered == other.isPasskeyAutoSuggestOffered &&
           isTemporaryAccessPassOffered ==
               other.isTemporaryAccessPassOffered &&
+          isAccessCodeOffered == other.isAccessCodeOffered &&
           copy == other.copy;
 
   @override
@@ -129,6 +144,7 @@ class SignInConfiguration {
     isPasskeySignInOffered,
     isPasskeyAutoSuggestOffered,
     isTemporaryAccessPassOffered,
+    isAccessCodeOffered,
     copy,
   );
 }

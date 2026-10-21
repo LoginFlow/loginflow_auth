@@ -65,6 +65,12 @@ class _EmailStepState extends State<EmailStep> {
                 ? () => unawaited(widget.viewModel.signInWithPasskey())
                 : null,
           ),
+        if (widget.state.isAccessCodeOffered)
+          SignInTextAction(
+            key: SignInKeys.useAccessCodeButton,
+            label: strings.useAccessCode,
+            onPressed: isEnabled ? widget.viewModel.useAccessCode : null,
+          ),
         if (widget.state.canGoBack)
           SignInTextAction(
             label: strings.back,

@@ -55,7 +55,7 @@ void main() {
   test('a stale sign-in on enroll/start -> StepUpRequired with the '
       "server's max_age", () async {
     final fixture = await signedIn();
-    server.isRecentAuthenticationStale = true;
+    server.expireRecentAuthentications();
 
     final enrolled = await fixture.auth.enrollPasskey(
       username: 'ana@example.com',

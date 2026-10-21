@@ -42,6 +42,16 @@ mega-file.
 | Progress bar (busy) | `progress_bar_golden_test.dart` |
 | SSO confirm ("Continue as …") | `sso_confirm_golden_test.dart` |
 | Redirect-to-web notice | `redirect_to_web_golden_test.dart` |
+| Access code step | `access_code_golden_test.dart` |
+| Access code refused (only entry screen, no "Back") | `access_code_error_golden_test.dart` |
+| Method picker with "I have an access code" | `access_code_entry_golden_test.dart` |
+| Passkey manager: list | `passkeys_list_golden_test.dart` |
+| Passkey manager: empty | `passkeys_empty_golden_test.dart` |
+| Passkey manager: ceremony failure (real reason) | `passkeys_failure_golden_test.dart` |
+| Passkey manager: shared device (no "Add") | `passkeys_shared_device_golden_test.dart` |
+| Passkey manager: re-authentication (step-up) | `passkeys_reauthentication_golden_test.dart` |
+| Passkey manager: rename dialog | `passkeys_rename_dialog_golden_test.dart` |
+| Passkey manager: delete confirmation | `passkeys_delete_dialog_golden_test.dart` |
 
 Every screen renders the 4 baseline combinations (`golden_variants.dart`):
 `phone_light`, `phone_dark`, `tablet_light`, `tablet_dark`. The identifier
@@ -61,6 +71,15 @@ passkey's OS-native sheet (Credential Manager, AuthenticationServices) is
 platform chrome this library never draws; `passkey_golden_test.dart`
 goldens the two states the library's own UI shows around it — the
 "Continue with a passkey" button and the failure banner.
+
+The passkey manager screens render the public `LoginFlowPasskeys` through
+`pumpPasskeysGolden` (same harness rules), with the state forced on
+`PasskeysService.manager`; the re-authentication golden also forces the
+sign-in flow state, since that step renders the sign-in steps. The two
+dialogs are opened by tapping their tile action, then pumped a fixed
+300 ms (no `pumpAndSettle`). Passkey dates are fixed UTC noons
+(`passkeys_fixture.dart`), so the day shown never depends on the time
+zone.
 
 ## Why no network, no `LoginFlowSignInSetup.install`
 

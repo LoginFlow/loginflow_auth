@@ -15,6 +15,11 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
       <Map<String, Object?>>[];
   bool shouldCancel = false;
 
+  /// Makes [createCredential] fail the way the platform reports it
+  /// (`PasskeyFailed` with this reason), as `CorbadoPasskeyAuthenticator`
+  /// maps a platform error.
+  PasskeyFailureReason? enrollmentFailure;
+
   @override
   Future<Result<Map<String, Object?>, LoginFlowError>> getAssertion({
     required Map<String, Object?> options,
@@ -32,6 +37,10 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
   Future<Result<Map<String, Object?>, LoginFlowError>> createCredential({
     required Map<String, Object?> options,
   }) async {
+    final failure = enrollmentFailure;
+    if (failure != null) {
+      return Err(PasskeyFailed(reason: failure));
+    }
     if (shouldCancel) {
       return Err(
         const PasskeyFailed(reason: PasskeyFailureReason.userCancelled),

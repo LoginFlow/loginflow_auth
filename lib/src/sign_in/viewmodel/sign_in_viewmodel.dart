@@ -89,6 +89,7 @@ class SignInViewModel extends ViewModel<SignInState> {
               environment.configuration.isPasskeySignInOffered,
           isTemporaryAccessPassOffered:
               environment.configuration.isTemporaryAccessPassOffered,
+          isAccessCodeOffered: environment.configuration.isAccessCodeOffered,
           copy: environment.configuration.copy,
         );
 
@@ -267,6 +268,41 @@ class SignInViewModel extends ViewModel<SignInState> {
     );
   }
 
+  /// Leaves the current screen for the access-code entry screen — a local
+  /// navigation, never a server call: the server never prompts for this
+  /// method (`doc/server-contract.md` §16).
+  void useAccessCode() {
+    if (!data.isAccessCodeOffered) {
+      return;
+    }
+    updateState(
+      data.withoutMessages().copyWith(
+        phase: const SignInAccessCodeEntry(),
+        canGoBack: true,
+      ),
+    );
+  }
+
+  /// Redeems [code] (`LoginFlowAuth.signInWithAccessCode`) after checking
+  /// its shape locally (`AccessCodeFormat.isComplete`), so a mistyped code
+  /// costs no request — and no failed attempt against the server's
+  /// throttle. A refusal stays on this step with its own message; a
+  /// throttled redemption is a lockout countdown.
+  Future<void> submitAccessCode(String code) async {
+    if (data.phase is! SignInAccessCodeEntry) {
+      return;
+    }
+    final codeError = code.toAccessCodeError();
+    if (codeError != FieldError.none) {
+      updateState(data.withoutMessages().copyWith(codeError: codeError));
+      return;
+    }
+    await _run(
+      (auth) => auth.signInWithAccessCode(code),
+      toFeedback: (error) => error.toAccessCodeFeedback(),
+    );
+  }
+
   void toggleRecoveryCode() {
     final phase = data.phase;
     if (phase is SignInTotpEntry && phase.canUseRecoveryCode) {
@@ -355,6 +391,7 @@ class SignInViewModel extends ViewModel<SignInState> {
             isPasskeySignInOffered: isPasskeySignInOffered,
             isTemporaryAccessPassOffered:
                 configuration.isTemporaryAccessPassOffered,
+            isAccessCodeOffered: configuration.isAccessCodeOffered,
             isMagicLinkOffered: options.isMagicLinkOffered,
             policyUri: options.policyUri,
             tosUri: options.tosUri,
@@ -398,8 +435,10 @@ class SignInViewModel extends ViewModel<SignInState> {
 
   Future<void> _run(
     Future<Result<AuthState, LoginFlowError>> Function(LoginFlowAuth auth)
-    action,
-  ) async {
+    action, {
+    SignInFeedback Function(LoginFlowError error) toFeedback =
+        _defaultFeedback,
+  }) async {
     final auth = _environment.auth;
     if (auth == null || _isRunning) {
       return;
@@ -418,9 +457,12 @@ class SignInViewModel extends ViewModel<SignInState> {
     }
     result.when(
       ok: (authState) => _apply(authState, base),
-      err: (error) => _applyError(error, auth.state, base),
+      err: (error) => _applyError(error, auth.state, base, toFeedback),
     );
   }
+
+  static SignInFeedback _defaultFeedback(LoginFlowError error) =>
+      error.toFeedback();
 
   /// Runs one in-flight action and ALWAYS releases the in-flight guard,
   /// even when the action throws or never answers — `LoginFlowAuth`
@@ -481,8 +523,11 @@ class SignInViewModel extends ViewModel<SignInState> {
     LoginFlowError error,
     AuthState authState,
     SignInState base,
+    SignInFeedback Function(LoginFlowError error) toFeedback,
   ) {
-    if (error case RateLimited(:final retryAfter)) {
+    if (error
+        case RateLimited(:final retryAfter) ||
+            AccessCodeThrottled(:final retryAfter)) {
       updateState(
         base.copyWith(
           phase: SignInLockedOut(
@@ -497,7 +542,7 @@ class SignInViewModel extends ViewModel<SignInState> {
     final next = base.phase is SignInAwaitingBrowser
         ? _nextState(authState, base)
         : base;
-    updateState(next.copyWith(feedback: error.toFeedback()));
+    updateState(next.copyWith(feedback: toFeedback(error)));
   }
 
   void _apply(AuthState authState, SignInState base) {
@@ -518,6 +563,7 @@ class SignInViewModel extends ViewModel<SignInState> {
           SignInEmailEntry() ||
           SignInTotpEntry() ||
           SignInTemporaryAccessPassEntry() ||
+          SignInAccessCodeEntry() ||
           SignInAwaitingBrowser() ||
           SignInSsoConfirm() ||
           SignInCompleted():
@@ -621,11 +667,17 @@ class SignInViewModel extends ViewModel<SignInState> {
     };
   }
 
-  /// The first screen: the picker, or the only method directly.
+  /// The first screen: the picker, the only method directly, or the
+  /// access-code step when that is the only way in.
   SignInState _entryState(SignInState base) {
     final methods = _available;
     if (methods.isEmpty) {
-      return base.copyWith(phase: const SignInNoMethods(), canGoBack: false);
+      return base.copyWith(
+        phase: _environment.configuration.isAccessCodeOffered
+            ? const SignInAccessCodeEntry()
+            : const SignInNoMethods(),
+        canGoBack: false,
+      );
     }
     if (methods.length == 1) {
       return _methodState(methods.single, base);
@@ -690,6 +742,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       SignInEmailEntry() ||
       SignInTotpEntry() ||
       SignInTemporaryAccessPassEntry() ||
+      SignInAccessCodeEntry() ||
       SignInAwaitingBrowser() ||
       SignInSsoConfirm() ||
       SignInCompleted() => false,

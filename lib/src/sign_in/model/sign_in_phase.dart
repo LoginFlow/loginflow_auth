@@ -192,6 +192,21 @@ final class SignInTemporaryAccessPassEntry extends SignInPhase {
   int get hashCode => Object.hash(SignInTemporaryAccessPassEntry, isIdentifierLocked);
 }
 
+/// Access-code entry: a single-use code the tenant's backend issued
+/// (`doc/server-contract.md` §16). Reached through
+/// `SignInViewModel.useAccessCode`, or the entry screen itself when the app
+/// offers no other method. A local navigation: the server never prompts
+/// for this method.
+final class SignInAccessCodeEntry extends SignInPhase {
+  const SignInAccessCodeEntry();
+
+  @override
+  bool operator ==(Object other) => other is SignInAccessCodeEntry;
+
+  @override
+  int get hashCode => (SignInAccessCodeEntry).hashCode;
+}
+
 /// The system browser is open.
 final class SignInAwaitingBrowser extends SignInPhase {
   const SignInAwaitingBrowser();

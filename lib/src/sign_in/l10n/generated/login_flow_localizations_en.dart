@@ -205,4 +205,146 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
   String legalFooterPolicyOnly(String policy) {
     return 'By continuing, you accept the $policy.';
   }
+
+  @override
+  String get useAccessCode => 'I have an access code';
+
+  @override
+  String get accessCodeTitle => 'Access code';
+
+  @override
+  String get accessCodeInstructions => 'Enter the access code you were given.';
+
+  @override
+  String get accessCodeHint => 'XXXX-XXXX';
+
+  @override
+  String accessCodeIncomplete(int length) {
+    return 'Enter the $length characters of the code';
+  }
+
+  @override
+  String get feedbackInvalidAccessCode =>
+      'That access code is not valid: it may be mistyped, expired or already used. Check it or ask for a new one.';
+
+  @override
+  String get feedbackAccessCodesUnavailable =>
+      'Access codes are not available for this app.';
+
+  @override
+  String get feedbackAccessCodeNotConfigured =>
+      'This app is not set up to sign in with access codes.';
+
+  @override
+  String get passkeysTitle => 'Passkeys';
+
+  @override
+  String get passkeysSubtitle =>
+      'Sign in without a password using your device\'s screen lock.';
+
+  @override
+  String get passkeysEmpty => 'You have no passkeys yet.';
+
+  @override
+  String get passkeysLoadFailed => 'Your passkeys could not be loaded.';
+
+  @override
+  String get passkeysSignedOut => 'Sign in to manage your passkeys.';
+
+  @override
+  String get passkeysSharedDevice =>
+      'This account belongs to a shared device, so it cannot have passkeys.';
+
+  @override
+  String get addPasskey => 'Add a passkey';
+
+  @override
+  String get passkeyUnnamed => 'Passkey';
+
+  @override
+  String passkeyAddedOn(String date) {
+    return 'Added $date';
+  }
+
+  @override
+  String passkeyLastUsedOn(String date) {
+    return 'Last used $date';
+  }
+
+  @override
+  String get renamePasskey => 'Rename';
+
+  @override
+  String get deletePasskey => 'Delete';
+
+  @override
+  String get passkeyNameLabel => 'Name';
+
+  @override
+  String get passkeyNameRequired => 'Enter a name';
+
+  @override
+  String get saveButton => 'Save';
+
+  @override
+  String get cancelButton => 'Cancel';
+
+  @override
+  String get deletePasskeyTitle => 'Delete this passkey?';
+
+  @override
+  String deletePasskeyMessage(String name) {
+    return 'You will no longer be able to sign in with “$name”.';
+  }
+
+  @override
+  String get reauthenticateTitle => 'Confirm it\'s you';
+
+  @override
+  String get reauthenticateMessage => 'To add a passkey, sign in again.';
+
+  @override
+  String get feedbackPasskeyNotConfigured =>
+      'Passkeys are not set up in this app.';
+
+  @override
+  String get feedbackPasskeyNotSupported => 'This device cannot use passkeys.';
+
+  @override
+  String get feedbackPasskeyNoCredentials =>
+      'No passkey is available on this device.';
+
+  @override
+  String get feedbackPasskeySecurityError =>
+      'This app is not allowed to use passkeys for this account.';
+
+  @override
+  String get feedbackPasskeyDomainNotAssociated =>
+      'This app is not linked to the passkey domain yet.';
+
+  @override
+  String get feedbackPasskeyAlreadyRegistered =>
+      'This device already has a passkey for your account.';
+
+  @override
+  String get feedbackPasskeyTimeout =>
+      'The passkey took too long to respond. Try again.';
+
+  @override
+  String get feedbackPasskeyInvalidResponse =>
+      'The device returned an invalid response. Try again.';
+
+  @override
+  String get feedbackPasskeyFailed => 'The passkey could not be created.';
+
+  @override
+  String get feedbackPasskeyNotFound => 'That passkey no longer exists.';
+
+  @override
+  String get feedbackReauthenticationRequired =>
+      'Sign in again to add a passkey.';
+
+  @override
+  String get feedbackRateLimited =>
+      'Too many attempts. Wait a moment and try again.';
 }

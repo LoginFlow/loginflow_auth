@@ -109,8 +109,7 @@ final class LoginFlowStringsEs implements LoginFlowStrings {
   @override
   String get feedbackSsoUnavailable => _l10n.feedbackSsoUnavailable;
   @override
-  String get feedbackProviderUnavailable =>
-      _l10n.feedbackProviderUnavailable;
+  String get feedbackProviderUnavailable => _l10n.feedbackProviderUnavailable;
   @override
   String get feedbackUnexpected => _l10n.feedbackUnexpected;
   @override
@@ -134,4 +133,90 @@ final class LoginFlowStringsEs implements LoginFlowStrings {
   @override
   String legalFooterPolicyOnly(String policy) =>
       _l10n.legalFooterPolicyOnly(policy);
+  @override
+  String get useAccessCode => _l10n.useAccessCode;
+  @override
+  String get accessCodeTitle => _l10n.accessCodeTitle;
+  @override
+  String get accessCodeInstructions => _l10n.accessCodeInstructions;
+  @override
+  String get accessCodeHint => _l10n.accessCodeHint;
+  @override
+  String accessCodeIncomplete(int length) => _l10n.accessCodeIncomplete(length);
+  @override
+  String get feedbackInvalidAccessCode => _l10n.feedbackInvalidAccessCode;
+  @override
+  String get feedbackAccessCodesUnavailable =>
+      _l10n.feedbackAccessCodesUnavailable;
+  @override
+  String get feedbackAccessCodeNotConfigured =>
+      _l10n.feedbackAccessCodeNotConfigured;
+  @override
+  String get passkeysTitle => _l10n.passkeysTitle;
+  @override
+  String get passkeysSubtitle => _l10n.passkeysSubtitle;
+  @override
+  String get passkeysEmpty => _l10n.passkeysEmpty;
+  @override
+  String get passkeysLoadFailed => _l10n.passkeysLoadFailed;
+  @override
+  String get passkeysSignedOut => _l10n.passkeysSignedOut;
+  @override
+  String get passkeysSharedDevice => _l10n.passkeysSharedDevice;
+  @override
+  String get addPasskey => _l10n.addPasskey;
+  @override
+  String get passkeyUnnamed => _l10n.passkeyUnnamed;
+  @override
+  String passkeyAddedOn(String date) => _l10n.passkeyAddedOn(date);
+  @override
+  String passkeyLastUsedOn(String date) => _l10n.passkeyLastUsedOn(date);
+  @override
+  String get renamePasskey => _l10n.renamePasskey;
+  @override
+  String get deletePasskey => _l10n.deletePasskey;
+  @override
+  String get passkeyNameLabel => _l10n.passkeyNameLabel;
+  @override
+  String get passkeyNameRequired => _l10n.passkeyNameRequired;
+  @override
+  String get saveButton => _l10n.saveButton;
+  @override
+  String get cancelButton => _l10n.cancelButton;
+  @override
+  String get deletePasskeyTitle => _l10n.deletePasskeyTitle;
+  @override
+  String deletePasskeyMessage(String name) => _l10n.deletePasskeyMessage(name);
+  @override
+  String get reauthenticateTitle => _l10n.reauthenticateTitle;
+  @override
+  String get reauthenticateMessage => _l10n.reauthenticateMessage;
+  @override
+  String get feedbackPasskeyNotConfigured => _l10n.feedbackPasskeyNotConfigured;
+  @override
+  String get feedbackPasskeyNotSupported => _l10n.feedbackPasskeyNotSupported;
+  @override
+  String get feedbackPasskeyNoCredentials => _l10n.feedbackPasskeyNoCredentials;
+  @override
+  String get feedbackPasskeySecurityError => _l10n.feedbackPasskeySecurityError;
+  @override
+  String get feedbackPasskeyDomainNotAssociated =>
+      _l10n.feedbackPasskeyDomainNotAssociated;
+  @override
+  String get feedbackPasskeyAlreadyRegistered =>
+      _l10n.feedbackPasskeyAlreadyRegistered;
+  @override
+  String get feedbackPasskeyTimeout => _l10n.feedbackPasskeyTimeout;
+  @override
+  String get feedbackPasskeyInvalidResponse =>
+      _l10n.feedbackPasskeyInvalidResponse;
+  @override
+  String get feedbackPasskeyFailed => _l10n.feedbackPasskeyFailed;
+  @override
+  String get feedbackPasskeyNotFound => _l10n.feedbackPasskeyNotFound;
+  @override
+  String get feedbackReauthenticationRequired =>
+      _l10n.feedbackReauthenticationRequired;
+  @override
+  String get feedbackRateLimited => _l10n.feedbackRateLimited;
 }

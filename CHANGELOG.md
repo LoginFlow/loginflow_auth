@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.0
+
+The prebuilt UI signs in with an access code and manages passkeys, so no
+app has to build either screen.
+
+- New: access-code sign-in in `LoginFlowSignIn`, opt-in through
+  `SignInConfiguration.isAccessCodeOffered` (JSON `access_code`, default
+  `false`) — the server's login options never advertise access codes, so
+  the app opts in. "I have an access code" appears on the method picker,
+  the password step and the email step; with no other method allowed the
+  access-code step is the entry screen. The field uses
+  `AccessCodeInputFormatter`; an incomplete code is refused locally (no
+  request); the code is redeemed with `signInWithAccessCode`, and each
+  failure has its own message: `InvalidAccessCode`,
+  `AccessCodesUnavailable` and `UnsupportedByServer`,
+  `ConfigurationInvalid` (no DPoP), network; `AccessCodeThrottled` is the
+  lockout countdown from its `retryAfter`, like `RateLimited`. The busy
+  state always ends.
+- Changed: in the bundled UI, `InvalidAccessCode` and
+  `AccessCodesUnavailable` now show access-code messages instead of the
+  generic "wrong credentials" and "option not available".
+- New: `LoginFlowPasskeys`, a prebuilt passkey manager for the signed-in
+  user (mobile and tablet/desktop layouts, `LoginFlowSignInTheme`, `en` +
+  `es`): lists passkeys (`listPasskeys`), adds (`enrollPasskey`, with
+  `username`/`displayName` from its parameters or the session identity),
+  renames (`renamePasskey`) and deletes (`deletePasskey`, behind a
+  confirmation). On `StepUpRequired` it calls `stepUp` with the server's
+  requirement, shows the requested step with the sign-in UI's own screens,
+  and retries the enrollment once after the user signs in again (cancel
+  goes back to the list). A failed ceremony shows its real
+  `PasskeyFailed` reason. Needs `LoginFlowSignInSetup.install`. No "Add a
+  passkey" for an access-code `device` subject.
+- New strings in both `login_flow_en.arb` and `login_flow_es.arb`.
+
 ## 0.8.1
 
 - Fix: a native challenge sign-in failed with `invalid_grant`

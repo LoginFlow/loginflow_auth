@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loginflow_auth/loginflow_auth.dart';
+import 'package:loginflow_auth/src/sign_in/model/passkeys_state.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_state.dart';
+import 'package:loginflow_auth/src/sign_in/service/passkeys_service.dart';
 import 'package:loginflow_auth/src/sign_in/service/sign_in_service.dart';
 
 /// The two window sizes every golden renders at, picked so
@@ -89,6 +91,60 @@ Future<void> pumpSignInGolden(
   // already exists and is mounted, then a second pump renders it.
   SignInService.flow.notifier.updateState(state);
   await tester.pump();
+}
+
+/// Pumps the public [LoginFlowPasskeys] widget with [state] forced on the
+/// manager `ViewModel` — same rules as [pumpSignInGolden]: no network, the
+/// state is forced once the ViewModel is mounted (its `init()` would
+/// overwrite an earlier one), fixed size, locale and text scale.
+///
+/// [signInState] is forced on the sign-in flow `ViewModel` too, for the
+/// re-authentication step that renders the sign-in steps inside the
+/// manager; that ViewModel mounts with the step, so it is forced after one
+/// more pump.
+Future<void> pumpPasskeysGolden(
+  WidgetTester tester, {
+  required PasskeysState state,
+  required Size size,
+  required Brightness brightness,
+  SignInState? signInState,
+  Locale locale = const Locale('es'),
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  LoginFlowLocaleService.setLocale(locale);
+  addTearDown(() => LoginFlowLocaleService.setLocale(null));
+
+  await tester.pumpWidget(
+    MediaQuery(
+      data: MediaQueryData(
+        size: size,
+        textScaler: TextScaler.noScaling,
+        platformBrightness: brightness,
+      ),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        locale: locale,
+        supportedLocales: const [Locale('en'), Locale('es')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF3F51B5),
+            brightness: brightness,
+          ),
+          extensions: const [LoginFlowSignInTheme.standard],
+        ),
+        home: const LoginFlowPasskeys(),
+      ),
+    ),
+  );
+  PasskeysService.manager.notifier.updateState(state);
+  await tester.pump();
+  if (signInState != null) {
+    SignInService.flow.notifier.updateState(signInState);
+    await tester.pump();
+  }
 }
 
 /// A small brand mark for the custom-branding goldens: a host app passes

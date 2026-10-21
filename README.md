@@ -319,6 +319,13 @@ class AcmeApp extends StatelessWidget {
   wiring needed. With the policy `disabled` (no `passkey` field), no
   passkey entry appears at all. The local flag can only hide what the
   server allows, never show what it does not.
+- **Access code** → "I have an access code" on the method picker, the
+  password and the email steps only if `isAccessCodeOffered` (default
+  `false`). The server's login options never advertise access codes, so
+  this is the app's own opt-in; the server still refuses them when the
+  application has them off (`AccessCodesUnavailable`). With no other
+  method allowed, the access-code step is the entry screen itself. See
+  [Access codes](#access-codes).
 - **Native SSO** → "Continue as …" when a sibling app is signed in.
 - **Errors** → a message above the step (wrong credentials, expired code,
   offline, …); **429** → "Too many attempts" with a countdown from
@@ -821,11 +828,43 @@ The bundled sign-in UI shows no message for `userCancelled`, the
 the generic error for the rest — and its busy state always ends, whatever
 the ceremony does.
 
-#### Managing enrolled passkeys: API + example
+#### Managing enrolled passkeys: `LoginFlowPasskeys`
 
-The bundled sign-in UI has no account screen (there is no account area in
-this library to extend — see Limitations). Build one against the API
-directly:
+`LoginFlowPasskeys` is the ready-to-use manager for the signed-in user: it
+lists their passkeys (name, when added, when last used) and adds, renames
+and deletes them — delete behind a confirmation. It works with the client
+installed by `LoginFlowSignInSetup.install`, uses the same
+`LoginFlowSignInTheme`, languages and mobile/tablet/desktop layouts as the
+sign-in UI, and is shown as a route:
+
+```dart
+Navigator.of(context).push(
+  MaterialPageRoute<void>(builder: (_) => const LoginFlowPasskeys()),
+);
+```
+
+The platform's passkey sheet shows the account as `username` and
+`displayName`; by default they come from the session identity (email, else
+the access-code subject's external id, else the subject; the name, else
+the username). Pass them to override:
+
+```dart
+const LoginFlowPasskeys(username: 'ana@example.com', displayName: 'Ana Ruiz')
+```
+
+Adding a passkey goes through the server's recent-authentication gate (see
+below). When the server answers `StepUpRequired`, the manager calls
+`stepUp` with the server's requirement and shows the step it asks for
+(password, TOTP, …) with the sign-in UI's own screens, inside the manager;
+once the user signs in again, the passkey is added — retried once, never
+in a loop. "Cancel" (or the step's "Back") abandons it. A failed ceremony
+shows its real `PasskeyFailed` reason (see the table above), a dismissed
+sheet shows nothing, and the manager is never left busy. An access-code
+`device` subject gets no "Add a passkey".
+
+#### Managing enrolled passkeys: the API
+
+To build your own screen instead, use the API directly:
 
 ```dart
 class PasskeysScreen extends StatelessWidget {
@@ -927,8 +966,40 @@ any request. The other failures are typed:
 | `UnsupportedByServer` | the discovery document has no `authorization_challenge_endpoint` |
 | `OAuthProtocolError` | any other refusal (`invalid_dpop_proof`, `unauthorized_client`, `invalid_scope`, `invalid_request`, `temporarily_unavailable`) |
 
-Every app shares one definition of the code: `AccessCodeFormat`
-(`alphabet`, `length`, `normalize`, `isComplete`, `display`) and the
+**With the bundled UI** there is nothing to write: set
+`SignInConfiguration.isAccessCodeOffered: true` (and `enableDpop`).
+`LoginFlowSignIn` then offers "I have an access code" (or opens on the
+code step when the app has no other method), formats the field, refuses
+an incomplete code locally — no request, no failed attempt counted —,
+redeems it, and maps every failure to its own message:
+`InvalidAccessCode` → "That access code is not valid…",
+`AccessCodesUnavailable` (and `UnsupportedByServer`) → "Access codes are
+not available for this app", `ConfigurationInvalid` (no DPoP) → "This
+app is not set up to sign in with access codes", `AccessCodeThrottled` →
+the "Too many attempts" countdown from `retryAfter`, a network failure →
+the offline message. The step is never left busy.
+
+```dart
+// A kiosk or driver app whose only way in is an access code.
+final auth = LoginFlowPlatform.createAuth(
+  config: LoginFlowConfig(
+    issuer: LoginFlowEnvironment.production.issuer,
+    clientId: 'routes-driver-app',
+    enableDpop: true,
+  ),
+);
+LoginFlowSignInSetup.install(
+  auth: auth,
+  configuration: const SignInConfiguration(
+    methods: [],
+    isAccessCodeOffered: true,
+  ),
+);
+```
+
+**Your own screen**: every app shares one definition of the code:
+`AccessCodeFormat` (`alphabet`, `length`, `normalize`, `isComplete`,
+`display`) and the
 `AccessCodeInputFormatter` for the text field, which uppercases, drops
 characters outside the alphabet and inserts the dash:
 
@@ -995,12 +1066,11 @@ a stolen refresh token is useless elsewhere. Wire details:
   full, visible, modal one (see [Ceremony behaviour and
   failures](#ceremony-behaviour-and-failures)). True autofill needs a
   platform-specific hook this library does not expose.
-- The bundled sign-in UI offers a passkey button and a Temporary Access
-  Pass screen, but no account screen to list/rename/delete enrolled
-  passkeys — only the API
-  (`LoginFlowAuth.enrollPasskey`/`listPasskeys`/`renamePasskey`/
-  `deletePasskey`) and the example in [Passkeys](#passkeys); an app builds
-  its own screen against it.
+- The bundled passkey manager (`LoginFlowPasskeys`) and the
+  re-authentication it asks for need the sign-in UI installed
+  (`LoginFlowSignInSetup.install`). A `LoginFlowSignIn` still mounted under
+  it (not replaced after sign-in) completes again when that
+  re-authentication does and calls its `onSignedIn` once more.
 
 ## Manual test plan
 

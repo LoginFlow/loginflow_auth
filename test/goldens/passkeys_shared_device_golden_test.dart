@@ -1,0 +1,29 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:loginflow_auth/src/sign_in/model/passkeys_phase.dart';
+import 'package:loginflow_auth/src/sign_in/model/passkeys_state.dart';
+
+import 'golden_test_harness.dart';
+import 'golden_variants.dart';
+
+/// `LoginFlowPasskeys` for an access-code `device` subject: no
+/// "Add a passkey" — a shared device has no single owner.
+void main() {
+  const screen = 'passkeys_shared_device';
+
+  for (final variant in baseGoldenVariants) {
+    testWidgets('$screen renders — ${variant.name}', (tester) async {
+      await pumpPasskeysGolden(
+        tester,
+        state: const PasskeysState(phase: PasskeysListed(passkeys: [])),
+        size: variant.size,
+        brightness: variant.brightness,
+      );
+
+      await expectLater(
+        find.byType(MaterialApp),
+        matchesGoldenFile(goldenPath(screen, variant.name)),
+      );
+    });
+  }
+}
