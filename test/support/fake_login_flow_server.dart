@@ -709,7 +709,17 @@ class FakeLoginFlowServer {
       // `webauthn-rs`'s `RequestChallengeResponse`, as the real server
       // sends it: the WebAuthn options under `publicKey`, plus `mediation:
       // conditional` on a discoverable (no `login_hint`) request
-      // (`WebauthnService::start_discoverable_authentication`).
+      // (`WebauthnService::start_discoverable_authentication`). A targeted
+      // request lists the account's passkeys as `{id, type}` with NO
+      // `transports`: the server asks for no attestation, so webauthn-rs never
+      // stores them (loginflow_api webauthn_identify_flow.rs:158-163).
+      final email = session.email;
+      final allowCredentials = <Object?>[
+        if (email != null)
+          for (final MapEntry(:key, :value) in passkeyCredentialOwners.entries)
+            if (value == email)
+              <String, Object?>{'id': key, 'type': 'public-key'},
+      ];
       return _step(
         response,
         session,
@@ -719,6 +729,8 @@ class FakeLoginFlowServer {
             'challenge': _token32(),
             'rpId': issuer.host,
             'userVerification': 'required',
+            if (allowCredentials.isNotEmpty)
+              'allowCredentials': allowCredentials,
           },
           if (session.email == null) 'mediation': 'conditional',
         },

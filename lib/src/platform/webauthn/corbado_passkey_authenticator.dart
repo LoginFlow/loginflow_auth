@@ -85,7 +85,7 @@ class CorbadoPasskeyAuthenticator implements PasskeyAuthenticator {
       );
     }
     try {
-      final credential = await ceremony(Map<String, dynamic>.from(publicKey))
+      final credential = await ceremony(_withPlatformDescriptors(publicKey))
           .timeout(ceremonyTimeout);
       return Ok(credential);
     } on TimeoutException {
@@ -129,6 +129,53 @@ class CorbadoPasskeyAuthenticator implements PasskeyAuthenticator {
       );
     }
   }
+
+  /// The `publicKey` options with every `allowCredentials` and
+  /// `excludeCredentials` descriptor in the shape the plugin parses.
+  ///
+  /// `webauthn-rs` omits `transports` when it has none — always, since the
+  /// server asks for no attestation — and the plugin's descriptor parser
+  /// casts `transports` to a list, so a missing one threw before the browser
+  /// was ever asked. It also names Bluetooth `ble` where the plugin only
+  /// accepts `bluetooth`, and throws on any name it does not know.
+  Map<String, dynamic> _withPlatformDescriptors(
+    Map<String, Object?> publicKey,
+  ) {
+    final options = Map<String, dynamic>.from(publicKey);
+    for (final key in const <String>[
+      'allowCredentials',
+      'excludeCredentials',
+    ]) {
+      final descriptors = options[key];
+      if (descriptors is List<Object?>) {
+        options[key] = descriptors
+            .whereType<Map<String, Object?>>()
+            .map(_platformDescriptor)
+            .toList();
+      }
+    }
+    return options;
+  }
+
+  Map<String, dynamic> _platformDescriptor(Map<String, Object?> descriptor) {
+    final transports = descriptor['transports'];
+    return <String, dynamic>{
+      ...descriptor,
+      'transports': <String>[
+        if (transports is List<Object?>)
+          for (final transport in transports.whereType<String>())
+            if (_platformTransport(transport) case final String name) name,
+      ],
+    };
+  }
+
+  /// The plugin's name for a WebAuthn transport, or `null` for one it does
+  /// not support (`passkeys_web` `AuthenticatorTransport.fromPlatformType`).
+  static String? _platformTransport(String transport) => switch (transport) {
+    'ble' || 'bluetooth' => 'bluetooth',
+    'usb' || 'nfc' || 'internal' || 'hybrid' => transport,
+    _ => null,
+  };
 
   /// Dismisses the platform sheet a timed-out ceremony left open, so the
   /// next attempt does not queue behind it. Best effort: a failure here

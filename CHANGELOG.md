@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2
+
+- Fix: on the web (and every platform using the `passkeys` plugin), a
+  passkey sign-in failed with `invalidResponse` before the browser was
+  asked, and so did enrolling a second passkey. LoginFlow's webauthn-rs
+  sends `allowCredentials` / `excludeCredentials` descriptors without
+  `transports` (it asks for no attestation), and the plugin's parser
+  requires them. The adapter now fills a missing `transports` with `[]`,
+  maps `ble` to `bluetooth` and drops names the plugin does not support.
+
 ## 0.9.1
 
 - Fix: `stepUp` no longer gives up when the server answers `invalid_session`

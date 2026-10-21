@@ -262,4 +262,67 @@ void main() {
       );
     });
   });
+
+  // loginflow_api's webauthn-rs never stores transports (it asks for no
+  // attestation; webauthn-rs-core internals.rs keeps them only for packed/tpm
+  // attestation), so every allowCredentials / excludeCredentials descriptor
+  // it sends is `{id, type}` with no `transports` — the real shape.
+  group('credential descriptors as webauthn-rs sends them', () {
+    const storedPasskey = <String, Object?>{
+      'id': 'ncBDzAaWsb0KuoOQBKNnIr0_FwM',
+      'type': 'public-key',
+    };
+
+    test('a targeted sign-in with allowCredentials and no transports reaches '
+        'the platform', () async {
+      final options = assertionOptions();
+      (options['publicKey']! as Map<String, Object?>)['allowCredentials'] =
+          <Object?>[storedPasskey];
+
+      final result = await adapter().getAssertion(options: options);
+
+      expect(result.isOk, isTrue, reason: '${result.errorOrNull}');
+      final allowed = platform.authenticateRequests.single.allowCredentials!;
+      expect(allowed.single.id, storedPasskey['id']);
+      expect(allowed.single.transports, isEmpty);
+    });
+
+    test('enrolling a second passkey with excludeCredentials and no '
+        'transports reaches the platform', () async {
+      final options = creationOptions();
+      (options['publicKey']! as Map<String, Object?>)['excludeCredentials'] =
+          <Object?>[storedPasskey];
+
+      final result = await adapter().createCredential(options: options);
+
+      expect(result.isOk, isTrue, reason: '${result.errorOrNull}');
+      final excluded = platform.registerRequests.single.excludeCredentials;
+      expect(excluded.single.id, storedPasskey['id']);
+    });
+
+    test("webauthn-rs's transport names reach the platform as the plugin's "
+        'names, and unknown ones are dropped', () async {
+      final options = assertionOptions();
+      (options['publicKey']!
+          as Map<String, Object?>)['allowCredentials'] = <Object?>[
+        <String, Object?>{
+          ...storedPasskey,
+          'transports': <Object?>['ble', 'internal', 'smart-card'],
+        },
+      ];
+
+      final result = await adapter().getAssertion(options: options);
+
+      expect(result.isOk, isTrue, reason: '${result.errorOrNull}');
+      expect(
+        platform
+            .authenticateRequests
+            .single
+            .allowCredentials!
+            .single
+            .transports,
+        <String>['bluetooth', 'internal'],
+      );
+    });
+  });
 }
