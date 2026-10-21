@@ -33,6 +33,18 @@ class SignInViewModel extends ViewModel<SignInState> {
   /// Wait used when a 429 carries no `Retry-After`.
   static const Duration defaultLockout = Duration(seconds: 30);
 
+  /// Upper bound of one in-flight action, so `isBusy` can never stay set
+  /// when an app-supplied adapter never answers. Any action may open the
+  /// browser (`redirect_to_web`), and a browser leg can legitimately last
+  /// up to [LoginFlowAuth.pendingLifetime] — its callback is refused as
+  /// expired after that — so the bound sits one minute above it, leaving
+  /// room for the challenge and token requests around the browser leg.
+  /// A shorter, passkey-only bound would cut a browser sign-in still in
+  /// progress; passkey ceremonies are bounded first by the adapter itself
+  /// (`CorbadoPasskeyAuthenticator.ceremonyTimeout`).
+  static final Duration actionTimeout =
+      LoginFlowAuth.pendingLifetime + const Duration(minutes: 1);
+
   SignInEnvironment _environment = const SignInEnvironment.notInstalled();
   StreamSubscription<AuthState>? _authStates;
   Timer? _countdown;
@@ -393,17 +405,50 @@ class SignInViewModel extends ViewModel<SignInState> {
     }
     _isRunning = true;
     updateState(data.withoutMessages().copyWith(isBusy: true));
-    final result = await action(auth);
-    _isRunning = false;
+    final result = await _guarded(() => action(auth));
     if (isDisposed) {
       return;
     }
     _lastAuthState = auth.state;
     final base = data.copyWith(isBusy: false);
+    if (result == null) {
+      updateState(base.copyWith(feedback: SignInFeedback.unexpected));
+      return;
+    }
     result.when(
       ok: (authState) => _apply(authState, base),
       err: (error) => _applyError(error, auth.state, base),
     );
+  }
+
+  /// Runs one in-flight action and ALWAYS releases the in-flight guard,
+  /// even when the action throws or never answers — `LoginFlowAuth`
+  /// reports expected failures as values, but an app-supplied adapter (a
+  /// `PasskeyAuthenticator`, an upstream token source) may still throw or
+  /// hang, and a guard left set would ignore every later tap. `null` means
+  /// the action threw or outlived [actionTimeout] (logged here); a late
+  /// answer still reaches the UI through `LoginFlowAuth.states`.
+  Future<Result<AuthState, LoginFlowError>?> _guarded(
+    Future<Result<AuthState, LoginFlowError>> Function() action,
+  ) async {
+    try {
+      return await action().timeout(actionTimeout);
+    } on TimeoutException {
+      Log.w(
+        'A sign-in action did not finish within '
+        '${actionTimeout.inMinutes} min.',
+      );
+      return null;
+    } on Object catch (error, stackTrace) {
+      Log.e(
+        'A sign-in action threw instead of returning an error.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    } finally {
+      _isRunning = false;
+    }
   }
 
   /// Best-effort, silent passkey suggestion on the first screen of a fresh
@@ -421,8 +466,7 @@ class SignInViewModel extends ViewModel<SignInState> {
     }
     _hasTriedPasskeyAutoSuggest = true;
     _isRunning = true;
-    final result = await auth.signInWithPasskey();
-    _isRunning = false;
+    final result = await _guarded(auth.signInWithPasskey);
     if (isDisposed) {
       return;
     }

@@ -340,6 +340,13 @@ class FakeLoginFlowServer {
   final Map<String, _EnrolledPasskey> _enrolledPasskeys =
       <String, _EnrolledPasskey>{};
 
+  /// When `true`, `enroll/start` answers like the real recent-auth gate
+  /// (`recent_auth.rs::recent_auth_required`) does for an access token
+  /// whose `auth_time` is older than 300 s: `401`, the standard error
+  /// envelope, and `WWW-Authenticate: Bearer
+  /// error="insufficient_user_authentication", max_age=300`.
+  bool isRecentAuthenticationStale = false;
+
   /// Handles one request; both transports end here.
   Future<FakeHttpResponse> respond(FakeHttpRequest request) async {
     final form = request.method == 'POST'
@@ -599,13 +606,21 @@ class FakeLoginFlowServer {
       session.isSecondFactorDone = true;
     }
     if (form['method'] == 'webauthn_identify') {
+      // `webauthn-rs`'s `RequestChallengeResponse`, as the real server
+      // sends it: the WebAuthn options under `publicKey`, plus `mediation:
+      // conditional` on a discoverable (no `login_hint`) request
+      // (`WebauthnService::start_discoverable_authentication`).
       return _step(
         response,
         session,
         'webauthn_assertion',
         options: <String, Object?>{
-          'challenge': _token32(),
-          'rpId': issuer.host,
+          'publicKey': <String, Object?>{
+            'challenge': _token32(),
+            'rpId': issuer.host,
+            'userVerification': 'required',
+          },
+          if (session.email == null) 'mediation': 'conditional',
         },
       );
     }
@@ -1074,6 +1089,16 @@ class FakeLoginFlowServer {
   ) {
     if (_authenticatedPasskeyCaller(request, response) == null) {
       return;
+    }
+    if (isRecentAuthenticationStale) {
+      response.headers['www-authenticate'] =
+          'Bearer error="insufficient_user_authentication", max_age=300';
+      return _envelopeError(
+        response,
+        401,
+        'UNAUTHORIZED',
+        'Authentication is required.',
+      );
     }
     final body = jsonDecode(request.body) as Map<String, Object?>;
     _envelopeSuccess(response, 200, <String, Object?>{

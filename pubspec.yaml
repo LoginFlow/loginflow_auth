@@ -4,7 +4,7 @@ description: >-
   OAuth 2.0 authorization challenge flow, OpenID Connect ID token validation,
   token lifecycle, Native SSO between same-publisher apps, and a ready-to-use
   sign-in UI.
-version: 0.7.1
+version: 0.7.2
 publish_to: none
 repository: https://github.com/LoginFlow/loginflow_auth
 
@@ -34,6 +34,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+  passkeys_platform_interface: ^2.10.0
 
 flutter:
   uses-material-design: true
