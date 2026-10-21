@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
+import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
 
 /// Every expected failure the library reports, as the `E` of `Result<T, E>`.
 ///
@@ -366,17 +367,58 @@ final class UpstreamFailed extends LoginFlowError {
 
 /// A passkey (WebAuthn) ceremony could not produce a credential.
 final class PasskeyFailed extends LoginFlowError {
-  const PasskeyFailed({required this.reason});
+  const PasskeyFailed({required this.reason, this.code, this.description});
 
   final PasskeyFailureReason reason;
 
+  /// The platform's own error code (a WebAuthn `DOMException` name such as
+  /// `SecurityError`, or the passkey plugin's code), when it reported one.
+  /// For logs only: switch over [reason].
+  final String? code;
+
+  /// The platform's own error message, when it reported one. For logs only.
+  final String? description;
+
   @override
-  String get message => 'Passkey ceremony failed: ${reason.name}';
+  String get message => code == null
+      ? 'Passkey ceremony failed: ${reason.name}'
+      : 'Passkey ceremony failed: ${reason.name} ($code)';
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is PasskeyFailed && reason == other.reason;
+      identical(this, other) ||
+      other is PasskeyFailed &&
+          reason == other.reason &&
+          code == other.code &&
+          description == other.description;
 
   @override
-  int get hashCode => Object.hash(PasskeyFailed, reason);
+  int get hashCode => Object.hash(PasskeyFailed, reason, code, description);
+}
+
+/// A LoginFlow account API refused the access token because the user's
+/// authentication is too old or too weak for that operation (RFC 9470:
+/// `401` with `WWW-Authenticate: Bearer
+/// error="insufficient_user_authentication"`), e.g. enrolling a passkey
+/// more than 300 s after signing in. Re-authenticate with
+/// `LoginFlowAuth.stepUp(requirement)`, then retry the same operation.
+final class StepUpRequired extends LoginFlowError {
+  const StepUpRequired({required this.requirement});
+
+  /// The server's demand (`acr_values`, `max_age`), ready for
+  /// `LoginFlowAuth.stepUp`.
+  final StepUpRequirement requirement;
+
+  @override
+  String get message =>
+      'Step-up required (max_age: ${requirement.maxAge?.inSeconds}s, '
+      'acr_values: ${requirement.acrValues.join(' ')})';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StepUpRequired && requirement == other.requirement;
+
+  @override
+  int get hashCode => Object.hash(StepUpRequired, requirement);
 }

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.2
+
+- Fixed: a passkey ceremony could hang forever. The server sends
+  `mediation: "conditional"` for a discoverable request (no `login_hint`),
+  and `CorbadoPasskeyAuthenticator` forwarded it as
+  `MediationType.Conditional` — an autofill-only request that, with no
+  autofill field, never resolves on iOS and the web. Every ceremony is now
+  modal, as documented, and bounded by the new
+  `CorbadoPasskeyAuthenticator.ceremonyTimeout` (default
+  `defaultCeremonyTimeout`, 120 s), after which the stuck sheet is
+  cancelled and the ceremony fails as `PasskeyFailed(reason: timeout)`.
+- Fixed: `CorbadoPasskeyAuthenticator` caught only Corbado's
+  `AuthenticatorException`, so the errors the plugin rethrows as a raw
+  `PlatformException` (WebAuthn `SecurityError`, `InvalidStateError`,
+  `AbortError`, `NotSupportedError` on the web; Android Credential
+  Manager DOM errors), `FormatException` and `TypeError` from malformed
+  JSON, or anything else escaped to the caller as exceptions. Every failure
+  is now a `PasskeyFailed`.
+- New: `PasskeyFailureReason.securityError`, `domainNotAssociated`
+  (previously folded into `notSupported`), `alreadyRegistered` (previously
+  folded into `invalidResponse`), `timeout` and `unknown`; and
+  `PasskeyFailed.code`/`description`, the platform's original error for
+  logs. Exhaustive switches over `PasskeyFailureReason` must handle the
+  new values.
+- New: `StepUpRequired` (a `LoginFlowError`): `enrollPasskey` — and the
+  other `/v1/user/passkeys*` calls — fail with it, carrying the server's
+  `StepUpRequirement`, when the RFC 9470 recent-authentication gate
+  answers `401` with `WWW-Authenticate: Bearer
+  error="insufficient_user_authentication"`; previously an opaque
+  `ServerResponseInvalid(statusCode: 401)`. Re-authenticate with
+  `LoginFlowAuth.stepUp(requirement)` and retry. Exhaustive switches over
+  `LoginFlowError` must handle the new subtype.
+- Fixed: the bundled sign-in UI could stay busy for good: an action that
+  threw (a misbehaving adapter) left the in-flight guard set, so every
+  later tap was ignored, and the passkey auto-suggest had the same gap.
+  Both now always release it, and a thrown action shows the generic error.
+
 ## 0.7.1
 
 - Fixed: `PasskeyAccountClient` (`enrollPasskey`, `listPasskeys`,

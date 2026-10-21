@@ -67,12 +67,13 @@ class SignInConfiguration {
   /// On the first screen of a fresh sign-in, silently tries a discoverable
   /// passkey sign-in (`LoginFlowAuth.signInWithPasskey()` with no
   /// `login_hint`) before the user picks anything — the platform's own
-  /// passkey suggestion sheet, where it has one (Android Credential
-  /// Manager, iOS AutoFill). A failure (no saved passkey, user dismissed,
-  /// not supported) falls back to the normal picker without showing an
-  /// error; only a manual tap on the passkey button surfaces one. Has no
-  /// effect when [isPasskeySignInOffered] is `false`, or when the server
-  /// does not offer a passkey as a first factor.
+  /// modal passkey sheet (Android Credential Manager, iOS/macOS
+  /// AuthenticationServices, the browser's passkey dialog), never an
+  /// autofill-only (conditional) request. A failure (no saved passkey, user
+  /// dismissed, not supported, timed out) falls back to the normal picker
+  /// without showing an error; only a manual tap on the passkey button
+  /// surfaces one. Has no effect when [isPasskeySignInOffered] is `false`,
+  /// or when the server does not offer a passkey as a first factor.
   final bool isPasskeyAutoSuggestOffered;
 
   /// Shows "Use a temporary access pass" on the entry screen (an

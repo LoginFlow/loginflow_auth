@@ -711,7 +711,9 @@ class LoginFlowAuth {
   /// Enrolls a new passkey for the signed-in user: starts the ceremony,
   /// runs it on the platform ([PasskeyAuthenticator.createCredential]) and
   /// submits the result (`POST /v1/user/passkeys/enroll/{start,finish}`).
-  /// The server requires a recently authenticated access token (RFC 9470).
+  /// The server requires a recently authenticated access token (RFC 9470):
+  /// past that window this fails with [StepUpRequired] — call
+  /// [stepUp] with its `requirement`, then call this again.
   Future<Result<PasskeyCredential, LoginFlowError>> enrollPasskey({
     required String username,
     required String displayName,

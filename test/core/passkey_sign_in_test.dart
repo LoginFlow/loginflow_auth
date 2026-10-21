@@ -64,7 +64,14 @@ void main() {
         expect(identity.subject, 'cu_ana');
 
         expect(passkey.assertionOptionsSeen, hasLength(1));
-        expect(passkey.assertionOptionsSeen.single, contains('challenge'));
+        expect(
+          passkey.assertionOptionsSeen.single['publicKey'],
+          isA<Map<String, Object?>>().having(
+            (publicKey) => publicKey.keys,
+            'keys',
+            contains('challenge'),
+          ),
+        );
 
         final tokenRequest = server.tokenRequests.single;
         expect(tokenRequest['grant_type'], 'authorization_code');

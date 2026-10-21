@@ -4,6 +4,7 @@ import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
+import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
 import 'package:result_controller/result_controller.dart';
 
 /// LoginFlow's authenticated passkey account-management API
@@ -137,9 +138,21 @@ class PasskeyAccountClient {
   /// (`{"error": {"code", "message"}}`), not the OAuth error shape
   /// (`{"error", "error_description"}`) the rest of this library's clients
   /// parse — it is not an OAuth/OIDC endpoint.
+  ///
+  /// The recent-authentication gate of `enroll/*` (RFC 9470) answers a
+  /// `401` whose body is the generic `UNAUTHORIZED` envelope; only the
+  /// `WWW-Authenticate` challenge says it is a step-up, so that header is
+  /// read first.
   LoginFlowError _toLoginFlowError(TransportReply reply) {
     if (reply.statusCode == 429) {
       return RateLimited(retryAfter: reply.retryAfter);
+    }
+    final challenge = reply.wwwAuthenticate;
+    final requirement = reply.statusCode == 401 && challenge != null
+        ? StepUpRequirement.fromWwwAuthenticate(challenge)
+        : null;
+    if (requirement != null) {
+      return StepUpRequired(requirement: requirement);
     }
     return reply.jsonObject().when(
       ok: (json) {

@@ -31,10 +31,17 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     PasskeyFailed(
       reason: PasskeyFailureReason.notConfigured ||
           PasskeyFailureReason.notSupported ||
-          PasskeyFailureReason.noCredentialsAvailable,
+          PasskeyFailureReason.noCredentialsAvailable ||
+          PasskeyFailureReason.securityError ||
+          PasskeyFailureReason.domainNotAssociated,
     ) =>
       SignInFeedback.providerUnavailable,
-    PasskeyFailed(reason: PasskeyFailureReason.invalidResponse) =>
+    PasskeyFailed(
+      reason: PasskeyFailureReason.invalidResponse ||
+          PasskeyFailureReason.alreadyRegistered ||
+          PasskeyFailureReason.timeout ||
+          PasskeyFailureReason.unknown,
+    ) =>
       SignInFeedback.unexpected,
     ServerResponseInvalid() ||
     OAuthProtocolError() ||
@@ -49,7 +56,8 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     AuthorizationResponseRejected() ||
     AuthorizationDenied() ||
     StorageFailure() ||
-    UnsupportedByServer() => SignInFeedback.unexpected,
+    UnsupportedByServer() ||
+    StepUpRequired() => SignInFeedback.unexpected,
   };
 }
 

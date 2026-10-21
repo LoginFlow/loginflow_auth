@@ -779,6 +779,48 @@ the platform association below is what makes the OS trust that host for
   required `bundle.js` and the server configuration.
 - **Linux**: no passkeys (see [Linux](#linux)).
 
+Platform requirements, in short: Android 9 (API 28)+ with Google Play
+services and a signed-in Google account; iOS 16+/macOS 13.5+ with the
+Associated Domain above; on the web, a browser with WebAuthn and Corbado's
+`bundle.js`. On Android the platform signs the ceremony with your app's
+own origin (`android:apk-key-hash:<base64url SHA-256 of the signing
+certificate>`), not an `https://` origin — the server must know that
+certificate (the same SHA-256 registered for `assetlinks.json`).
+
+#### Ceremony behaviour and failures
+
+Every ceremony `CorbadoPasskeyAuthenticator` runs is **modal**: the
+platform's passkey sheet or dialog. The server sends `mediation:
+"conditional"` for a discoverable request (no `login_hint`); the adapter
+never forwards it, because a conditional request only resolves from a
+focused autofill field and, without one, waits forever on iOS and the
+web. Each ceremony is bounded by `ceremonyTimeout` (default
+`CorbadoPasskeyAuthenticator.defaultCeremonyTimeout`, 120 s); the stuck
+sheet is cancelled when it expires.
+
+A ceremony never throws. Every failure — of the plugin, the platform or
+the JSON — is `PasskeyFailed`, with a `reason` to switch over and the
+platform's original `code`/`description` for logs:
+
+| `PasskeyFailureReason` | Cause (platform code) |
+|---|---|
+| `notConfigured` | No `PasskeyAuthenticator` configured |
+| `userCancelled` | Sheet dismissed or ceremony aborted (`NotAllowedError`, `AbortError`, `cancelled`) |
+| `noCredentialsAvailable` | No passkey for this RP on the device |
+| `notSupported` | Device, OS or account cannot use passkeys (`NotSupportedError`, no Google account on Android, Linux) |
+| `securityError` | RP ID not valid for the caller (`SecurityError`) — usually the RP ID's domain does not list this app or origin |
+| `domainNotAssociated` | Associated Domain / `assetlinks.json` missing for this app (`domain-not-associated`) |
+| `alreadyRegistered` | Enrollment: this authenticator already holds a passkey for the account (`InvalidStateError`) |
+| `timeout` | No result within `ceremonyTimeout`, or the platform's own timeout |
+| `invalidResponse` | Options or response not of the expected JSON shape |
+| `unknown` | Anything else; read `code`/`description` |
+
+The bundled sign-in UI shows no message for `userCancelled`, the
+"unavailable" message for `notConfigured`, `notSupported`,
+`noCredentialsAvailable`, `securityError` and `domainNotAssociated`, and
+the generic error for the rest — and its busy state always ends, whatever
+the ceremony does.
+
 #### Managing enrolled passkeys: API + example
 
 The bundled sign-in UI has no account screen (there is no account area in
@@ -828,11 +870,28 @@ class PasskeysScreen extends StatelessWidget {
 }
 ```
 
-`enrollPasskey`/`listPasskeys`/`renamePasskey`/`deletePasskey` require the
-RFC 9470 recently-authenticated gate the server enforces on `enroll/*`
-(`doc/server-contract.md` §15) — a token older than 300 s answers
-`ServerResponseInvalid(statusCode: 401, ...)`; re-authenticate (e.g.
-`stepUp` with a password/TOTP requirement) before retrying.
+`enrollPasskey` goes through the RFC 9470 recently-authenticated gate the
+server enforces on `enroll/*` (`doc/server-contract.md` §15): with a
+sign-in older than 300 s it fails with `StepUpRequired`, whose
+`requirement` (`max_age`, `acr_values`) comes from the server's
+`WWW-Authenticate` challenge. Re-authenticate with it, then retry:
+
+```dart
+Future<Result<PasskeyCredential, LoginFlowError>> enroll(
+  LoginFlowAuth auth,
+) async {
+  final enrolled = await auth.enrollPasskey(
+    username: 'ana@example.com',
+    displayName: 'Ana Ruiz',
+  );
+  if (enrolled case Err(error: StepUpRequired(:final requirement))) {
+    // Drive the resulting ChallengeRequired state (password, TOTP, ...)
+    // to SignedIn, then call enrollPasskey again.
+    await auth.stepUp(requirement);
+  }
+  return enrolled;
+}
+```
 
 ## Security notes
 
@@ -862,10 +921,12 @@ RFC 9470 recently-authenticated gate the server enforces on `enroll/*`
   revokes the family and both tabs sign out.
 - Google and Microsoft buttons have no brand marks; add them per each
   provider's branding guidelines.
-- Passkeys on web: no conditional UI/autofill (the browser's
-  `mediation: "conditional"` tied to a username field) — the bundled
-  passkey button always runs a full, visible ceremony. True autofill needs
-  a web-specific hook this library does not expose yet.
+- Passkeys: no conditional UI/autofill on any platform (the
+  `mediation: "conditional"` request tied to a username field) — every
+  ceremony, the bundled passkey button and auto-suggest included, is a
+  full, visible, modal one (see [Ceremony behaviour and
+  failures](#ceremony-behaviour-and-failures)). True autofill needs a
+  platform-specific hook this library does not expose.
 - The bundled sign-in UI offers a passkey button and a Temporary Access
   Pass screen, but no account screen to list/rename/delete enrolled
   passkeys — only the API
@@ -894,7 +955,7 @@ automated:
 | 11 | Android | Sign in, change the screen lock (invalidates Keystore keys), sign in again | The stored session is discarded once; the new sign-in persists normally |
 | 12 | Android | Tap "Continue with a passkey" with an enrolled passkey on the device | Credential Manager bottom sheet, then signed in |
 | 13 | iOS/macOS | Tap "Continue with a passkey" with an enrolled passkey in iCloud Keychain | AuthenticationServices sheet, then signed in |
-| 14 | Android/iOS | Enroll a passkey (`enrollPasskey`) without a recent sign-in | `ServerResponseInvalid(statusCode: 401, ...)` — re-authenticate first |
+| 14 | Android/iOS | Enroll a passkey (`enrollPasskey`) without a recent sign-in | `StepUpRequired` with `max_age` 300 s; after `stepUp`, the retry enrolls |
 | 15 | Android/iOS | "Use a temporary access pass" with a code issued by a company admin | Signs in directly, no TOTP step even on an account with TOTP enabled |
 | 16 | Web | From a registered origin, sign in with password + TOTP, reload the page | Still signed in; the session is in `localStorage`, the key is a non-extractable `CryptoKey` in IndexedDB |
 | 17 | Web | Signed in, delete the site's IndexedDB only, reload | `SignedOut(reason: sessionRevoked)`, the stored session is removed |
@@ -903,6 +964,9 @@ automated:
 | 20 | Linux | Sign in, quit, reopen | Still signed in (Secret Service) |
 | 21 | Linux | Microsoft / sign-up | Default browser opens; after login the app is signed in and the tab says it can be closed |
 | 22 | Linux | "Continue with a passkey" | The "not supported" message, no crash |
+| 23 | iOS, Web | "Continue with a passkey" with no remembered email (discoverable request) | A modal passkey sheet opens at once; dismissing it returns to the picker with no spinner |
+| 24 | Android | Enroll a passkey twice on the same device | `PasskeyFailed(alreadyRegistered)` |
+| 25 | Android | App signed with a certificate the company did not register | `PasskeyFailed(securityError)` or `domainNotAssociated`, the picker stays usable |
 
 ## Development
 
