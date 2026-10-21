@@ -126,44 +126,42 @@ void main() {
       expect(signedIn.data, isA<SignedIn>());
     });
 
-    test(
-      'magic link: request sends the OTP email and the token signs in, a wrong token does not',
-      () async {
-        final fixture = AuthFixture.create(server);
-        await fixture.auth.initialize();
+    test('magic link: request sends the OTP email and the token signs in, a '
+        'wrong token does not', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
 
-        final requested = await fixture.auth.requestEmailOtp(
-          loginHint: 'ana@example.com',
-        );
-        expect(
-          (requested.data as ChallengeRequired).prompt.step,
-          ChallengeStep.emailOtp,
-        );
+      final requested = await fixture.auth.requestEmailOtp(
+        loginHint: 'ana@example.com',
+      );
+      expect(
+        (requested.data as ChallengeRequired).prompt.step,
+        ChallengeStep.emailOtp,
+      );
 
-        final afterMagicLinkRequest = await fixture.auth.requestMagicLink();
-        expect(
-          (afterMagicLinkRequest.data as ChallengeRequired).prompt.step,
-          ChallengeStep.emailOtp,
-          reason:
-              'the server always answers next: email_otp for a magic-link '
-              'request — the code on the same step still works',
-        );
-        expect(server.sentMagicLinks, <String>['ana@example.com']);
+      final afterMagicLinkRequest = await fixture.auth.requestMagicLink();
+      expect(
+        (afterMagicLinkRequest.data as ChallengeRequired).prompt.step,
+        ChallengeStep.emailOtp,
+        reason:
+            'the server always answers next: email_otp for a magic-link '
+            'request — the code on the same step still works',
+      );
+      expect(server.sentMagicLinks, <String>['ana@example.com']);
 
-        final wrongToken = await fixture.auth.submitMagicLinkToken(
-          'not-the-real-token',
-        );
-        expect(
-          (wrongToken.data as ChallengeRequired).prompt.stepError,
-          StepError.invalidCredential,
-        );
+      final wrongToken = await fixture.auth.submitMagicLinkToken(
+        'not-the-real-token',
+      );
+      expect(
+        (wrongToken.data as ChallengeRequired).prompt.stepError,
+        StepError.invalidCredential,
+      );
 
-        final signedIn = await fixture.auth.submitMagicLinkToken(
-          FakeLoginFlowServer.magicLinkToken,
-        );
-        expect(signedIn.data, isA<SignedIn>());
-      },
-    );
+      final signedIn = await fixture.auth.submitMagicLinkToken(
+        FakeLoginFlowServer.magicLinkToken,
+      );
+      expect(signedIn.data, isA<SignedIn>());
+    });
 
     test('TOTP is asked after the password when the account has it', () async {
       final fixture = AuthFixture.create(server);
@@ -235,38 +233,35 @@ void main() {
       },
     );
 
-    test(
-      'a step-up whose stored auth_session the server no longer knows '
-      'retries once with id_token_hint',
-      () async {
-        final fixture = AuthFixture.create(server);
-        await fixture.auth.initialize();
-        await fixture.auth.signInWithPassword(
-          loginHint: 'ana@example.com',
-          password: 'correct-horse',
-        );
-        // The real server answers `invalid_session` for a stored auth_session
-        // it cannot trace back to a live session (one that came from a
-        // browser or hosted flow): loginflow_api challenge_handler.rs step-up
-        // opening, `subject_behind_auth_session`.
-        server.expireChallengeSessions();
+    test('a step-up whose stored auth_session the server no longer knows '
+        'retries once with id_token_hint', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.signInWithPassword(
+        loginHint: 'ana@example.com',
+        password: 'correct-horse',
+      );
+      // The real server answers `invalid_session` for a stored auth_session
+      // it cannot trace back to a live session (one that came from a
+      // browser or hosted flow): loginflow_api challenge_handler.rs step-up
+      // opening, `subject_behind_auth_session`.
+      server.expireChallengeSessions();
 
-        final stepUp = await fixture.auth.stepUp(
-          const StepUpRequirement(maxAge: Duration(minutes: 5)),
-        );
+      final stepUp = await fixture.auth.stepUp(
+        const StepUpRequirement(maxAge: Duration(minutes: 5)),
+      );
 
-        final required = stepUp.data as ChallengeRequired;
-        expect(required.purpose, ChallengePurpose.stepUp);
-        expect(required.prompt.step, ChallengeStep.password);
-        final retry = server.challengeRequests.last;
-        expect(retry.containsKey('auth_session'), isFalse);
-        expect(retry['id_token_hint'], isNotNull);
-        expect(retry['max_age'], '300');
+      final required = stepUp.data as ChallengeRequired;
+      expect(required.purpose, ChallengePurpose.stepUp);
+      expect(required.prompt.step, ChallengeStep.password);
+      final retry = server.challengeRequests.last;
+      expect(retry.containsKey('auth_session'), isFalse);
+      expect(retry['id_token_hint'], isNotNull);
+      expect(retry['max_age'], '300');
 
-        final done = await fixture.auth.submitPassword('correct-horse');
-        expect((done.data as SignedIn).session.identity.subject, 'cu_ana');
-      },
-    );
+      final done = await fixture.auth.submitPassword('correct-horse');
+      expect((done.data as SignedIn).session.identity.subject, 'cu_ana');
+    });
 
     test('an expired auth_session restarts the sign-in', () async {
       final fixture = AuthFixture.create(server);
@@ -361,6 +356,78 @@ void main() {
         FakeLoginFlowServer.emailOtpCode,
       );
       expect(done.data, isA<SignedIn>());
+    });
+
+    test("each step's alternatives are the real server's `methods`: primary "
+        'methods in contract order, the password step from the client '
+        'alone', () async {
+      // `magic_link` is in neither list and `passkey` only allows the
+      // password step's `webauthn_identify`
+      // (`loginflow_api/src/features/login_engine/service/challenge_service.rs:1694-1718`).
+      server.loginMethods = <String>[
+        'magic_link',
+        'apple',
+        'password',
+        'passkey',
+      ];
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+
+      final opened = await fixture.auth.beginSignIn(
+        loginHint: 'ana@example.com',
+      );
+      expect(
+        (opened.data as ChallengeRequired).prompt.alternatives,
+        <ChallengeStep>[ChallengeStep.password],
+      );
+
+      final wrong = await fixture.auth.submitPassword('not-the-password');
+      expect(
+        (wrong.data as ChallengeRequired).prompt.alternatives,
+        <ChallengeStep>[ChallengeStep.password, ChallengeStep.webauthnIdentify],
+      );
+    });
+
+    test('a passkey in the login methods is no first factor while the '
+        'company policy keeps passkeys as a second factor', () async {
+      // The real server lets `passkey` allow `webauthn_identify` only under a
+      // `passwordless` policy
+      // (`loginflow_api/src/features/oidc_provider/service/client_registry_service.rs:714-718`).
+      server
+        ..loginMethods = <String>['password', 'passkey']
+        ..passkeyMode = PasskeyMode.mfaOnly;
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.beginSignIn(loginHint: 'ana@example.com');
+
+      final wrong = await fixture.auth.submitPassword('not-the-password');
+
+      expect(
+        (wrong.data as ChallengeRequired).prompt.alternatives,
+        <ChallengeStep>[ChallengeStep.password],
+      );
+    });
+
+    test('a step-up asks to select a method when the client no longer '
+        'allows passwords', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.signInWithPassword(
+        loginHint: 'ana@example.com',
+        password: 'correct-horse',
+      );
+      // The real step-up opening answers `select_method` when the client's
+      // methods do not allow `password`
+      // (`loginflow_api/src/features/login_engine/engine.rs:115-117`).
+      server.loginMethods = <String>['email_otp'];
+
+      final stepUp = await fixture.auth.stepUp(
+        const StepUpRequirement(maxAge: Duration(minutes: 5)),
+      );
+
+      final prompt = (stepUp.data as ChallengeRequired).prompt;
+      expect(prompt.step, ChallengeStep.selectMethod);
+      expect(prompt.alternatives, <ChallengeStep>[ChallengeStep.emailOtp]);
     });
 
     test('id_token_hint only identifies the user: the step-up still asks '

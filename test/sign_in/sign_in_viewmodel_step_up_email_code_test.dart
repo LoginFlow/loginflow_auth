@@ -1,16 +1,17 @@
 // Core test (tdd-light) of the re-authentication's email-code way in.
 // Requirement: when LoginFlow asks a signed-in user to re-authenticate (the
 // step-up before adding a passkey), the bundled password step offers
-// "Email me a code" whenever the client allows `email_otp` — the server's
-// login options list it, or the prompt's alternatives do — and the user
-// completes the step-up with the emailed code (resend included). An account
-// with an unknown password (created through a tenant's service door) is
-// otherwise stuck on a password it never had.
-// Oracle: the public `SignInState`, the codes the fake server emailed and
-// the passkeys it holds afterwards. The fake mirrors the real server for a
-// step-up: `next: password` with NO `methods`
-// (`loginflow_api/src/features/login_engine/model/challenge_wire_model.rs:125-131`),
-// while still taking `method=email_otp` on that `auth_session`.
+// "Email me a code" whenever the client allows `email_otp` — the prompt's
+// `methods` list it, or the login options do — and the user completes the
+// step-up with the emailed code (resend included). An account with an
+// unknown password (created through a tenant's service door) is otherwise
+// stuck on a password it never had.
+// Oracle: the public `SignInState`, the prompt's alternatives, the codes the
+// fake server emailed and the passkeys it holds afterwards. The fake mirrors
+// the real server for a step-up: `next: password` with `methods` taken from
+// the client's `login_methods` at that request
+// (`loginflow_api/src/features/login_engine/service/challenge_service.rs:464`,
+// `:1706-1718`), and it takes `method=email_otp` on that `auth_session`.
 
 import 'dart:math';
 
@@ -76,10 +77,7 @@ void main() {
     throw TestFailure('Never idle on $T; last: ${manager().data.phase}');
   }
 
-  /// Signs [email] in with an emailed code, lets the recent-auth window
-  /// pass and asks to add a passkey: the server answers with a step-up,
-  /// whose password step is returned.
-  Future<SignInPasswordEntry> stepUpOnPasskeyEnrollment() async {
+  void install() {
     harness = SignInHarness.install(
       server,
       const SignInConfiguration(
@@ -90,12 +88,12 @@ void main() {
       ),
       passkey: FakePasskeyAuthenticator(credentialId: 'credential-new-0001'),
     );
-    await harness.auth.initialize();
-    await harness.auth.requestEmailOtp(loginHint: email);
-    final signedIn = await harness.auth.submitEmailOtp(
-      FakeLoginFlowServer.emailOtpCode,
-    );
-    expect(signedIn.data, isA<SignedIn>());
+  }
+
+  /// Lets the recent-auth window of the signed-in user pass and asks to add
+  /// a passkey: the server answers with a step-up, whose password step is
+  /// returned.
+  Future<SignInPasswordEntry> stepUpOnPasskeyEnrollment() async {
     await managerIdleOn<PasskeysListed>();
     server.expireRecentAuthentications();
 
@@ -106,10 +104,29 @@ void main() {
     return signInIdleOn<SignInPasswordEntry>();
   }
 
-  test('a step-up opened with only `next: password` is completed with an '
-      'emailed code, and the passkey is then added', () async {
-    final passwordStep = await stepUpOnPasskeyEnrollment();
+  /// Signs [email] in with an emailed code, then steps up.
+  Future<SignInPasswordEntry> stepUpAfterEmailCodeSignIn() async {
+    install();
+    await harness.auth.initialize();
+    await harness.auth.requestEmailOtp(loginHint: email);
+    final signedIn = await harness.auth.submitEmailOtp(
+      FakeLoginFlowServer.emailOtpCode,
+    );
+    expect(signedIn.data, isA<SignedIn>());
+    return stepUpOnPasskeyEnrollment();
+  }
 
+  List<ChallengeStep> promptAlternatives() =>
+      (harness.auth.state as ChallengeRequired).prompt.alternatives;
+
+  test('a step-up whose password step lists email_otp is completed with an '
+      'emailed code, and the passkey is then added', () async {
+    final passwordStep = await stepUpAfterEmailCodeSignIn();
+
+    expect(promptAlternatives(), <ChallengeStep>[
+      ChallengeStep.password,
+      ChallengeStep.emailOtp,
+    ]);
     expect(passwordStep.isIdentifierLocked, isTrue);
     expect(passwordStep.isEmailCodeOffered, isTrue);
     server.sentEmailOtps.clear();
@@ -137,8 +154,9 @@ void main() {
       "prompt's alternatives allow it", () async {
     server.loginMethods = <String>['password'];
 
-    final passwordStep = await stepUpOnPasskeyEnrollment();
+    final passwordStep = await stepUpAfterEmailCodeSignIn();
 
+    expect(promptAlternatives(), <ChallengeStep>[ChallengeStep.password]);
     expect(passwordStep.isEmailCodeOffered, isFalse);
     server.sentEmailOtps.clear();
     await signIn().useEmailCode();
@@ -146,16 +164,29 @@ void main() {
     expect(signIn().data.phase, passwordStep);
   });
 
-  test(
-    "the prompt's alternatives are honored when they list email_otp",
-    () async {
-      server
-        ..loginMethods = <String>['password']
-        ..passwordStepMethods = <String>['password', 'email_otp'];
+  test("the prompt's methods offer the email code even when the login "
+      'options read earlier did not allow it', () async {
+    // The app read its login options while the client allowed passwords
+    // only; an admin then enabled email codes. The real server resolves the
+    // client again for every challenge request, so the step-up's `methods`
+    // carry `email_otp` while the cached options still do not.
+    server.loginMethods = <String>['password'];
+    install();
+    await harness.auth.initialize();
+    await signInIdleOn<SignInPasswordEntry>();
+    final signedIn = await harness.auth.signInWithPassword(
+      loginHint: 'ana@example.com',
+      password: 'correct-horse',
+    );
+    expect(signedIn.data, isA<SignedIn>());
+    server.loginMethods = <String>['password', 'email_otp'];
 
-      final passwordStep = await stepUpOnPasskeyEnrollment();
+    final passwordStep = await stepUpOnPasskeyEnrollment();
 
-      expect(passwordStep.isEmailCodeOffered, isTrue);
-    },
-  );
+    expect(promptAlternatives(), contains(ChallengeStep.emailOtp));
+    expect(passwordStep.isEmailCodeOffered, isTrue);
+    server.sentEmailOtps.clear();
+    await signIn().useEmailCode();
+    expect(server.sentEmailOtps, <String>['ana@example.com']);
+  });
 }

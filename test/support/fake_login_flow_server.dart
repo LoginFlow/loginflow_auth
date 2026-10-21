@@ -40,6 +40,7 @@ class FakeUser {
     this.password,
     this.name,
     this.isTotpEnabled = false,
+    this.hasUnusedRecoveryCodes = true,
     this.externalSubject,
     this.subjectKind,
     this.subjectProfile,
@@ -50,6 +51,12 @@ class FakeUser {
   final String? password;
   final String? name;
   final bool isTotpEnabled;
+
+  /// Whether the account still holds an unused recovery code: the real
+  /// server offers `recovery_code` on a second-factor step only then
+  /// (`RecoveryCodeRepository::has_unused_codes`). `true` by default, like
+  /// an account that kept the codes it got when it enrolled TOTP.
+  final bool hasUnusedRecoveryCodes;
   final String? externalSubject;
   final String? subjectKind;
   final String? subjectProfile;
@@ -192,12 +199,27 @@ class FakeLoginFlowServer {
   ];
   bool isSelfSignUpEnabled = true;
 
-  /// The `methods` of the password step that asks a known user for a
-  /// primary factor (a step-up). `null` by default, like the real server,
-  /// which never sends `methods` (`loginflow_api/src/features/login_engine/
-  /// model/challenge_wire_model.rs:125-131`); set only to prove a client
-  /// honors such a list if one ever arrives.
-  List<String>? passwordStepMethods;
+  /// `select_method`'s candidates in the order the real server lists them
+  /// (`PRIMARY_METHODS`,
+  /// `loginflow_api/src/features/login_engine/service/challenge_service.rs:1694-1701`).
+  static const Map<String, String> _primaryStepMethods = <String, String>{
+    'password': 'password',
+    'email_otp': 'email_otp',
+    'google': 'google',
+    'microsoft': 'microsoft',
+    'apple': 'apple',
+    'facebook': 'facebook',
+  };
+
+  /// A `password` step's candidates: a passkey as the first factor
+  /// (`webauthn_identify`) is allowed by `passkey` (`PASSWORD_STEP_METHODS`,
+  /// `loginflow_api/src/features/login_engine/service/challenge_service.rs:1706-1707`).
+  static const Map<String, String> _passwordStepMethods = <String, String>{
+    'password': 'password',
+    'email_otp': 'email_otp',
+    'webauthn_identify': 'passkey',
+  };
+
   bool isPasswordResetEnabled = true;
 
   /// The company's passkey policy (`GET /oauth2/login-options`,
@@ -445,7 +467,7 @@ class FakeLoginFlowServer {
       case ('GET', '/oauth2/login-options'):
         _json(response, 200, <String, Object?>{
           'client_id': request.uri.queryParameters['client_id'],
-          'login_methods': loginMethods,
+          'login_methods': _allowedLoginMethods,
           'self_signup': isSelfSignUpEnabled,
           'password_reset': isPasswordResetEnabled,
           'passkey': hasPasskey,
@@ -630,7 +652,6 @@ class FakeLoginFlowServer {
           session,
           'password',
           stepError: 'invalid_credential',
-          methods: <String>['password', 'email_otp'],
         );
       }
       session.isPrimaryAuthenticated = true;
@@ -680,7 +701,6 @@ class FakeLoginFlowServer {
           session,
           totp != null ? 'totp' : 'recovery_code',
           stepError: 'invalid_credential',
-          methods: <String>['totp', 'recovery_code'],
         );
       }
       session.isSecondFactorDone = true;
@@ -764,26 +784,27 @@ class FakeLoginFlowServer {
     if (!session.isPrimaryAuthenticated &&
         !hasStepInput &&
         !session.isIdentifiedByHint) {
-      return _step(response, session, 'select_method', methods: loginMethods);
+      return _step(response, session, 'select_method');
+    }
+    if (!session.isPrimaryAuthenticated &&
+        !hasStepInput &&
+        !_allowedLoginMethods.contains('password')) {
+      // A step-up opening whose client does not allow `password` answers
+      // `select_method` (`StepUpOpening`,
+      // `loginflow_api/src/features/login_engine/engine.rs:115-117`).
+      return _step(response, session, 'select_method');
     }
     if (!session.isPrimaryAuthenticated || user == null) {
-      // No `methods` here, like the real server: its 403 body is only
-      // `error`, `next`, `step_error` and `auth_session`
-      // (`InsufficientAuthorizationBody`,
-      // `loginflow_api/src/features/login_engine/model/challenge_wire_model.rs:125-131`),
-      // so a step-up opening says `next: password` and nothing else — yet it
-      // still takes `method=email_otp` on that `auth_session` (above).
-      return _step(response, session, 'password', methods: passwordStepMethods);
+      // A step-up opening of a client that allows `password` says `next:
+      // password` with the client's password step `methods`
+      // (`_stepMethods`), and takes `method=email_otp` on that
+      // `auth_session` (above).
+      return _step(response, session, 'password');
     }
     final needsSecondFactor =
         user.isTotpEnabled || (session.acrValues?.contains('mfa') ?? false);
     if (needsSecondFactor && !session.isSecondFactorDone) {
-      return _step(
-        response,
-        session,
-        'totp',
-        methods: <String>['totp', 'recovery_code'],
-      );
+      return _step(response, session, 'totp');
     }
     final code = _issueChallengeCode(session, user);
     _json(response, 200, <String, Object?>{'authorization_code': code});
@@ -1469,18 +1490,61 @@ class FakeLoginFlowServer {
     _ChallengeSession session,
     String next, {
     String? stepError,
-    List<String>? methods,
     Map<String, Object?>? upstream,
     Map<String, Object?>? options,
-  }) => _json(response, 403, <String, Object?>{
-    'error': 'insufficient_authorization',
-    'auth_session': session.key,
-    'next': next,
-    'methods': ?methods,
-    'step_error': ?stepError,
-    'upstream': ?upstream,
-    'options': ?options,
-  });
+  }) {
+    final methods = _stepMethods(next, users[session.email]);
+    _json(response, 403, <String, Object?>{
+      'error': 'insufficient_authorization',
+      'auth_session': session.key,
+      'next': next,
+      // Omitted when empty (`InsufficientAuthorizationBody`,
+      // `loginflow_api/src/features/login_engine/model/challenge_wire_model.rs:145-153`).
+      if (methods.isNotEmpty) 'methods': methods,
+      'step_error': ?stepError,
+      'upstream': ?upstream,
+      'options': ?options,
+    });
+  }
+
+  /// The `methods` of the 403 answering [next], as the real server computes
+  /// them for every step (`ChallengeService::step_methods`,
+  /// `loginflow_api/src/features/login_engine/service/challenge_service.rs:1667-1689`):
+  /// - `select_method`, `password`: the client's [_allowedLoginMethods]
+  ///   alone, the same list for a known or an unknown identifier
+  ///   (`client_step_methods`, `:1711-1718`);
+  /// - `totp`, `recovery_code`: `totp`, plus `recovery_code` while the
+  ///   account holds an unused one (`:1676-1686`);
+  /// - any other step: none.
+  List<String> _stepMethods(String next, FakeUser? user) => switch (next) {
+    'select_method' => _allowedOf(_primaryStepMethods),
+    'password' => _allowedOf(_passwordStepMethods),
+    'totp' || 'recovery_code' => <String>[
+      'totp',
+      if (user?.hasUnusedRecoveryCodes ?? false) 'recovery_code',
+    ],
+    _ => const <String>[],
+  };
+
+  /// Wire names of [candidates] (wire name → `login_methods` name that
+  /// allows it), in their order, that [_allowedLoginMethods] allows.
+  List<String> _allowedOf(Map<String, String> candidates) => <String>[
+    for (final MapEntry(key: wireName, value: allowedBy) in candidates.entries)
+      if (_allowedLoginMethods.contains(allowedBy)) wireName,
+  ];
+
+  /// The client's [loginMethods] as the real server resolves them: `passkey`
+  /// stays only while the company policy is [PasskeyMode.passwordless], the
+  /// one policy under which a passkey is a first factor
+  /// (`loginflow_api/src/features/oidc_provider/service/client_registry_service.rs:714-718`).
+  List<String> get _allowedLoginMethods {
+    final isPasskeyFirstFactor =
+        hasPasskey && passkeyMode == PasskeyMode.passwordless;
+    return <String>[
+      for (final method in loginMethods)
+        if (method != 'passkey' || isPasskeyFirstFactor) method,
+    ];
+  }
 
   /// Like the real API, a challenge code keeps the `redirect_uri` the opening
   /// request carried, and redeeming it must present that same value.

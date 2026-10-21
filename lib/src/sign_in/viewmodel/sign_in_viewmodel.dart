@@ -727,11 +727,11 @@ class SignInViewModel extends ViewModel<SignInState> {
   }
 
   /// Whether a re-authentication may be answered with an email code. The
-  /// server opens it with `next: password` and no `methods`, yet takes
-  /// `method=email_otp` on that `auth_session`; so the client's login
-  /// options decide, and a `methods` list, if one ever arrives, is honored
-  /// too. An account that only signs in with email codes (a random
-  /// password it never knew) is otherwise stuck on this step.
+  /// server opens it with `next: password` and takes `method=email_otp` on
+  /// that `auth_session`; the prompt's `methods` decide, and the client's
+  /// login options too, for a server that does not send `methods` yet. An
+  /// account that only signs in with email codes (a random password it
+  /// never knew) is otherwise stuck on this step.
   bool _isEmailCodeAllowed(ChallengePrompt prompt) =>
       prompt.alternatives.contains(ChallengeStep.emailOtp) ||
       (_options?.allows(EmailOtpMethod.methodName) ?? false);
