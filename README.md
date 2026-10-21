@@ -893,6 +893,74 @@ Future<Result<PasskeyCredential, LoginFlowError>> enroll(
 }
 ```
 
+### Access codes
+
+For people and devices that live in **your** backend, not in LoginFlow —
+a driver or recorder, a student, a referee, a kiosk — your backend issues
+a single-use code (`POST /v1/service/access-codes` with a confidential
+client holding `access_codes:issue`) and hands it out; the person or
+device types it in the app:
+
+1. Your backend issues the code for its own subject id (`external_subject`),
+   with a `subject_kind` (`person` or `device`) and a `profile` (`Driver`,
+   `Kiosk`, ...). The code (`XXXX-XXXX`) comes back once.
+2. The app calls `signInWithAccessCode(code)`. It runs the native challenge
+   (`method=access_code`) with a DPoP proof, so the session is bound to
+   this device's key, and returns the same
+   `Result<AuthState, LoginFlowError>` as the other sign-in methods.
+3. The identity of the session carries `externalSubject` (your id — key
+   your data on it), `subjectKind` and `subjectProfile` (the `ext_sub`,
+   `subject_kind` and `ext_profile` claims; the label is never the standard
+   OIDC `profile` claim, a profile-page URL); all three are `null` for a
+   regular user. LoginFlow stores no personal data for these subjects.
+
+DPoP is required: set `enableDpop: true` in `LoginFlowConfig` (it is off by
+default; `LoginFlowPlatform.createAuth` then wires the platform key store).
+Without it `signInWithAccessCode` fails with `ConfigurationInvalid` before
+any request. The other failures are typed:
+
+| Error | When |
+|---|---|
+| `InvalidAccessCode` | malformed (refused locally), or `400 invalid_grant`: unknown, expired, already used or revoked — never told apart |
+| `AccessCodeThrottled(retryAfter)` | `429 slow_down` + `Retry-After` (seconds): too many failures from this device or address, or for the whole application |
+| `AccessCodesUnavailable` | `400 access_codes_disabled` for the application, or a server that answers the method with a step |
+| `UnsupportedByServer` | the discovery document has no `authorization_challenge_endpoint` |
+| `OAuthProtocolError` | any other refusal (`invalid_dpop_proof`, `unauthorized_client`, `invalid_scope`, `invalid_request`, `temporarily_unavailable`) |
+
+Every app shares one definition of the code: `AccessCodeFormat`
+(`alphabet`, `length`, `normalize`, `isComplete`, `display`) and the
+`AccessCodeInputFormatter` for the text field, which uppercases, drops
+characters outside the alphabet and inserts the dash:
+
+```dart
+TextField(
+  inputFormatters: const [AccessCodeInputFormatter()],
+  textCapitalization: TextCapitalization.characters,
+  autocorrect: false,
+  enableSuggestions: false,
+  onSubmitted: viewModel.redeemAccessCode, // calls auth.signInWithAccessCode
+)
+```
+
+Enable the submit button with `AccessCodeFormat.isComplete(text)`.
+
+After redeeming, a **person** may enroll a passkey so the next sign-in
+needs no code (`enrollPasskey`, see Passkeys; check
+`identity.subjectKind == AccessSubjectKind.person`). Never enroll one for
+a `device`: a shared kiosk has no single owner to bind it to.
+
+Why it is safe to hand out (OWASP ASVS V2/V3, NIST SP 800-63B look-up and
+out-of-band secrets): codes are random (CSPRNG) from an alphabet without
+look-alikes, **single use** (the row is deleted on redeem), short-lived
+(7 hours to 5 days, set per issue), stored only as a keyed hash (HMAC with
+a server pepper), and one active code exists per subject. Redemption is
+rate-limited per address and per DPoP key, plus a per-application failure
+threshold that throttles the whole application and raises an alert in the
+panel; every failure answers the same generic error, so a response never
+tells which codes exist. The session is bound to the device's DPoP key, so
+a stolen refresh token is useless elsewhere. Wire details:
+`doc/server-contract.md` §16.
+
 ## Security notes
 
 - PKCE S256 on every authorization; `plain` is never sent.

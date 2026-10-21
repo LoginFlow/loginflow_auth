@@ -85,7 +85,8 @@ class SignInViewModel extends ViewModel<SignInState> {
       ? const SignInState(phase: SignInNotConfigured())
       : SignInState(
           phase: const SignInLoadingOptions(),
-          isPasskeySignInOffered: environment.configuration.isPasskeySignInOffered,
+          isPasskeySignInOffered:
+              environment.configuration.isPasskeySignInOffered,
           isTemporaryAccessPassOffered:
               environment.configuration.isTemporaryAccessPassOffered,
           copy: environment.configuration.copy,
@@ -608,13 +609,15 @@ class SignInViewModel extends ViewModel<SignInState> {
       // Intercepted by `LoginFlowAuth` before it ever reaches a
       // `ChallengeRequired` state: `upstreamToken`/`webauthnAssertion` run
       // their native ceremony automatically, and `webauthnIdentify`/
-      // `magicLink` are client-initiated method names, never a `next`
-      // value the server sends (it always answers `next: email_otp` for a
-      // magic-link request, contract: magic link).
+      // `magicLink`/`accessCode` are client-initiated method names, never a
+      // `next` value the server sends (it always answers `next: email_otp`
+      // for a magic-link request, contract: magic link; an access code is
+      // answered in one leg, `doc/server-contract.md` §16).
       ChallengeStep.upstreamToken ||
       ChallengeStep.webauthnIdentify ||
       ChallengeStep.webauthnAssertion ||
-      ChallengeStep.magicLink => base,
+      ChallengeStep.magicLink ||
+      ChallengeStep.accessCode => base,
     };
   }
 

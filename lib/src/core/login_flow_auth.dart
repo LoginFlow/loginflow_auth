@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:http/http.dart' as http;
 import 'package:logger_rs/logger_rs.dart';
+import 'package:loginflow_auth/src/core/access_code/access_code_format.dart';
 import 'package:loginflow_auth/src/core/browser/callback_uri_matching.dart';
 import 'package:loginflow_auth/src/core/browser/external_user_agent.dart';
 import 'package:loginflow_auth/src/core/browser/pending_authorization.dart';
@@ -388,6 +389,57 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> submitTemporaryAccessPass(
     String code,
   ) => _continueAttempt(TemporaryAccessPassInput(code: code));
+
+  /// Redeems a single-use access code a tenant backend issued for one of
+  /// its own subjects (a driver, a student, a kiosk) — `method=access_code`
+  /// on the challenge endpoint, answered in one leg
+  /// (`doc/server-contract.md` §16). [code] may be typed in any case, with
+  /// spaces or the display dash; it is [AccessCodeFormat.normalize]d first.
+  ///
+  /// The session is bound to this device's DPoP key, so DPoP is required:
+  /// without [LoginFlowConfig.enableDpop] and a `DpopKeyStore` this fails
+  /// with [ConfigurationInvalid] before any request. Other failures, from
+  /// the server's RFC 6749 error bodies:
+  /// - [InvalidAccessCode]: malformed (refused locally, no request), or
+  ///   `400 {"error":"invalid_grant"}` for an unknown, expired, used or
+  ///   revoked code — the server never tells them apart.
+  /// - [AccessCodeThrottled]: `429 {"error":"slow_down"}`, with
+  ///   [AccessCodeThrottled.retryAfter] from the `Retry-After` header
+  ///   (seconds).
+  /// - [AccessCodesUnavailable]: `400 {"error":"access_codes_disabled"}`, or
+  ///   a server that answers the `access_code` method with a step instead
+  ///   of a code.
+  /// - [UnsupportedByServer] (`feature: 'authorization_challenge_endpoint'`):
+  ///   the discovery document has no `authorization_challenge_endpoint`, so
+  ///   there is nowhere to redeem the code.
+  /// - Any other refusal (`invalid_dpop_proof`, `unauthorized_client`,
+  ///   `invalid_scope`, `invalid_request`, `temporarily_unavailable`) comes
+  ///   back as [OAuthProtocolError] with the server's `error` code.
+  ///
+  /// The signed-in identity carries `externalSubject`, `subjectKind` and
+  /// `subjectProfile` (the `ext_sub`, `subject_kind` and `ext_profile`
+  /// claims).
+  Future<Result<AuthState, LoginFlowError>> signInWithAccessCode(
+    String code,
+  ) async {
+    if (_dpop == null) {
+      return Err(
+        const ConfigurationInvalid(
+          description:
+              'Access-code sign-in needs LoginFlowConfig.enableDpop and a '
+              'DpopKeyStore: the session is bound to the device key.',
+        ),
+      );
+    }
+    final normalized = AccessCodeFormat.normalize(code);
+    if (!AccessCodeFormat.isComplete(normalized)) {
+      return Err(const InvalidAccessCode());
+    }
+    return _startAttempt(
+      purpose: ChallengePurpose.signIn,
+      input: AccessCodeInput(code: normalized),
+    );
+  }
 
   /// Google natively when a [GoogleIdTokenSource] is configured, otherwise in
   /// the system browser.
@@ -1012,10 +1064,17 @@ class LoginFlowAuth {
       return Err(const NoChallengeInProgress());
     }
     if (response case Err(:final error)) {
-      return Err(error);
+      return input is AccessCodeInput
+          ? _abandon(_accessCodeFailure(error))
+          : Err(error);
     }
     final sent = attempt.copyWith(isAuthorizationSent: true);
     _attempt = sent;
+    if (input is AccessCodeInput && response.data is! ChallengeCodeIssued) {
+      // One leg by contract: a step or a browser hand-off means the server
+      // did not take the `access_code` method at all.
+      return _abandon(const AccessCodesUnavailable());
+    }
     return switch (response.data) {
       final ChallengeStepRequired step => _onStepRequired(sent, step),
       final ChallengeCodeIssued issued => _redeemCode(
@@ -1035,6 +1094,20 @@ class LoginFlowAuth {
       ChallengeSessionInvalid() => _onSessionInvalid(sent),
     };
   }
+
+  /// The typed error of a refused access-code redemption
+  /// (`doc/server-contract.md` §16); anything else (network, DPoP, an
+  /// unknown client) is reported as it came.
+  LoginFlowError _accessCodeFailure(LoginFlowError error) => switch (error) {
+    RateLimited(:final retryAfter) => AccessCodeThrottled(
+      retryAfter: retryAfter,
+    ),
+    OAuthProtocolError(code: 'slow_down') => const AccessCodeThrottled(),
+    OAuthProtocolError(code: 'invalid_grant') => const InvalidAccessCode(),
+    OAuthProtocolError(code: 'access_codes_disabled') =>
+      const AccessCodesUnavailable(),
+    _ => error,
+  };
 
   Future<Result<AuthState, LoginFlowError>> _onStepRequired(
     AuthorizationAttempt sent,

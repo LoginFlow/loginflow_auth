@@ -266,6 +266,7 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `method` (passkeys) | `webauthn_identify` → starts a passkey ceremony: targeted when sent together with `login_hint`, discoverable/conditional otherwise. Answers `next: webauthn_assertion` with `options` (§5.7) |
 | `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
 | `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |
+| `method` (access codes) + `access_code` | **LoginFlow extension.** `method=access_code` with `access_code=<normalized code>` in the opening request: a single-use code a tenant backend issued for one of its own subjects. Answered in one leg, never with a `next` (§16) |
 
 ### 5.5 Responses
 
@@ -635,6 +636,7 @@ RFC6749 §5.2 with `400` (`invalid_request`, `invalid_grant`,
 | `company_id` | **LoginFlow claim**: the company of the identity (tenant) |
 | `ds_hash` | REQUIRED when a `device_secret` is issued; HMAC of the secret under a server key (OIDC-NSSO §3.4.1) |
 | `email`, `email_verified`, `name` | with `email` / `profile` scopes |
+| `ext_sub`, `subject_kind`, `ext_profile` | **LoginFlow extension**, access-code subjects only (§16). The library reads `subject_kind` and `ext_profile` only when `ext_sub` is present, and never reads the standard `profile` claim |
 
 The library validates every ID token before trusting it (OIDC-CORE §3.1.3.7):
 signature with the JWKS key named by `kid`, `alg` ∈ {RS256, ES256} ∩
@@ -865,3 +867,50 @@ token was issued to (`client_id` claim), against that origin too (§5.7
 related origins, LoginFlow profile): a first-party web app enrolls from its
 own origin. Any other origin is still held to the RP origin; a request
 without `Origin` (a native app) is unchanged.
+
+## 16. Access codes (LoginFlow extension)
+
+A tenant backend (a driver app's server, a school system, a kiosk fleet)
+issues a single-use code for a subject that lives in **its own** database;
+the person or device types it in the app and gets a LoginFlow session.
+LoginFlow keeps no personal data for these subjects, only a minimal subject
+record whose id is the token `sub`. Issuing, listing and revoking codes are
+machine routes of the tenant backend (`/v1/service/access-codes`, scope
+`access_codes:issue`), not part of this library.
+
+**The code.** Exactly 8 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ`
+(no `0 O 1 I L`), generated with a CSPRNG, shown as `XXXX-XXXX`. Input is
+case-insensitive and spaces and dashes are ignored; the library sends the
+normalized value (`AccessCodeFormat.normalize`) and refuses locally anything
+that is not 8 alphabet characters. The server stores only a keyed hash
+(HMAC-SHA256 under a server pepper), never the code.
+
+**Redemption.** Opening request of `POST {authorization_challenge_endpoint}`
+(§5.2/§5.3 authorization parameters as usual) with `method=access_code` and
+`access_code=<code>`, from a `first_party` client of the **same**
+application, with a DPoP proof (§13) — REQUIRED here, not only at the token
+endpoint: the session is bound to the device key. The claim is atomic and
+the code is deleted on redeem, so it works once.
+
+| Outcome | Response | Library |
+|---|---|---|
+| Valid code | `200 {"authorization_code"}`, then §7.1 as usual (DPoP-bound tokens) | `SignedIn` |
+| Unknown, expired, used or revoked code | `400 {"error":"invalid_grant","error_description":"the access code is invalid, expired or already used"}` — the same body for every case (no enumeration) | `InvalidAccessCode` |
+| Too many failures (per address/DPoP key, or the per-application threshold) | `429 {"error":"slow_down","error_description":"too many failed attempts"}` + `Retry-After: <seconds>` (e.g. `900`) | `AccessCodeThrottled(retryAfter)` |
+| Access codes disabled for the application | `400 {"error":"access_codes_disabled","error_description":"access codes are disabled for this application"}` | `AccessCodesUnavailable` |
+| `invalid_dpop_proof`, `unauthorized_client`, `invalid_scope`, `invalid_request`, `temporarily_unavailable` | RFC 6749 `{error, error_description}` | `OAuthProtocolError` with that `code` |
+| A server without the method (answers a step or `redirect_to_web`) | — | `AccessCodesUnavailable` (the attempt is abandoned, no `ChallengeRequired`) |
+| No `authorization_challenge_endpoint` in discovery | — (no request) | `UnsupportedByServer(feature: 'authorization_challenge_endpoint')` |
+
+The challenge endpoint is not enveloped: error bodies are plain RFC 6749
+`{error, error_description}`.
+
+**Tokens.** `sub` is the subject id; the ID token and the access token carry
+`ext_sub` (the tenant's own id, `<=128` chars of `[A-Za-z0-9:._-]`),
+`subject_kind` (`person` or `device`) and `ext_profile` (the issuer-defined
+`profile` given at issue, `<=40` chars, e.g. `Driver`, `Kiosk`; not the
+standard OIDC `profile` claim, which is a profile-page URL). No `email`; `name` only when the
+issuer gave a display name. Refresh rotation (§7.2) is unchanged; revoking
+the subject on the server ends its sessions, and the next refresh fails with
+`invalid_grant` (`SessionRevoked`).
+

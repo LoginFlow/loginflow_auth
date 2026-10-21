@@ -1,0 +1,26 @@
+{
+  "invalid_grant": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+      "error": "invalid_grant",
+      "error_description": "the access code is invalid, expired or already used"
+    }
+  },
+  "slow_down": {
+    "status": 429,
+    "retry_after": "900",
+    "body": {
+      "error": "slow_down",
+      "error_description": "too many failed attempts"
+    }
+  },
+  "access_codes_disabled": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+      "error": "access_codes_disabled",
+      "error_description": "access codes are disabled for this application"
+    }
+  }
+}

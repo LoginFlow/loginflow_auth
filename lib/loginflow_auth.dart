@@ -15,5 +15,6 @@ export 'src/sign_in/model/localized_text.dart';
 export 'src/sign_in/model/sign_in_configuration.dart';
 export 'src/sign_in/model/sign_in_copy.dart';
 export 'src/sign_in/service/login_flow_sign_in_setup.dart';
+export 'src/sign_in/ui/input/access_code_input_formatter.dart';
 export 'src/sign_in/ui/login_flow_sign_in.dart';
 export 'src/sign_in/ui/theme/login_flow_sign_in_theme.dart';

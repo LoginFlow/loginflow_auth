@@ -347,10 +347,7 @@ final class UpstreamTokenInput extends ChallengeInput {
   };
 
   String? get _userName {
-    final name = <String>[
-      ?givenName,
-      ?familyName,
-    ].join(' ').trim();
+    final name = <String>[?givenName, ?familyName].join(' ').trim();
     return name.isEmpty ? null : name;
   }
 
@@ -451,6 +448,31 @@ final class TemporaryAccessPassInput extends ChallengeInput {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is TemporaryAccessPassInput && code == other.code;
+
+  @override
+  int get hashCode => code.hashCode;
+}
+
+/// A single-use access code, already normalized (`AccessCodeFormat`), in the
+/// opening request (`doc/server-contract.md` §16). It identifies the subject
+/// on its own, so no `login_hint` travels with it.
+final class AccessCodeInput extends ChallengeInput {
+  const AccessCodeInput({required this.code});
+
+  final String code;
+
+  AccessCodeInput copyWith({String? code}) =>
+      AccessCodeInput(code: code ?? this.code);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'method': ChallengeStep.accessCode.wireName,
+    'access_code': code,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is AccessCodeInput && code == other.code;
 
   @override
   int get hashCode => code.hashCode;
