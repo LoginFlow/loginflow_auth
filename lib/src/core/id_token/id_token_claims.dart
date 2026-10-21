@@ -1,8 +1,11 @@
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/json/list_equality.dart';
+import 'package:loginflow_auth/src/core/session/access_subject_kind.dart';
 
 /// The ID token claims the library reads (OpenID Connect Core §2, §5.1;
-/// OpenID Connect Native SSO §3.4.1; LoginFlow `company_id`).
+/// OpenID Connect Native SSO §3.4.1; LoginFlow `company_id` and the
+/// access-code subject claims `ext_sub`/`subject_kind`/`ext_profile`,
+/// `doc/server-contract.md` §16).
 class IdTokenClaims {
   const IdTokenClaims({
     required this.issuer,
@@ -21,10 +24,15 @@ class IdTokenClaims {
     this.email,
     this.isEmailVerified = false,
     this.name,
+    this.externalSubject,
+    this.subjectKind,
+    this.subjectProfile,
   });
 
   factory IdTokenClaims.fromJson(Map<String, Object?> json) {
     final authTime = json.optionalInt('auth_time');
+    final externalSubject = json.optionalString('ext_sub');
+    final isAccessSubject = externalSubject != null;
     return IdTokenClaims(
       issuer: json.requireString('iss'),
       subject: json.requireString('sub'),
@@ -42,6 +50,13 @@ class IdTokenClaims {
       email: json.optionalString('email'),
       isEmailVerified: json.optionalBool('email_verified', absent: false),
       name: json.optionalString('name'),
+      externalSubject: externalSubject,
+      subjectKind: isAccessSubject
+          ? AccessSubjectKind.fromWireName(json.optionalString('subject_kind'))
+          : null,
+      subjectProfile: isAccessSubject
+          ? json.optionalString('ext_profile')
+          : null,
     );
   }
 
@@ -74,6 +89,19 @@ class IdTokenClaims {
   final bool isEmailVerified;
   final String? name;
 
+  /// `ext_sub`: the subject's id in the database of the tenant backend that
+  /// issued its access code. Only access-code subjects carry it.
+  final String? externalSubject;
+
+  /// `subject_kind`, read only when [externalSubject] is present.
+  final AccessSubjectKind? subjectKind;
+
+  /// `ext_profile`: the issuer-defined profile label of an access-code
+  /// subject (e.g. `Driver`, `Kiosk`), read only when [externalSubject] is
+  /// present. Not the standard `profile` claim, which OpenID Connect Core
+  /// §5.1 registers as a profile-page URL and which this library ignores.
+  final String? subjectProfile;
+
   static DateTime _epoch(int seconds) =>
       DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
 
@@ -96,6 +124,9 @@ class IdTokenClaims {
     String? email,
     bool? isEmailVerified,
     String? name,
+    String? externalSubject,
+    AccessSubjectKind? subjectKind,
+    String? subjectProfile,
   }) => IdTokenClaims(
     issuer: issuer ?? this.issuer,
     subject: subject ?? this.subject,
@@ -113,6 +144,9 @@ class IdTokenClaims {
     email: email ?? this.email,
     isEmailVerified: isEmailVerified ?? this.isEmailVerified,
     name: name ?? this.name,
+    externalSubject: externalSubject ?? this.externalSubject,
+    subjectKind: subjectKind ?? this.subjectKind,
+    subjectProfile: subjectProfile ?? this.subjectProfile,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -132,6 +166,9 @@ class IdTokenClaims {
     'email': ?email,
     'email_verified': isEmailVerified,
     'name': ?name,
+    'ext_sub': ?externalSubject,
+    'subject_kind': ?subjectKind?.wireName,
+    'ext_profile': ?subjectProfile,
   };
 
   @override
@@ -153,7 +190,10 @@ class IdTokenClaims {
           companyId == other.companyId &&
           email == other.email &&
           isEmailVerified == other.isEmailVerified &&
-          name == other.name;
+          name == other.name &&
+          externalSubject == other.externalSubject &&
+          subjectKind == other.subjectKind &&
+          subjectProfile == other.subjectProfile;
 
   @override
   int get hashCode => Object.hash(
@@ -173,6 +213,9 @@ class IdTokenClaims {
     email,
     isEmailVerified,
     name,
+    externalSubject,
+    subjectKind,
+    subjectProfile,
   );
 }
 

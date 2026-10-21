@@ -29,7 +29,13 @@ enum ChallengeStep {
   /// both a fresh email-OTP code and a magic-link token
   /// (`RequestMagicLinkInput`). The server still answers `next: email_otp`
   /// — never its own `next` value.
-  magicLink('magic_link');
+  magicLink('magic_link'),
+
+  /// Client-initiated only (`method=access_code`): redeems a single-use
+  /// code a tenant backend issued for one of its own subjects
+  /// (`AccessCodeInput`, `doc/server-contract.md` §16). One leg: the server
+  /// answers with an authorization code or an error, never a `next` value.
+  accessCode('access_code');
 
   const ChallengeStep(this.wireName);
 

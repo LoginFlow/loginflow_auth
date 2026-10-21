@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.0
+
+Access codes: sign-in for people and devices that live in the tenant's own
+backend (`doc/server-contract.md` §16).
+
+- New: `LoginFlowAuth.signInWithAccessCode(code)` redeems a single-use code
+  a tenant backend issued (`method=access_code` on the native challenge,
+  one leg), returning the same `Result<AuthState, LoginFlowError>` as the
+  other sign-in methods. DPoP is required — the session is bound to the
+  device key —; a client without `enableDpop` and a DPoP key store fails
+  with `ConfigurationInvalid` before any request. A malformed code fails
+  locally, without a request.
+- New errors (`LoginFlowError`): `InvalidAccessCode` (malformed, unknown,
+  expired, used or revoked — never told apart), `AccessCodeThrottled`
+  (`retryAfter`, from `429`/`slow_down`) and `AccessCodesUnavailable`
+  (`access_codes_disabled`, or a server without the method). Exhaustive
+  switches over `LoginFlowError` must handle the new subtypes. A server
+  whose discovery has no `authorization_challenge_endpoint` fails with
+  `UnsupportedByServer`; any other refusal comes back as
+  `OAuthProtocolError`.
+- New: `UserIdentity.externalSubject`, `subjectKind` (`AccessSubjectKind`:
+  `person`/`device`) and `subjectProfile`, from the `ext_sub`/
+  `subject_kind`/`ext_profile` claims; `null` for regular users (read only
+  when `ext_sub` is present). The label is `ext_profile`, never the standard
+  `profile` claim (a profile-page URL in OpenID Connect Core §5.1), which
+  the library does not read. Same fields on `IdTokenClaims`.
+- New: `AccessCodeFormat` (alphabet without `0 O 1 I L`, length 8,
+  `normalize`, `filter`, `isComplete`, `display` as `XXXX-XXXX`) and
+  `AccessCodeInputFormatter`, a `TextInputFormatter` that uppercases,
+  filters to the alphabet and inserts the dash — one implementation for
+  every app.
+- New: `ChallengeStep.accessCode` (client-initiated only). Exhaustive
+  switches over `ChallengeStep` must handle it.
+
 ## 0.7.2
 
 - Fixed: a passkey ceremony could hang forever. The server sends

@@ -43,9 +43,12 @@ extension LoginFlowErrorFeedback on LoginFlowError {
           PasskeyFailureReason.unknown,
     ) =>
       SignInFeedback.unexpected,
+    InvalidAccessCode() => SignInFeedback.invalidCredential,
+    AccessCodesUnavailable() => SignInFeedback.providerUnavailable,
     ServerResponseInvalid() ||
     OAuthProtocolError() ||
     RateLimited() ||
+    AccessCodeThrottled() ||
     DiscoveryInvalid() ||
     ConfigurationInvalid() ||
     IdTokenRejected() ||

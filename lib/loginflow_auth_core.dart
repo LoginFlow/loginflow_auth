@@ -5,6 +5,7 @@ library;
 
 export 'package:result_controller/result_controller.dart' show Err, Ok, Result;
 
+export 'src/core/access_code/access_code_format.dart';
 export 'src/core/browser/external_user_agent.dart';
 export 'src/core/browser/in_memory_pending_authorization_store.dart';
 export 'src/core/browser/pending_authorization.dart';
@@ -36,6 +37,7 @@ export 'src/core/protocol/login_options/client_login_options.dart';
 export 'src/core/protocol/login_options/passkey_mode.dart';
 export 'src/core/protocol/passkeys/passkey_credential.dart';
 export 'src/core/protocol/step_up/step_up_requirement.dart';
+export 'src/core/session/access_subject_kind.dart';
 export 'src/core/session/login_flow_session.dart';
 export 'src/core/session/user_identity.dart';
 export 'src/core/sso/in_memory_sso_store.dart';

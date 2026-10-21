@@ -396,6 +396,61 @@ final class PasskeyFailed extends LoginFlowError {
   int get hashCode => Object.hash(PasskeyFailed, reason, code, description);
 }
 
+/// The access code was not accepted: unknown, expired, already used,
+/// revoked or malformed. The server answers the same `invalid_grant` for
+/// every case so a response never tells which codes exist
+/// (`doc/server-contract.md` §16).
+final class InvalidAccessCode extends LoginFlowError {
+  const InvalidAccessCode();
+
+  @override
+  String get message => 'The access code is invalid, expired or used.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidAccessCode;
+
+  @override
+  int get hashCode => (InvalidAccessCode).hashCode;
+}
+
+/// Too many failed access-code redemptions from this device or address, or
+/// for the whole application (`429`/`slow_down`, `doc/server-contract.md`
+/// §16). Wait [retryAfter] before the next attempt.
+final class AccessCodeThrottled extends LoginFlowError {
+  const AccessCodeThrottled({this.retryAfter});
+
+  /// From the `Retry-After` header, when the server sent one.
+  final Duration? retryAfter;
+
+  @override
+  String get message =>
+      'Access-code sign-in throttled (retry after ${retryAfter?.inSeconds}s)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AccessCodeThrottled && retryAfter == other.retryAfter;
+
+  @override
+  int get hashCode => Object.hash(AccessCodeThrottled, retryAfter);
+}
+
+/// The application does not accept access codes: disabled in its settings
+/// (`access_codes_disabled`), or a server that does not implement the
+/// `access_code` method (`doc/server-contract.md` §16).
+final class AccessCodesUnavailable extends LoginFlowError {
+  const AccessCodesUnavailable();
+
+  @override
+  String get message => 'Access codes are not available for this app.';
+
+  @override
+  bool operator ==(Object other) => other is AccessCodesUnavailable;
+
+  @override
+  int get hashCode => (AccessCodesUnavailable).hashCode;
+}
+
 /// A LoginFlow account API refused the access token because the user's
 /// authentication is too old or too weak for that operation (RFC 9470:
 /// `401` with `WWW-Authenticate: Bearer
