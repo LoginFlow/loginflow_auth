@@ -235,6 +235,39 @@ void main() {
       },
     );
 
+    test(
+      'a step-up whose stored auth_session the server no longer knows '
+      'retries once with id_token_hint',
+      () async {
+        final fixture = AuthFixture.create(server);
+        await fixture.auth.initialize();
+        await fixture.auth.signInWithPassword(
+          loginHint: 'ana@example.com',
+          password: 'correct-horse',
+        );
+        // The real server answers `invalid_session` for a stored auth_session
+        // it cannot trace back to a live session (one that came from a
+        // browser or hosted flow): loginflow_api challenge_handler.rs step-up
+        // opening, `subject_behind_auth_session`.
+        server.expireChallengeSessions();
+
+        final stepUp = await fixture.auth.stepUp(
+          const StepUpRequirement(maxAge: Duration(minutes: 5)),
+        );
+
+        final required = stepUp.data as ChallengeRequired;
+        expect(required.purpose, ChallengePurpose.stepUp);
+        expect(required.prompt.step, ChallengeStep.password);
+        final retry = server.challengeRequests.last;
+        expect(retry.containsKey('auth_session'), isFalse);
+        expect(retry['id_token_hint'], isNotNull);
+        expect(retry['max_age'], '300');
+
+        final done = await fixture.auth.submitPassword('correct-horse');
+        expect((done.data as SignedIn).session.identity.subject, 'cu_ana');
+      },
+    );
+
     test('an expired auth_session restarts the sign-in', () async {
       final fixture = AuthFixture.create(server);
       await fixture.auth.initialize();

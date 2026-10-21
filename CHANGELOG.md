@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1
+
+- Fix: `stepUp` no longer gives up when the server answers `invalid_session`
+  for the stored `auth_session` (a session that came from a browser or
+  hosted flow). It retries once with `id_token_hint`, as the server contract
+  allows (§5.2), so re-authentication before enrolling a passkey works past
+  the 5-minute window.
+
 ## 0.9.0
 
 The prebuilt UI signs in with an access code and manages passkeys, so no

@@ -1219,6 +1219,20 @@ class LoginFlowAuth {
     if (sent.purpose == ChallengePurpose.signIn) {
       return Ok(_emit(const SignedOut(reason: SignOutReason.challengeExpired)));
     }
+    // A step-up opened on the stored auth_session the server cannot trace back
+    // to a live session (it came from a browser or hosted flow): retry once,
+    // identifying the user with the ID token instead (server contract §5.2).
+    final idToken = _session?.stored.idToken;
+    if (sent.purpose == ChallengePurpose.stepUp &&
+        sent.idTokenHint == null &&
+        idToken != null) {
+      return _startAttempt(
+        purpose: ChallengePurpose.stepUp,
+        acrValues: sent.acrValues,
+        maxAge: sent.maxAge,
+        idTokenHint: idToken,
+      );
+    }
     return Ok(_emit(_restingState()));
   }
 
