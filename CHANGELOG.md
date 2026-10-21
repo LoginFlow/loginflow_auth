@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1
+
+- Fix: a native challenge sign-in failed with `invalid_grant`
+  (`redirect_uri mismatch`) whenever the client configured a `redirectUri`.
+  The opening request sends it, the server binds the code to it, and the
+  code redemption now presents that same `redirect_uri` instead of none.
+
 ## 0.8.0
 
 Access codes: sign-in for people and devices that live in the tenant's own

@@ -1082,7 +1082,9 @@ class LoginFlowAuth {
         code: issued.authorizationCode,
         codeVerifier: attempt.pkce.codeVerifier,
         nonce: attempt.nonce,
-        redirectUri: null,
+        // The server binds the code to the `redirect_uri` of the opening
+        // request (sent above), so the redemption must present that same one.
+        redirectUri: config.redirectUri,
         isBrowserUsed: false,
         origin: origin.withAttempt(sent),
       ),

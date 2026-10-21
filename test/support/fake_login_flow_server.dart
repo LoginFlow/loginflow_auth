@@ -755,7 +755,7 @@ class FakeLoginFlowServer {
         methods: <String>['totp', 'recovery_code'],
       );
     }
-    final code = _issueCode(session, user, redirectUri: null);
+    final code = _issueChallengeCode(session, user);
     _json(response, 200, <String, Object?>{'authorization_code': code});
   }
 
@@ -777,7 +777,7 @@ class FakeLoginFlowServer {
     if (subject == null) {
       return _accessCodeError(response, 'invalid_grant');
     }
-    final issued = _issueCode(session, subject, redirectUri: null);
+    final issued = _issueChallengeCode(session, subject);
     _json(response, 200, <String, Object?>{'authorization_code': issued});
   }
 
@@ -1451,10 +1451,21 @@ class FakeLoginFlowServer {
     'options': ?options,
   });
 
+  /// Like the real API, a challenge code keeps the `redirect_uri` the opening
+  /// request carried, and redeeming it must present that same value.
+  String _issueChallengeCode(_ChallengeSession session, FakeUser user) =>
+      _issueCode(
+        session,
+        user,
+        redirectUri: session.redirectUri,
+        isChallenge: true,
+      );
+
   String _issueCode(
     _ChallengeSession session,
     FakeUser user, {
     required String? redirectUri,
+    bool isChallenge = false,
   }) {
     final code = 'code_${_token32()}';
     _codes[code] = _IssuedCode(
@@ -1464,7 +1475,7 @@ class FakeLoginFlowServer {
       scope: session.scope,
       user: user,
       redirectUri: redirectUri,
-      authSession: redirectUri == null ? session.key : null,
+      authSession: isChallenge ? session.key : null,
     );
     return code;
   }

@@ -50,7 +50,11 @@ void main() {
           PkcePair.challengeFor(tokenRequest['code_verifier']!),
           first['code_challenge'],
         );
-        expect(tokenRequest.containsKey('redirect_uri'), isFalse);
+        // The code is bound to the opening's redirect_uri: the redemption
+        // presents that same value, or the real server answers
+        // `redirect_uri mismatch`.
+        expect(first['redirect_uri'], isNotNull);
+        expect(tokenRequest['redirect_uri'], first['redirect_uri']);
 
         final stored = await fixture.storedSession();
         expect(stored?.refreshToken, startsWith('rt_'));
