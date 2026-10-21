@@ -7,6 +7,20 @@
   hosted flow). It retries once with `id_token_hint`, as the server contract
   allows (§5.2), so re-authentication before enrolling a passkey works past
   the 5-minute window.
+- Fix: the bundled UI's re-authentication (a step-up such as the one
+  `LoginFlowPasskeys` runs before adding a passkey, or a re-authentication
+  after a refresh) no longer dead-ends on the password step. The server
+  opens it with `next: password` and no `methods`, but also takes an email
+  code on that `auth_session`; so the step now offers "Email me a code"
+  (`SignInPasswordEntry.isEmailCodeOffered`) whenever the client's login
+  options list `email_otp` — or the prompt's `methods` do, if the server
+  ever sends them. It calls `selectMethod(ChallengeStep.emailOtp)`
+  (`SignInViewModel.useEmailCode`), then the usual code step with resend.
+  Accounts with a password nobody knows (created through a tenant's
+  backend) can step up with an email code.
+- Fix: `stepUp` keeps the signed-in user's email as the prompt's
+  `loginHint`, so the code step reads "code sent to <email>" instead of an
+  empty address.
 
 ## 0.9.0
 

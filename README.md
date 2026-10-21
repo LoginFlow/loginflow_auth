@@ -856,8 +856,11 @@ Adding a passkey goes through the server's recent-authentication gate (see
 below). When the server answers `StepUpRequired`, the manager calls
 `stepUp` with the server's requirement and shows the step it asks for
 (password, TOTP, …) with the sign-in UI's own screens, inside the manager;
-once the user signs in again, the passkey is added — retried once, never
-in a loop. "Cancel" (or the step's "Back") abandons it. A failed ceremony
+the password step also offers "Email me a code" when the client's login
+options list `email_otp` (or the prompt's `methods` do), so an account
+that only signs in with email codes is never stuck on a password. Once
+the user signs in again, the passkey is added — retried once, never in a
+loop. "Cancel" (or the step's "Back") abandons it. A failed ceremony
 shows its real `PasskeyFailed` reason (see the table above), a dismissed
 sheet shows nothing, and the manager is never left busy. An access-code
 `device` subject gets no "Add a passkey".

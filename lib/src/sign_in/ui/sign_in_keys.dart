@@ -34,6 +34,9 @@ abstract final class SignInKeys {
   static const ValueKey<String> useAccessCodeButton = ValueKey<String>(
     'loginflow.button.access_code',
   );
+  static const ValueKey<String> useEmailCodeButton = ValueKey<String>(
+    'loginflow.button.email_code',
+  );
   static const ValueKey<String> passkeyButton = ValueKey<String>(
     'loginflow.button.passkey',
   );

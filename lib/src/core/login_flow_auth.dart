@@ -667,6 +667,11 @@ class LoginFlowAuth {
     final authSession = session.stored.authSession;
     return _startAttempt(
       purpose: ChallengePurpose.stepUp,
+      // For display (`ChallengePrompt.loginHint`, "code sent to …"): the
+      // challenge never sends it — the `auth_session` or `id_token_hint`
+      // identifies the user. Only a browser hand-off without `request_uri`
+      // would carry it as `login_hint`, naming that same signed-in user.
+      loginHint: session.identity.email,
       authSession: authSession,
       acrValues: requirement.acrValues,
       maxAge: requirement.maxAge,
@@ -1228,6 +1233,7 @@ class LoginFlowAuth {
         idToken != null) {
       return _startAttempt(
         purpose: ChallengePurpose.stepUp,
+        loginHint: sent.loginHint,
         acrValues: sent.acrValues,
         maxAge: sent.maxAge,
         idTokenHint: idToken,

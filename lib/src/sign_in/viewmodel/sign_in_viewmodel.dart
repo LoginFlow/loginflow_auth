@@ -150,6 +150,17 @@ class SignInViewModel extends ViewModel<SignInState> {
     );
   }
 
+  /// "Email me a code" on a re-authentication's password step
+  /// ([SignInPasswordEntry.isEmailCodeOffered]): the server emails a code
+  /// for the same `auth_session` and the code step follows, with resend.
+  Future<void> useEmailCode() async {
+    final phase = data.phase;
+    if (phase is! SignInPasswordEntry || !phase.isEmailCodeOffered) {
+      return;
+    }
+    await _run((auth) => auth.selectMethod(ChallengeStep.emailOtp));
+  }
+
   Future<void> requestEmailCode(String email) async {
     final emailError = email.toEmailError();
     if (emailError != FieldError.none) {
@@ -610,11 +621,13 @@ class SignInViewModel extends ViewModel<SignInState> {
       canGoBack: true,
     );
     final current = data.phase;
+    final isIdentifierLocked = purpose != ChallengePurpose.signIn;
     return switch (prompt.step) {
       ChallengeStep.password => withFeedback.copyWith(
         phase: SignInPasswordEntry(
           isForgotPasswordShown: _isForgotPasswordShown,
-          isIdentifierLocked: purpose != ChallengePurpose.signIn,
+          isIdentifierLocked: isIdentifierLocked,
+          isEmailCodeOffered: isIdentifierLocked && _isEmailCodeAllowed(prompt),
         ),
         canGoBack: _available.length > 1 || purpose != ChallengePurpose.signIn,
       ),
@@ -712,6 +725,16 @@ class SignInViewModel extends ViewModel<SignInState> {
       ),
     };
   }
+
+  /// Whether a re-authentication may be answered with an email code. The
+  /// server opens it with `next: password` and no `methods`, yet takes
+  /// `method=email_otp` on that `auth_session`; so the client's login
+  /// options decide, and a `methods` list, if one ever arrives, is honored
+  /// too. An account that only signs in with email codes (a random
+  /// password it never knew) is otherwise stuck on this step.
+  bool _isEmailCodeAllowed(ChallengePrompt prompt) =>
+      prompt.alternatives.contains(ChallengeStep.emailOtp) ||
+      (_options?.allows(EmailOtpMethod.methodName) ?? false);
 
   bool get _isForgotPasswordShown =>
       (_options?.isPasswordResetEnabled ?? false) &&

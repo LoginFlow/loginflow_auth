@@ -191,6 +191,13 @@ class FakeLoginFlowServer {
     'microsoft',
   ];
   bool isSelfSignUpEnabled = true;
+
+  /// The `methods` of the password step that asks a known user for a
+  /// primary factor (a step-up). `null` by default, like the real server,
+  /// which never sends `methods` (`loginflow_api/src/features/login_engine/
+  /// model/challenge_wire_model.rs:125-131`); set only to prove a client
+  /// honors such a list if one ever arrives.
+  List<String>? passwordStepMethods;
   bool isPasswordResetEnabled = true;
 
   /// The company's passkey policy (`GET /oauth2/login-options`,
@@ -760,12 +767,13 @@ class FakeLoginFlowServer {
       return _step(response, session, 'select_method', methods: loginMethods);
     }
     if (!session.isPrimaryAuthenticated || user == null) {
-      return _step(
-        response,
-        session,
-        'password',
-        methods: <String>['password', 'email_otp'],
-      );
+      // No `methods` here, like the real server: its 403 body is only
+      // `error`, `next`, `step_error` and `auth_session`
+      // (`InsufficientAuthorizationBody`,
+      // `loginflow_api/src/features/login_engine/model/challenge_wire_model.rs:125-131`),
+      // so a step-up opening says `next: password` and nothing else — yet it
+      // still takes `method=email_otp` on that `auth_session` (above).
+      return _step(response, session, 'password', methods: passwordStepMethods);
     }
     final needsSecondFactor =
         user.isTotpEnabled || (session.acrValues?.contains('mfa') ?? false);

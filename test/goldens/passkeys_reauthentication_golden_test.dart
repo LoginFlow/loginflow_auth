@@ -11,7 +11,8 @@ import 'passkeys_fixture.dart';
 
 /// `LoginFlowPasskeys` while the server asks for a recent sign-in before
 /// adding a passkey: the bundled password step (identifier locked, as for a
-/// step-up) inside the manager.
+/// step-up) inside the manager, with "Email me a code" offered because the
+/// client allows email codes.
 void main() {
   const screen = 'passkeys_reauthentication';
 
@@ -29,6 +30,7 @@ void main() {
           phase: SignInPasswordEntry(
             isForgotPasswordShown: false,
             isIdentifierLocked: true,
+            isEmailCodeOffered: true,
           ),
           canGoBack: true,
         ),

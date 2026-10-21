@@ -78,6 +78,7 @@ final class SignInPasswordEntry extends SignInPhase {
   const SignInPasswordEntry({
     required this.isForgotPasswordShown,
     this.isIdentifierLocked = false,
+    this.isEmailCodeOffered = false,
   });
 
   final bool isForgotPasswordShown;
@@ -86,12 +87,19 @@ final class SignInPasswordEntry extends SignInPhase {
   /// password is asked.
   final bool isIdentifierLocked;
 
+  /// Shows "Email me a code" instead of the password
+  /// (`SignInViewModel.useEmailCode`): a re-authentication the client
+  /// may also answer with an email code.
+  final bool isEmailCodeOffered;
+
   SignInPasswordEntry copyWith({
     bool? isForgotPasswordShown,
     bool? isIdentifierLocked,
+    bool? isEmailCodeOffered,
   }) => SignInPasswordEntry(
     isForgotPasswordShown: isForgotPasswordShown ?? this.isForgotPasswordShown,
     isIdentifierLocked: isIdentifierLocked ?? this.isIdentifierLocked,
+    isEmailCodeOffered: isEmailCodeOffered ?? this.isEmailCodeOffered,
   );
 
   @override
@@ -99,10 +107,15 @@ final class SignInPasswordEntry extends SignInPhase {
       identical(this, other) ||
       other is SignInPasswordEntry &&
           isForgotPasswordShown == other.isForgotPasswordShown &&
-          isIdentifierLocked == other.isIdentifierLocked;
+          isIdentifierLocked == other.isIdentifierLocked &&
+          isEmailCodeOffered == other.isEmailCodeOffered;
 
   @override
-  int get hashCode => Object.hash(isForgotPasswordShown, isIdentifierLocked);
+  int get hashCode => Object.hash(
+    isForgotPasswordShown,
+    isIdentifierLocked,
+    isEmailCodeOffered,
+  );
 }
 
 /// Email form before the one-time code is sent.
