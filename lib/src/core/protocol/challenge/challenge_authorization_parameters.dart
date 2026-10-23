@@ -21,6 +21,7 @@ class ChallengeAuthorizationParameters {
     this.prompt,
     this.uiLocales = const <String>[],
     this.idTokenHint,
+    this.organization,
   });
 
   factory ChallengeAuthorizationParameters.fromJson(Map<String, Object?> json) {
@@ -37,6 +38,7 @@ class ChallengeAuthorizationParameters {
       prompt: json.optionalString('prompt'),
       uiLocales: json.stringList('ui_locales'),
       idTokenHint: json.optionalString('id_token_hint'),
+      organization: json.optionalString('organization'),
     );
   }
 
@@ -68,6 +70,10 @@ class ChallengeAuthorizationParameters {
   /// (OpenID Connect Core §3.1.2.1).
   final String? idTokenHint;
 
+  /// The organization the session starts in (`doc/server-contract.md`
+  /// §17); `null` lets the server pick the user's only one, or none.
+  final String? organization;
+
   Map<String, String> toFormFields() => <String, String>{
     'scope': scope,
     'code_challenge': codeChallenge,
@@ -80,6 +86,7 @@ class ChallengeAuthorizationParameters {
     'prompt': ?prompt,
     if (uiLocales.isNotEmpty) 'ui_locales': uiLocales.join(' '),
     'id_token_hint': ?idTokenHint,
+    'organization': ?organization,
   };
 
   ChallengeAuthorizationParameters copyWith({
@@ -93,6 +100,7 @@ class ChallengeAuthorizationParameters {
     String? prompt,
     List<String>? uiLocales,
     String? idTokenHint,
+    String? organization,
   }) => ChallengeAuthorizationParameters(
     scope: scope ?? this.scope,
     codeChallenge: codeChallenge ?? this.codeChallenge,
@@ -104,6 +112,7 @@ class ChallengeAuthorizationParameters {
     prompt: prompt ?? this.prompt,
     uiLocales: uiLocales ?? this.uiLocales,
     idTokenHint: idTokenHint ?? this.idTokenHint,
+    organization: organization ?? this.organization,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -117,6 +126,7 @@ class ChallengeAuthorizationParameters {
     'prompt': ?prompt,
     'ui_locales': uiLocales,
     'id_token_hint': ?idTokenHint,
+    'organization': ?organization,
   };
 
   @override
@@ -132,7 +142,8 @@ class ChallengeAuthorizationParameters {
           state == other.state &&
           prompt == other.prompt &&
           uiLocales.hasSameValues(other.uiLocales) &&
-          idTokenHint == other.idTokenHint;
+          idTokenHint == other.idTokenHint &&
+          organization == other.organization;
 
   @override
   int get hashCode => Object.hash(
@@ -146,5 +157,6 @@ class ChallengeAuthorizationParameters {
     prompt,
     uiLocales.valuesHash,
     idTokenHint,
+    organization,
   );
 }

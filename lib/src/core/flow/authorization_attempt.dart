@@ -21,6 +21,7 @@ class AuthorizationAttempt {
     this.acrValues = const <String>[],
     this.maxAge,
     this.idTokenHint,
+    this.organization,
   });
 
   factory AuthorizationAttempt.start({
@@ -32,6 +33,7 @@ class AuthorizationAttempt {
     List<String> acrValues = const <String>[],
     Duration? maxAge,
     String? idTokenHint,
+    String? organization,
   }) => AuthorizationAttempt(
     purpose: purpose,
     pkce: PkcePair.generate(randomSource),
@@ -43,6 +45,7 @@ class AuthorizationAttempt {
     acrValues: acrValues,
     maxAge: maxAge,
     idTokenHint: idTokenHint,
+    organization: organization,
   );
 
   final ChallengePurpose purpose;
@@ -63,6 +66,10 @@ class AuthorizationAttempt {
   /// (OpenID Connect Core §3.1.2.1 `id_token_hint`).
   final String? idTokenHint;
 
+  /// The organization the session starts in (`doc/server-contract.md`
+  /// §17), sent with the opening request.
+  final String? organization;
+
   ChallengeAuthorizationParameters toParameters({
     required String scope,
     required Uri? redirectUri,
@@ -78,6 +85,7 @@ class AuthorizationAttempt {
     prompt: prompt,
     uiLocales: uiLocales,
     idTokenHint: idTokenHint,
+    organization: organization,
   );
 
   AuthorizationAttempt copyWith({
@@ -92,6 +100,7 @@ class AuthorizationAttempt {
     List<String>? acrValues,
     Duration? maxAge,
     String? idTokenHint,
+    String? organization,
   }) => AuthorizationAttempt(
     purpose: purpose ?? this.purpose,
     pkce: pkce ?? this.pkce,
@@ -104,6 +113,7 @@ class AuthorizationAttempt {
     acrValues: acrValues ?? this.acrValues,
     maxAge: maxAge ?? this.maxAge,
     idTokenHint: idTokenHint ?? this.idTokenHint,
+    organization: organization ?? this.organization,
   );
 
   @override
@@ -120,7 +130,8 @@ class AuthorizationAttempt {
           prompt == other.prompt &&
           acrValues.hasSameValues(other.acrValues) &&
           maxAge == other.maxAge &&
-          idTokenHint == other.idTokenHint;
+          idTokenHint == other.idTokenHint &&
+          organization == other.organization;
 
   @override
   int get hashCode => Object.hash(
@@ -135,6 +146,7 @@ class AuthorizationAttempt {
     acrValues.valuesHash,
     maxAge,
     idTokenHint,
+    organization,
   );
 
   @override

@@ -21,6 +21,7 @@ class DiscoveryDocument {
     this.loginOptionsEndpoint,
     this.deviceLogoutEndpoint,
     this.globalLogoutEndpoint,
+    this.organizationsEndpoint,
   });
 
   factory DiscoveryDocument.fromJson(Map<String, Object?> json) =>
@@ -62,6 +63,7 @@ class DiscoveryDocument {
           json,
           'loginflow_global_logout_endpoint',
         ),
+        organizationsEndpoint: _optionalUri(json, 'organizations_endpoint'),
       );
 
   /// Grant type of the OpenID Connect Native SSO token exchange (RFC 8693).
@@ -100,6 +102,10 @@ class DiscoveryDocument {
   /// LoginFlow extension: ends every session of the user in the company.
   final Uri? globalLogoutEndpoint;
 
+  /// LoginFlow extension: the organizations the signed-in user can work in
+  /// (`doc/server-contract.md` §17).
+  final Uri? organizationsEndpoint;
+
   bool get supportsS256 => codeChallengeMethods.contains('S256');
 
   bool get supportsTokenExchange => grantTypes.contains(tokenExchangeGrant);
@@ -128,6 +134,7 @@ class DiscoveryDocument {
     Uri? loginOptionsEndpoint,
     Uri? deviceLogoutEndpoint,
     Uri? globalLogoutEndpoint,
+    Uri? organizationsEndpoint,
   }) => DiscoveryDocument(
     issuer: issuer ?? this.issuer,
     authorizationEndpoint: authorizationEndpoint ?? this.authorizationEndpoint,
@@ -147,6 +154,7 @@ class DiscoveryDocument {
     loginOptionsEndpoint: loginOptionsEndpoint ?? this.loginOptionsEndpoint,
     deviceLogoutEndpoint: deviceLogoutEndpoint ?? this.deviceLogoutEndpoint,
     globalLogoutEndpoint: globalLogoutEndpoint ?? this.globalLogoutEndpoint,
+    organizationsEndpoint: organizationsEndpoint ?? this.organizationsEndpoint,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -167,6 +175,7 @@ class DiscoveryDocument {
     'loginflow_login_options_endpoint': ?loginOptionsEndpoint?.toString(),
     'loginflow_device_logout_endpoint': ?deviceLogoutEndpoint?.toString(),
     'loginflow_global_logout_endpoint': ?globalLogoutEndpoint?.toString(),
+    'organizations_endpoint': ?organizationsEndpoint?.toString(),
   };
 
   @override
@@ -190,7 +199,8 @@ class DiscoveryDocument {
           isIssuerParameterSupported == other.isIssuerParameterSupported &&
           loginOptionsEndpoint == other.loginOptionsEndpoint &&
           deviceLogoutEndpoint == other.deviceLogoutEndpoint &&
-          globalLogoutEndpoint == other.globalLogoutEndpoint;
+          globalLogoutEndpoint == other.globalLogoutEndpoint &&
+          organizationsEndpoint == other.organizationsEndpoint;
 
   @override
   int get hashCode => Object.hash(
@@ -209,5 +219,6 @@ class DiscoveryDocument {
     loginOptionsEndpoint,
     deviceLogoutEndpoint,
     globalLogoutEndpoint,
+    organizationsEndpoint,
   );
 }

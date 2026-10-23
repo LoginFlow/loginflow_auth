@@ -62,6 +62,36 @@ class FakeUser {
   final String? subjectProfile;
 }
 
+/// An organization of the application where a [FakeUser] has an active
+/// assignment, with the permissions it gives per API audience
+/// (`doc/server-contract.md` §17).
+class FakeOrganization {
+  const FakeOrganization({
+    required this.id,
+    required this.name,
+    this.kind = 'regular',
+    this.externalId,
+    this.permissions = const <String, List<String>>{},
+  });
+
+  final String id;
+  final String name;
+
+  /// `root` or `regular`, as the real server sends it.
+  final String kind;
+  final String? externalId;
+
+  /// The effective permissions in this organization, keyed by API audience.
+  final Map<String, List<String>> permissions;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'external_id': externalId,
+    'name': name,
+    'kind': kind,
+  };
+}
+
 /// One HTTP exchange, independent of the transport.
 class FakeHttpRequest {
   const FakeHttpRequest({
@@ -128,6 +158,35 @@ class FakeLoginFlowServer {
   };
   static const String googleWebClientId = 'google-web-client.apps.example';
   static const String companyId = 'company-acme';
+
+  /// The `app` claim of every access token: the client's application.
+  static const String applicationId = 'APP-FAKE000001';
+
+  /// Two independent APIs of that application, by audience (RFC 8707
+  /// `resource`, `doc/server-contract.md` §17).
+  static const String routesApi = 'API-ROUTES0001';
+  static const String reportsApi = 'API-REPORTS001';
+
+  /// `MAX_TOKEN_PERMISSIONS` / `MAX_PERMISSIONS_CLAIM_BYTES` of the real
+  /// token issuer: beyond either, the token carries
+  /// `permissions_overage: true` and no `permissions`.
+  static const int maxTokenPermissions = 150;
+  static const int maxPermissionsClaimBytes = 4096;
+
+  /// The APIs each client may ask tokens for (`oauth_client_apis`). Without
+  /// `resource`, a client with exactly one gets that API's token; with
+  /// zero or several, LoginFlow's own token (`aud` = issuer, no
+  /// `permissions`).
+  final Map<String, Set<String>> clientApis = <String, Set<String>>{
+    'app-one': <String>{routesApi, reportsApi},
+    'app-two': <String>{routesApi},
+  };
+
+  /// The organizations each subject has an active assignment in. Empty by
+  /// default: no organization is active and every token lists no
+  /// permission.
+  final Map<String, List<FakeOrganization>> organizationsBySubject =
+      <String, List<FakeOrganization>>{};
 
   final HttpServer? _server;
   final TestSigningKeys keys;
@@ -301,6 +360,10 @@ class FakeLoginFlowServer {
   final Map<String, _IssuedCode> _codes = <String, _IssuedCode>{};
   final Map<String, _RefreshRecord> _refreshTokens = <String, _RefreshRecord>{};
   final Set<String> _revokedFamilies = <String>{};
+
+  /// The active organization of each refresh family
+  /// (`oauth_refresh_families.organization_id`).
+  final Map<String, String?> _familyOrganizations = <String, String?>{};
   final Map<String, _DeviceSession> _deviceSessions =
       <String, _DeviceSession>{};
   final Map<String, String> _deviceSecrets = <String, String>{};
@@ -369,6 +432,7 @@ class FakeLoginFlowServer {
     'loginflow_login_options_endpoint': '$issuerText/oauth2/login-options',
     'loginflow_device_logout_endpoint': '$issuerText/oauth2/device-logout',
     'loginflow_global_logout_endpoint': '$issuerText/oauth2/logout-everywhere',
+    'organizations_endpoint': '$issuerText$organizationsPath',
     'response_types_supported': <String>['code'],
     'subject_types_supported': <String>['public'],
     'id_token_signing_alg_values_supported': <String>['RS256', 'ES256'],
@@ -399,8 +463,12 @@ class FakeLoginFlowServer {
     '/oauth2/token',
     '/oauth2/device-logout',
     '/oauth2/logout-everywhere',
+    organizationsPath,
     userProfilePath,
   };
+
+  /// `GET /oauth2/organizations` (`doc/server-contract.md` §17).
+  static const String organizationsPath = '/oauth2/organizations';
 
   /// A DPoP/Bearer-protected resource of the `/v1/user` REST scope.
   static const String userProfilePath = '/v1/user/me';
@@ -442,7 +510,10 @@ class FakeLoginFlowServer {
     response.headers['cache-control'] = 'no-store';
     if (requiresDpop && _dpopProtectedPaths.contains(request.uri.path)) {
       final dpopError = _checkDpop(request, response);
-      if (dpopError != null && request.uri.path == userProfilePath) {
+      final isResource =
+          request.uri.path == userProfilePath ||
+          request.uri.path == organizationsPath;
+      if (dpopError != null && isResource) {
         // RFC 9449 §9: a resource answers 401 with the error in
         // `WWW-Authenticate`, not the token endpoint's 400 body.
         response
@@ -507,6 +578,8 @@ class FakeLoginFlowServer {
         _endSessions(request, response, everywhere: true);
       case ('GET', userProfilePath):
         _userProfile(request, response);
+      case ('GET', organizationsPath):
+        _listOrganizations(request, response);
       case ('POST', '$passkeysCollectionPath/enroll/start'):
         _passkeysEnrollStart(request, response);
       case ('POST', '$passkeysCollectionPath/enroll/finish'):
@@ -554,7 +627,8 @@ class FakeLoginFlowServer {
     }
     final challenge = form['code_challenge'];
     if (challenge != null) {
-      if (form['code_challenge_method'] != 'S256') {
+      if (form['code_challenge_method'] != 'S256' ||
+          !_isKnownOrganization(form['organization'])) {
         return _oauthError(response, 400, 'invalid_request');
       }
       session.openAuthorization(
@@ -564,6 +638,7 @@ class FakeLoginFlowServer {
         redirectUri: form['redirect_uri'],
         state: form['state'],
         acrValues: form['acr_values'],
+        organization: form['organization'],
       );
     }
     if (session.codeChallenge == null) {
@@ -884,7 +959,8 @@ class FakeLoginFlowServer {
     final redirect = query['redirect_uri'];
     if (redirect == null ||
         query['response_type'] != 'code' ||
-        query['code_challenge_method'] != 'S256') {
+        query['code_challenge_method'] != 'S256' ||
+        !_isKnownOrganization(query['organization'])) {
       response.statusCode = 400;
       return;
     }
@@ -911,6 +987,7 @@ class FakeLoginFlowServer {
             redirectUri: redirect,
             state: query['state'],
             acrValues: null,
+            organization: query['organization'],
           )
           ..email = 'ana@example.com';
     final code = _issueCode(
@@ -934,6 +1011,12 @@ class FakeLoginFlowServer {
     final clientId = form['client_id'];
     if (clientId == null) {
       return _oauthError(response, 401, 'invalid_client');
+    }
+    final resource = form['resource'];
+    if (resource != null &&
+        !(clientApis[clientId] ?? const <String>{}).contains(resource)) {
+      // RFC 8707 §2: the API is not one this client may ask tokens for.
+      return _oauthError(response, 400, 'invalid_target');
     }
     switch (form['grant_type']) {
       case 'authorization_code':
@@ -961,8 +1044,17 @@ class FakeLoginFlowServer {
         issued.redirectUri != form['redirect_uri']) {
       return _oauthError(response, 400, 'invalid_grant');
     }
+    final organization = _resolveOrganization(
+      issued.user,
+      requested: issued.organization,
+    );
+    if (organization.isUnavailable) {
+      return _oauthError(response, 400, 'invalid_grant');
+    }
     final sid = 'sid_${_token32()}';
     _deviceSessions[sid] = _DeviceSession(subject: issued.user.subject);
+    final familyId = _token32();
+    _familyOrganizations[familyId] = organization.active?.id;
     _issueTokens(
       response,
       clientId: clientId,
@@ -970,9 +1062,11 @@ class FakeLoginFlowServer {
       scope: issued.scope,
       sid: sid,
       nonce: issued.nonce,
-      familyId: _token32(),
+      familyId: familyId,
       authSession: issued.authSession,
       isDeviceSecretNeeded: true,
+      organization: organization.active,
+      resource: form['resource'],
     );
   }
 
@@ -997,7 +1091,18 @@ class FakeLoginFlowServer {
         !isDeviceSessionActive(record.sid)) {
       return _oauthError(response, 400, 'invalid_grant');
     }
+    final requested = form['organization'];
+    final organization = _resolveOrganization(
+      record.user,
+      requested: requested ?? _familyOrganizations[record.familyId],
+    );
+    if (organization.isUnavailable && requested != null) {
+      // An explicit switch to an organization the user cannot work in:
+      // refused without revoking or rotating anything.
+      return _oauthError(response, 400, 'invalid_grant');
+    }
     record.isUsed = true;
+    _familyOrganizations[record.familyId] = organization.active?.id;
     if (requiresReauthenticationOnRefresh) {
       requiresReauthenticationOnRefresh = false;
       final session = _ChallengeSession(key: _token32(), clientId: clientId)
@@ -1019,6 +1124,8 @@ class FakeLoginFlowServer {
       familyId: record.familyId,
       authSession: null,
       isDeviceSecretNeeded: !_deviceSecrets.containsKey(form['device_secret']),
+      organization: organization.active,
+      resource: form['resource'],
     );
   }
 
@@ -1049,6 +1156,9 @@ class FakeLoginFlowServer {
     }
     final subject = _deviceSessions[sid]!.subject;
     final user = users.values.firstWhere((user) => user.subject == subject);
+    final organization = _resolveOrganization(user, requested: null);
+    final familyId = _token32();
+    _familyOrganizations[familyId] = organization.active?.id;
     _issueTokens(
       response,
       clientId: clientId,
@@ -1056,10 +1166,12 @@ class FakeLoginFlowServer {
       scope: form['scope'] ?? '',
       sid: sid,
       nonce: null,
-      familyId: _token32(),
+      familyId: familyId,
       authSession: null,
       isDeviceSecretNeeded: false,
       issuedTokenType: 'urn:ietf:params:oauth:token-type:access_token',
+      organization: organization.active,
+      resource: form['resource'],
     );
   }
 
@@ -1073,12 +1185,25 @@ class FakeLoginFlowServer {
     required String familyId,
     required String? authSession,
     required bool isDeviceSecretNeeded,
+    required FakeOrganization? organization,
+    required String? resource,
     String? issuedTokenType,
   }) {
-    final accessToken = 'at_${_token32()}';
+    final accessToken = _accessToken(
+      clientId: clientId,
+      user: user,
+      sid: sid,
+      scope: scope,
+      organization: organization,
+      resource: resource,
+    );
     final refreshToken = 'rt_${_token32()}';
     lastIssuedRefreshToken = refreshToken;
-    _accessTokens[accessToken] = _AccessRecord(subject: user.subject, sid: sid);
+    _accessTokens[accessToken] = _AccessRecord(
+      subject: user.subject,
+      sid: sid,
+      organizationId: organization?.id,
+    );
     _refreshTokens[refreshToken] = _RefreshRecord(
       familyId: familyId,
       clientId: clientId,
@@ -1116,6 +1241,81 @@ class FakeLoginFlowServer {
       'issued_token_type': ?issuedTokenType,
     });
   }
+
+  /// An `at+jwt` access token (RFC 9068) shaped like the real issuer's:
+  /// `aud` is the API ([resource], or the client's only API) or the issuer
+  /// for LoginFlow's own token, which lists no permissions; `org_id` /
+  /// `org_ext` name the active organization; `permissions` are that API's
+  /// only, or `permissions_overage: true` when they do not fit.
+  String _accessToken({
+    required String clientId,
+    required FakeUser user,
+    required String sid,
+    required String scope,
+    required FakeOrganization? organization,
+    required String? resource,
+  }) {
+    final apis = clientApis[clientId] ?? const <String>{};
+    final api = resource ?? (apis.length == 1 ? apis.single : null);
+    final permissions = api == null
+        ? null
+        : organization?.permissions[api] ?? const <String>[];
+    final isOverage =
+        permissions != null &&
+        (permissions.length > maxTokenPermissions ||
+            utf8.encode(jsonEncode(permissions)).length >
+                maxPermissionsClaimBytes);
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    return keys.sign(<String, Object?>{
+      'iss': issuerText,
+      'sub': user.subject,
+      'aud': api ?? issuerText,
+      'app': applicationId,
+      'client_id': clientId,
+      'exp': now + 600,
+      'iat': now,
+      'jti': _token32(),
+      'sid': sid,
+      'scope': scope,
+      'org_id': ?organization?.id,
+      'org_ext': ?organization?.externalId,
+      if (permissions != null && !isOverage) 'permissions': permissions,
+      if (isOverage) 'permissions_overage': true,
+    }, type: 'at+jwt');
+  }
+
+  /// The active organization for [user] (`resolve_active_organization`,
+  /// `doc/server-contract.md` §17): [requested] when the user has an
+  /// assignment there, unavailable when not; without a request, the only one, or none.
+  ({FakeOrganization? active, bool isUnavailable}) _resolveOrganization(
+    FakeUser user, {
+    required String? requested,
+  }) {
+    final eligible =
+        organizationsBySubject[user.subject] ?? const <FakeOrganization>[];
+    if (requested != null) {
+      for (final organization in eligible) {
+        if (organization.id == requested) {
+          return (active: organization, isUnavailable: false);
+        }
+      }
+      return (active: null, isUnavailable: true);
+    }
+    return (
+      active: eligible.length == 1 ? eligible.single : null,
+      isUnavailable: false,
+    );
+  }
+
+  /// Whether [organizationId] is an organization of the application at
+  /// all; an opening request naming any other is `invalid_request`.
+  bool _isKnownOrganization(String? organizationId) =>
+      organizationId == null ||
+      organizationsBySubject.values.any(
+        (organizations) => organizations.any(
+          (organization) => organization.id == organizationId,
+        ),
+      );
 
   String _idToken({
     required String clientId,
@@ -1230,6 +1430,31 @@ class FakeLoginFlowServer {
       return;
     }
     _json(response, 200, <String, Object?>{'sub': access.subject});
+  }
+
+  /// `GET /oauth2/organizations`: the caller's eligible organizations and
+  /// the one its token is issued for.
+  void _listOrganizations(FakeHttpRequest request, FakeHttpResponse response) {
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _accessTokens[header.substring(scheme.length)]
+        : null;
+    if (access == null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] =
+            '${scheme.trim()} error="invalid_token"';
+      return;
+    }
+    final organizations =
+        organizationsBySubject[access.subject] ?? const <FakeOrganization>[];
+    _json(response, 200, <String, Object?>{
+      'active': access.organizationId,
+      'organizations': <Object?>[
+        for (final organization in organizations) organization.toJson(),
+      ],
+    });
   }
 
   /// `POST /v1/user/passkeys/enroll/start`: `webauthn-rs`'s
@@ -1583,6 +1808,7 @@ class FakeLoginFlowServer {
       user: user,
       redirectUri: redirectUri,
       authSession: isChallenge ? session.key : null,
+      organization: session.organization,
     );
     return code;
   }
@@ -1635,6 +1861,7 @@ class _ChallengeSession {
   String? redirectUri;
   String? state;
   String? acrValues;
+  String? organization;
   String? email;
   String? upstreamNonce;
   bool isPrimaryAuthenticated = false;
@@ -1648,6 +1875,7 @@ class _ChallengeSession {
     required String? redirectUri,
     required String? state,
     required String? acrValues,
+    required String? organization,
   }) {
     this.codeChallenge = codeChallenge;
     this.nonce = nonce;
@@ -1655,6 +1883,7 @@ class _ChallengeSession {
     this.redirectUri = redirectUri;
     this.state = state;
     this.acrValues = acrValues;
+    this.organization = organization;
     isSecondFactorDone = false;
   }
 }
@@ -1668,6 +1897,7 @@ class _IssuedCode {
     required this.user,
     required this.redirectUri,
     required this.authSession,
+    required this.organization,
   });
 
   final String clientId;
@@ -1677,6 +1907,7 @@ class _IssuedCode {
   final FakeUser user;
   final String? redirectUri;
   final String? authSession;
+  final String? organization;
 }
 
 class _RefreshRecord {
@@ -1704,10 +1935,15 @@ class _DeviceSession {
 }
 
 class _AccessRecord {
-  const _AccessRecord({required this.subject, required this.sid});
+  const _AccessRecord({
+    required this.subject,
+    required this.sid,
+    required this.organizationId,
+  });
 
   final String subject;
   final String sid;
+  final String? organizationId;
 }
 
 /// A passkey enrolled through the account API (`doc/server-contract.md`

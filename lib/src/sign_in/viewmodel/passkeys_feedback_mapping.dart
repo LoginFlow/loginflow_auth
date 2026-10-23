@@ -30,7 +30,9 @@ extension PasskeysErrorFeedback on LoginFlowError {
     UpstreamFailed() ||
     InvalidAccessCode() ||
     AccessCodeThrottled() ||
-    AccessCodesUnavailable() => PasskeysFeedback.unexpected,
+    AccessCodesUnavailable() ||
+    InvalidTarget() ||
+    OrganizationUnavailable() => PasskeysFeedback.unexpected,
   };
 }
 

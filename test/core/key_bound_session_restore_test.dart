@@ -83,9 +83,13 @@ void main() {
     await secondTab.auth.initialize();
 
     firstTab.clock.advance(const Duration(minutes: 15));
-    final firstTabToken = await firstTab.auth.accessToken();
+    final firstTabToken = await firstTab.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
     secondTab.clock.advance(const Duration(minutes: 15));
-    final secondTabToken = await secondTab.auth.accessToken();
+    final secondTabToken = await secondTab.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
 
     expect(firstTabToken.isOk, isTrue);
     expect(secondTabToken.isOk, isTrue);

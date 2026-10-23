@@ -98,7 +98,7 @@ class LoginFlowTransport {
   /// The `Authorization` and `DPoP` headers for one request to [uri] with
   /// [accessToken], using the nonce last cached for that server. The same
   /// headers every request of this transport carries, exposed for the app's
-  /// own resource servers (`LoginFlowAuth.authorizeResourceRequest`).
+  /// own resource servers (`LoginFlowAuth.authorizedHeadersFor`).
   Future<Result<ResourceAuthorization, LoginFlowError>> authorize({
     required String httpMethod,
     required Uri uri,

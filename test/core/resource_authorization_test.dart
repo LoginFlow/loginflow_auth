@@ -22,7 +22,8 @@ void main() {
   tearDown(() => server.close());
 
   Future<http.Response> fetchProfile(LoginFlowAuth auth, Uri uri) async {
-    final authorization = await auth.authorizeResourceRequest(
+    final authorization = await auth.authorizedHeadersFor(
+      FakeLoginFlowServer.routesApi,
       method: 'GET',
       uri: uri,
     );
@@ -41,6 +42,9 @@ void main() {
       path: FakeLoginFlowServer.userProfilePath,
       queryParameters: <String, String>{'expand': 'company'},
     );
+    // The API token is obtained first, so the nonce challenge below lands
+    // on the resource request and not on the refresh that issues it.
+    await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
     server.nextDpopNonceChallenge = 'resource-nonce-1';
 
     final challenged = await fetchProfile(fixture.auth, uri);

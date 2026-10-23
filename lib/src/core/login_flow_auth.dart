@@ -24,6 +24,7 @@ import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/flow/active_session.dart';
 import 'package:loginflow_auth/src/core/flow/authorization_attempt.dart';
 import 'package:loginflow_auth/src/core/flow/flow_origin.dart';
+import 'package:loginflow_auth/src/core/flow/issued_access_token.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/resource_authorization.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
@@ -49,6 +50,8 @@ import 'package:loginflow_auth/src/core/protocol/login_options/client_login_opti
 import 'package:loginflow_auth/src/core/protocol/login_options/login_options_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/revocation_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/session_logout_client.dart';
+import 'package:loginflow_auth/src/core/protocol/organizations/organization_list.dart';
+import 'package:loginflow_auth/src/core/protocol/organizations/organizations_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
@@ -79,6 +82,13 @@ import 'package:result_controller/result_controller.dart';
 /// Plain Dart with a [states] stream: it imposes no state-management
 /// framework on the app. Every operation returns `Result<T, LoginFlowError>`;
 /// expected failures never throw.
+///
+/// Every method that opens a sign-in takes an optional `organization`: the
+/// `Organization.id` the session starts in (`doc/server-contract.md` §17).
+/// Without it the server activates the user's only organization, or none
+/// when they have several — then [listOrganizations] and
+/// [switchOrganization]. The server refuses an organization of another
+/// application.
 class LoginFlowAuth {
   LoginFlowAuth({
     required this.config,
@@ -137,6 +147,7 @@ class LoginFlowAuth {
       transport: transport,
       issuer: config.issuer,
     );
+    _organizations = OrganizationsClient(transport: transport);
   }
 
   final LoginFlowConfig config;
@@ -187,6 +198,7 @@ class LoginFlowAuth {
   late final SessionLogoutClient _sessionLogout;
   late final LoginOptionsClient _loginOptions;
   late final PasskeyAccountClient _passkeyAccount;
+  late final OrganizationsClient _organizations;
 
   final StreamController<AuthState> _states =
       StreamController<AuthState>.broadcast();
@@ -194,7 +206,16 @@ class LoginFlowAuth {
   AuthState _state = const AuthInitializing();
   AuthorizationAttempt? _attempt;
   ActiveSession? _session;
-  Future<Result<String, LoginFlowError>>? _refreshing;
+
+  /// The refreshes in flight, keyed by the API they renew the token of
+  /// (`null`: the session's own token). Concurrent callers for one share it.
+  final Map<String?, Future<Result<String, LoginFlowError>>> _refreshing =
+      <String?, Future<Result<String, LoginFlowError>>>{};
+
+  /// Every refresh rotates the refresh token, so refreshes run one after
+  /// another: two in flight would present the same token and the server
+  /// would revoke the family as reused (RFC 9700 §4.14.2).
+  Future<void> _refreshQueue = Future<void>.value();
 
   /// Bumped whenever the session ends or is replaced. A refresh that
   /// completes under another generation belongs to a session that no longer
@@ -261,29 +282,36 @@ class LoginFlowAuth {
   /// Opens a sign-in without choosing a method: the server answers
   /// `next: select_method` with the client's primary methods
   /// (`doc/server-contract.md` §5.5); continue with [selectMethod].
-  Future<Result<AuthState, LoginFlowError>> beginSignIn({String? loginHint}) =>
-      _startAttempt(
-        purpose: ChallengePurpose.signIn,
-        loginHint: loginHint,
-        input: loginHint == null ? null : LoginHintInput(loginHint: loginHint),
-      );
+  Future<Result<AuthState, LoginFlowError>> beginSignIn({
+    String? loginHint,
+    String? organization,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    loginHint: loginHint,
+    organization: organization,
+    input: loginHint == null ? null : LoginHintInput(loginHint: loginHint),
+  );
 
   /// Identifier and password in one request.
   Future<Result<AuthState, LoginFlowError>> signInWithPassword({
     required String loginHint,
     required String password,
+    String? organization,
   }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
     loginHint: loginHint,
+    organization: organization,
     input: PasswordSignInInput(loginHint: loginHint, password: password),
   );
 
   /// Asks the server to email a one-time code to [loginHint].
   Future<Result<AuthState, LoginFlowError>> requestEmailOtp({
     required String loginHint,
+    String? organization,
   }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
     loginHint: loginHint,
+    organization: organization,
     input: IdentifierInput(
       loginHint: loginHint,
       method: ChallengeStep.emailOtp,
@@ -358,9 +386,11 @@ class LoginFlowAuth {
   /// never surfaced as a [ChallengeRequired] state.
   Future<Result<AuthState, LoginFlowError>> signInWithPasskey({
     String? loginHint,
+    String? organization,
   }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
     loginHint: loginHint,
+    organization: organization,
     input: loginHint == null
         ? const MethodSelectionInput(method: ChallengeStep.webauthnIdentify)
         : IdentifierInput(
@@ -378,9 +408,11 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> signInWithTemporaryAccessPass({
     required String loginHint,
     required String code,
+    String? organization,
   }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
     loginHint: loginHint,
+    organization: organization,
     input: TemporaryAccessPassSignInInput(loginHint: loginHint, code: code),
   );
 
@@ -420,8 +452,9 @@ class LoginFlowAuth {
   /// `subjectProfile` (the `ext_sub`, `subject_kind` and `ext_profile`
   /// claims).
   Future<Result<AuthState, LoginFlowError>> signInWithAccessCode(
-    String code,
-  ) async {
+    String code, {
+    String? organization,
+  }) async {
     if (_dpop == null) {
       return Err(
         const ConfigurationInvalid(
@@ -437,14 +470,18 @@ class LoginFlowAuth {
     }
     return _startAttempt(
       purpose: ChallengePurpose.signIn,
+      organization: organization,
       input: AccessCodeInput(code: normalized),
     );
   }
 
   /// Google natively when a [GoogleIdTokenSource] is configured, otherwise in
   /// the system browser.
-  Future<Result<AuthState, LoginFlowError>> signInWithGoogle() => _startAttempt(
+  Future<Result<AuthState, LoginFlowError>> signInWithGoogle({
+    String? organization,
+  }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
+    organization: organization,
     input: UpstreamStartInput(
       provider: UpstreamProvider.google,
       flow: _googleIdTokenSource == null
@@ -454,22 +491,27 @@ class LoginFlowAuth {
   );
 
   /// Microsoft always runs in the system browser (`doc/decisions.md` D4).
-  Future<Result<AuthState, LoginFlowError>> signInWithMicrosoft() =>
-      _startAttempt(
-        purpose: ChallengePurpose.signIn,
-        input: const UpstreamStartInput(
-          provider: UpstreamProvider.microsoft,
-          flow: UpstreamFlow.browser,
-        ),
-      );
+  Future<Result<AuthState, LoginFlowError>> signInWithMicrosoft({
+    String? organization,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    organization: organization,
+    input: const UpstreamStartInput(
+      provider: UpstreamProvider.microsoft,
+      flow: UpstreamFlow.browser,
+    ),
+  );
 
   /// Apple natively on iOS/macOS when an [UpstreamTokenSource] is
   /// configured for [UpstreamProvider.apple] and available on this
   /// platform; the hosted page in the system browser otherwise — including
   /// Android, where the native `sign_in_with_apple` ceremony is
   /// deliberately not used (`doc/decisions.md`).
-  Future<Result<AuthState, LoginFlowError>> signInWithApple() => _startAttempt(
+  Future<Result<AuthState, LoginFlowError>> signInWithApple({
+    String? organization,
+  }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
+    organization: organization,
     input: UpstreamStartInput(
       provider: UpstreamProvider.apple,
       flow: _nativeSourceFor(UpstreamProvider.apple) == null
@@ -482,29 +524,35 @@ class LoginFlowAuth {
   /// when an [UpstreamTokenSource] is configured for
   /// [UpstreamProvider.facebook], otherwise the hosted page in the system
   /// browser.
-  Future<Result<AuthState, LoginFlowError>> signInWithFacebook() =>
-      _startAttempt(
-        purpose: ChallengePurpose.signIn,
-        input: UpstreamStartInput(
-          provider: UpstreamProvider.facebook,
-          flow: _nativeSourceFor(UpstreamProvider.facebook) == null
-              ? UpstreamFlow.browser
-              : UpstreamFlow.native,
-        ),
-      );
+  Future<Result<AuthState, LoginFlowError>> signInWithFacebook({
+    String? organization,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    organization: organization,
+    input: UpstreamStartInput(
+      provider: UpstreamProvider.facebook,
+      flow: _nativeSourceFor(UpstreamProvider.facebook) == null
+          ? UpstreamFlow.browser
+          : UpstreamFlow.native,
+    ),
+  );
 
   /// Self sign-up (`prompt=create`); the server continues in the browser.
-  Future<Result<AuthState, LoginFlowError>> signUp() => _startAttempt(
-    purpose: ChallengePurpose.signIn,
-    prompt: AuthorizationPrompt.create.wireName,
-  );
+  Future<Result<AuthState, LoginFlowError>> signUp({String? organization}) =>
+      _startAttempt(
+        purpose: ChallengePurpose.signIn,
+        prompt: AuthorizationPrompt.create.wireName,
+        organization: organization,
+      );
 
   /// Password reset on the hosted pages (first-party-apps App. A.2).
   Future<Result<AuthState, LoginFlowError>> resetPassword({
     String? loginHint,
+    String? organization,
   }) => _startAttempt(
     purpose: ChallengePurpose.signIn,
     loginHint: loginHint,
+    organization: organization,
     input: PasswordResetInput(loginHint: loginHint),
   );
 
@@ -514,6 +562,7 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> signInWithBrowser({
     AuthorizationPrompt? prompt,
     String? loginHint,
+    String? organization,
   }) async {
     final discoveryResult = await _discovery.load();
     if (discoveryResult case Err(:final error)) {
@@ -525,6 +574,7 @@ class LoginFlowAuth {
       randomSource: _randomSource,
       loginHint: loginHint,
       prompt: prompt?.wireName,
+      organization: organization,
     );
     _attempt = attempt;
     return _openAuthorization(discovery, attempt, requestUri: null);
@@ -676,6 +726,7 @@ class LoginFlowAuth {
       acrValues: requirement.acrValues,
       maxAge: requirement.maxAge,
       idTokenHint: authSession == null ? session.stored.idToken : null,
+      organization: session.stored.organizationId,
     );
   }
 
@@ -750,19 +801,117 @@ class LoginFlowAuth {
     return Ok(_state);
   }
 
-  /// A valid access token, refreshed when needed. Concurrent callers share
-  /// one refresh, so a rotated refresh token is never presented twice
-  /// (RFC 9700 §4.14.2).
-  Future<Result<String, LoginFlowError>> accessToken() async {
+  /// A valid access token for [api] (an audience listed in
+  /// [LoginFlowConfig.apis]), carrying only that API's permissions in the
+  /// active organization. Cached per API and refreshed when needed, with
+  /// `resource=<api>` (RFC 8707) on the same refresh family and DPoP key.
+  /// Refreshes never overlap, so a rotated refresh token is never presented
+  /// twice (RFC 9700 §4.14.2); concurrent callers for one API share one.
+  ///
+  /// Fails with [ConfigurationInvalid] for an API missing from
+  /// [LoginFlowConfig.apis] (no request is sent), and with [InvalidTarget]
+  /// when the server does not issue tokens for it to this client.
+  Future<Result<String, LoginFlowError>> accessTokenFor(String api) async {
+    if (!config.apis.contains(api)) {
+      return Err(
+        ConfigurationInvalid(
+          description: 'the API "$api" is not in LoginFlowConfig.apis',
+        ),
+      );
+    }
     final session = _session;
     if (session == null) {
       return Err(const NotSignedIn());
     }
-    final fresh = session.freshAccessToken(_clock.now());
+    final fresh = session.freshApiToken(api, _clock.now());
     if (fresh != null) {
       return Ok(fresh);
     }
-    return _refreshing ?? _startRefresh();
+    return _refreshFor(api);
+  }
+
+  /// The `Authorization` and `DPoP` headers for ONE request of the app to
+  /// [api] with its access token ([accessTokenFor]):
+  ///
+  /// - with DPoP: `Authorization: DPoP <token>` plus a proof whose `htm` is
+  ///   [method], `htu` is [uri] without query and fragment, `ath` hashes the
+  ///   token and `nonce` is the last `DPoP-Nonce` that server sent
+  ///   (RFC 9449 §4.2, §7.1, §8);
+  /// - without DPoP: `Authorization: Bearer <token>`.
+  ///
+  /// [method] is the exact HTTP method of the request (`GET`, `POST`, ...).
+  /// A proof is single use: call this again for every request, a retry
+  /// included. Report every response to [shouldRetryResourceRequest].
+  Future<Result<ResourceAuthorization, LoginFlowError>> authorizedHeadersFor(
+    String api, {
+    required String method,
+    required Uri uri,
+  }) async {
+    final tokenResult = await accessTokenFor(api);
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _transport.authorize(
+      httpMethod: method,
+      uri: uri,
+      accessToken: tokenResult.data,
+    );
+  }
+
+  /// The organizations of this application where the signed-in user has
+  /// an active assignment, and the one the session has active
+  /// (`GET {organizations_endpoint}`, `doc/server-contract.md` §17).
+  Future<Result<OrganizationList, LoginFlowError>> listOrganizations() async {
+    final discoveryResult = await _discovery.load();
+    if (discoveryResult case Err(:final error)) {
+      return Err(error);
+    }
+    final endpoint = discoveryResult.data.organizationsEndpoint;
+    if (endpoint == null) {
+      return Err(const UnsupportedByServer(feature: 'organizations_endpoint'));
+    }
+    final tokenResult = await _sessionAccessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return _organizations.list(endpoint, bearerToken: tokenResult.data);
+  }
+
+  /// Makes [organizationId] the active organization of the whole session:
+  /// a refresh with `organization` (`doc/server-contract.md` §17). Every
+  /// cached API token belonged to the previous organization, so they are
+  /// all dropped and [LoginFlowSession.accessClaims] empties; the next
+  /// [accessTokenFor] gets a token for the new one. Fails with
+  /// [OrganizationUnavailable] when the user has no active assignment there;
+  /// the session then keeps its organization.
+  Future<Result<void, LoginFlowError>> switchOrganization(
+    String organizationId,
+  ) async {
+    if (_session == null) {
+      return Err(const NotSignedIn());
+    }
+    final generation = _generation;
+    // A token refresh asked for after this call must not join one that
+    // started before it: that one is for the previous organization.
+    _refreshing.clear();
+    final switched = await _queued(
+      () => _refresh(generation, organization: organizationId),
+    );
+    return switched.when(ok: (_) => Ok(null), err: Err.new);
+  }
+
+  /// The session's own access token (no `resource`), for LoginFlow's
+  /// endpoints this library calls itself: passkeys, logout, organizations.
+  Future<Result<String, LoginFlowError>> _sessionAccessToken() async {
+    final session = _session;
+    if (session == null) {
+      return Err(const NotSignedIn());
+    }
+    final fresh = session.freshSessionToken(_clock.now());
+    if (fresh != null) {
+      return Ok(fresh);
+    }
+    return _refreshFor(null);
   }
 
   /// Enrolls a new passkey for the signed-in user: starts the ceremony,
@@ -782,7 +931,7 @@ class LoginFlowAuth {
         const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
       );
     }
-    final tokenResult = await accessToken();
+    final tokenResult = await _sessionAccessToken();
     if (tokenResult case Err(:final error)) {
       return Err(error);
     }
@@ -810,7 +959,7 @@ class LoginFlowAuth {
 
   /// `GET /v1/user/passkeys`.
   Future<Result<List<PasskeyCredential>, LoginFlowError>> listPasskeys() async {
-    final tokenResult = await accessToken();
+    final tokenResult = await _sessionAccessToken();
     if (tokenResult case Err(:final error)) {
       return Err(error);
     }
@@ -822,7 +971,7 @@ class LoginFlowAuth {
     required String id,
     required String name,
   }) async {
-    final tokenResult = await accessToken();
+    final tokenResult = await _sessionAccessToken();
     if (tokenResult case Err(:final error)) {
       return Err(error);
     }
@@ -835,46 +984,19 @@ class LoginFlowAuth {
 
   /// `DELETE /v1/user/passkeys/{id}`.
   Future<Result<void, LoginFlowError>> deletePasskey(String id) async {
-    final tokenResult = await accessToken();
+    final tokenResult = await _sessionAccessToken();
     if (tokenResult case Err(:final error)) {
       return Err(error);
     }
     return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
   }
 
-  /// The `Authorization` and `DPoP` headers for ONE request of the app to
-  /// its own API (or to LoginFlow's `/v1/*` REST scopes) with the current
-  /// access token, refreshed when needed — the same headers the library
-  /// sends on its own resource requests:
-  ///
-  /// - with DPoP: `Authorization: DPoP <token>` plus a proof whose `htm` is
-  ///   [method], `htu` is [uri] without query and fragment, `ath` hashes the
-  ///   token and `nonce` is the last `DPoP-Nonce` that server sent
-  ///   (RFC 9449 §4.2, §7.1, §8);
-  /// - without DPoP: `Authorization: Bearer <token>`.
-  ///
-  /// [method] is the exact HTTP method of the request (`GET`, `POST`, ...).
-  /// A proof is single use: call this again for every request, a retry
-  /// included. Report every response to [shouldRetryResourceRequest].
-  Future<Result<ResourceAuthorization, LoginFlowError>>
-  authorizeResourceRequest({required String method, required Uri uri}) async {
-    final tokenResult = await accessToken();
-    if (tokenResult case Err(:final error)) {
-      return Err(error);
-    }
-    return _transport.authorize(
-      httpMethod: method,
-      uri: uri,
-      accessToken: tokenResult.data,
-    );
-  }
-
   /// Reports the response to a request authorized with
-  /// [authorizeResourceRequest]: caches its `DPoP-Nonce` (the header, when
+  /// [authorizedHeadersFor]: caches its `DPoP-Nonce` (the header, when
   /// present) for the next proof to that server, and returns `true` when the
   /// server refused the request for a missing or stale nonce (`401` with
   /// `WWW-Authenticate: DPoP error="use_dpop_nonce"`, RFC 9449 §9). Then send
-  /// the request once more with a NEW [authorizeResourceRequest]; never
+  /// the request once more with a NEW [authorizedHeadersFor]; never
   /// retry a second time for the same request. Always `false` without DPoP.
   bool shouldRetryResourceRequest({
     required Uri uri,
@@ -947,7 +1069,7 @@ class LoginFlowAuth {
       await _endLocalSession(SignOutReason.sessionRevoked);
       return;
     }
-    final refreshed = await _startRefresh();
+    final refreshed = await _refreshFor(null);
     if (refreshed case Err(:final error)) {
       Log.w('Refreshing the restored session failed: ${error.message}');
     }
@@ -1013,6 +1135,7 @@ class LoginFlowAuth {
     List<String> acrValues = const <String>[],
     Duration? maxAge,
     String? idTokenHint,
+    String? organization,
   }) async {
     _attempt = AuthorizationAttempt.start(
       purpose: purpose,
@@ -1023,6 +1146,7 @@ class LoginFlowAuth {
       acrValues: acrValues,
       maxAge: maxAge,
       idTokenHint: idTokenHint,
+      organization: organization,
     );
     return _continueAttempt(input);
   }
@@ -1237,6 +1361,7 @@ class LoginFlowAuth {
         acrValues: sent.acrValues,
         maxAge: sent.maxAge,
         idTokenHint: idToken,
+        organization: sent.organization,
       );
     }
     return Ok(_emit(_restingState()));
@@ -1266,6 +1391,7 @@ class LoginFlowAuth {
       prompt: attempt.prompt,
       loginHint: attempt.loginHint,
       requestUri: requestUri,
+      organization: attempt.organization,
     );
     return _runBrowser(
       request.toUri(discovery.authorizationEndpoint),
@@ -1439,9 +1565,11 @@ class LoginFlowAuth {
           isBrowserUsed || (previous?.isBrowserSessionUsed ?? false),
       isSsoBound: isSsoBound || (deviceSecret != null && store != null),
       dpopJkt: boundKey,
+      organizationId: _attempt?.organization,
     );
     _generation++;
-    _refreshing = null;
+    _refreshing.clear();
+    _refreshQueue = Future<void>.value();
     // The new session's own origin: a sign-out or cancel during the local
     // writes below changes it (`doc/decisions.md` D9).
     final persisting = _captureOrigin(isStepUp: false);
@@ -1465,8 +1593,11 @@ class LoginFlowAuth {
     final session = ActiveSession(
       stored: stored,
       identity: UserIdentity.fromClaims(claims.data),
-      accessToken: response.accessToken,
-      accessTokenExpiresAt: _clock.now().add(response.expiresIn),
+      sessionToken: IssuedAccessToken.issued(
+        value: response.accessToken,
+        now: _clock.now(),
+        expiresIn: response.expiresIn,
+      ),
     );
     _session = session;
     _attempt = null;
@@ -1493,18 +1624,41 @@ class LoginFlowAuth {
     return Err(const NoChallengeInProgress());
   }
 
-  Future<Result<String, LoginFlowError>> _startRefresh() {
+  /// The refresh that renews the token of [api] (`null`: the session's own
+  /// token): the one in flight, or a new one queued behind any other.
+  Future<Result<String, LoginFlowError>> _refreshFor(String? api) {
+    final inFlight = _refreshing[api];
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final generation = _generation;
     late final Future<Result<String, LoginFlowError>> refresh;
-    refresh = _refresh(_generation).whenComplete(() {
-      if (identical(_refreshing, refresh)) {
-        _refreshing = null;
-      }
-    });
-    _refreshing = refresh;
+    refresh = _queued(() => _refresh(generation, api: api)).whenComplete(
+      () => _refreshing.removeWhere(
+        (target, inFlight) => target == api && identical(inFlight, refresh),
+      ),
+    );
+    _refreshing[api] = refresh;
     return refresh;
   }
 
-  Future<Result<String, LoginFlowError>> _refresh(int generation) async {
+  /// Runs [refresh] after every refresh queued before it.
+  Future<Result<String, LoginFlowError>> _queued(
+    Future<Result<String, LoginFlowError>> Function() refresh,
+  ) {
+    final queued = _refreshQueue.then((_) => refresh());
+    _refreshQueue = queued.then<void>((_) {}, onError: (Object _) {});
+    return queued;
+  }
+
+  /// Rotates the refresh token for a new access token: for [api] when given
+  /// (`resource`, RFC 8707), the session's own otherwise, and with
+  /// [organization] made the active organization of the family.
+  Future<Result<String, LoginFlowError>> _refresh(
+    int generation, {
+    String? api,
+    String? organization,
+  }) async {
     final current = _session;
     if (current == null) {
       return Err(const NotSignedIn());
@@ -1524,11 +1678,25 @@ class LoginFlowAuth {
       RefreshTokenGrant(
         refreshToken: session.stored.refreshToken,
         deviceSecret: ssoEntry?.deviceSecret,
+        resource: api,
+        organization: organization,
       ),
     );
     return response.when(
-      ok: (tokens) => _acceptRefresh(discovery, session, tokens, generation),
-      err: (error) => _refreshFailed(error, generation),
+      ok: (tokens) => _acceptRefresh(
+        discovery,
+        session,
+        tokens,
+        generation,
+        api: api,
+        organization: organization,
+      ),
+      err: (error) => _refreshFailed(
+        error,
+        generation,
+        api: api,
+        organization: organization,
+      ),
     );
   }
 
@@ -1572,8 +1740,10 @@ class LoginFlowAuth {
     DiscoveryDocument discovery,
     ActiveSession session,
     TokenResponse response,
-    int generation,
-  ) async {
+    int generation, {
+    required String? api,
+    required String? organization,
+  }) async {
     if (!_isCurrent(generation)) {
       return _discardLateRefresh(response);
     }
@@ -1604,6 +1774,7 @@ class LoginFlowAuth {
       idToken: idToken,
       scope: response.scope,
       authSession: response.authSession,
+      organizationId: organization,
     );
     final saved = await _sessionStore.write(stored);
     if (saved case Err(:final error)) {
@@ -1615,11 +1786,15 @@ class LoginFlowAuth {
     if (!_isCurrent(generation)) {
       return _discardLateRefresh(response);
     }
-    final updated = ActiveSession(
-      stored: stored,
-      identity: identity,
-      accessToken: response.accessToken,
-      accessTokenExpiresAt: _clock.now().add(response.expiresIn),
+    final updated = _withRefreshedToken(
+      session.copyWith(stored: stored, identity: identity),
+      IssuedAccessToken.issued(
+        value: response.accessToken,
+        now: _clock.now(),
+        expiresIn: response.expiresIn,
+      ),
+      api: api,
+      hasSwitchedOrganization: organization != null,
     );
     _session = updated;
     final deviceSecret = response.deviceSecret;
@@ -1628,19 +1803,56 @@ class LoginFlowAuth {
     } else if (deviceSecret != null) {
       Log.w('Ignoring a device_secret issued without its ID token.');
     }
-    if (identity != session.identity) {
-      _emit(SignedIn(session: updated.toPublic()));
+    final public = updated.toPublic();
+    if (public != session.toPublic()) {
+      _emit(SignedIn(session: public));
     }
     return Ok(response.accessToken);
   }
 
+  /// [session] holding [token] where it belongs: the token of [api], or the
+  /// session's own. A switched organization drops every API token, all of
+  /// them issued for the previous one.
+  ActiveSession _withRefreshedToken(
+    ActiveSession session,
+    IssuedAccessToken token, {
+    required String? api,
+    required bool hasSwitchedOrganization,
+  }) {
+    if (hasSwitchedOrganization) {
+      return ActiveSession(
+        stored: session.stored,
+        identity: session.identity,
+        sessionToken: token,
+      );
+    }
+    if (api != null) {
+      return session.withApiToken(api, token);
+    }
+    return session.copyWith(sessionToken: token);
+  }
+
   Future<Result<String, LoginFlowError>> _refreshFailed(
     LoginFlowError error,
-    int generation,
-  ) async {
+    int generation, {
+    required String? api,
+    required String? organization,
+  }) async {
     if (!_isCurrent(generation)) {
       Log.w('Ignoring the failure of a refresh whose session already ended.');
       return Err(error);
+    }
+    if (error case OAuthProtocolError(code: 'invalid_target')
+        when api != null) {
+      Log.w('The server issues no token for the API $api to this client.');
+      return Err(InvalidTarget(api: api));
+    }
+    if (error case OAuthProtocolError(code: 'invalid_grant')
+        when organization != null) {
+      // An explicit switch the server refused without revoking the family
+      // (`doc/server-contract.md` §17): the session keeps its organization.
+      // Were the family revoked, the next refresh says so and signs out.
+      return Err(OrganizationUnavailable(organizationId: organization));
     }
     if (error case OAuthProtocolError(code: 'invalid_grant')) {
       Log.w('Refresh token rejected; ending the local session.');
@@ -1652,6 +1864,7 @@ class LoginFlowAuth {
         purpose: ChallengePurpose.reauthentication,
         randomSource: _randomSource,
         authSession: challenge.authSession,
+        organization: _session?.stored.organizationId,
       );
       _emit(
         ChallengeRequired(
@@ -1717,7 +1930,7 @@ class LoginFlowAuth {
     if (endpoint == null) {
       return Err(UnsupportedByServer(feature: feature));
     }
-    final token = await accessToken();
+    final token = await _sessionAccessToken();
     if (token case Err(:final error)) {
       if (error is SessionRevoked) {
         await _deleteSsoEntry();
@@ -1807,7 +2020,8 @@ class LoginFlowAuth {
   /// late response can neither restore nor overwrite anything.
   Future<void> _endLocalSession(SignOutReason reason) async {
     _generation++;
-    _refreshing = null;
+    _refreshing.clear();
+    _refreshQueue = Future<void>.value();
     final cleared = await _sessionStore.clear();
     if (cleared case Err(:final error)) {
       Log.e('Clearing the stored session failed: ${error.message}');

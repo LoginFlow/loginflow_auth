@@ -126,7 +126,9 @@ void main() {
 
     server.requiresReauthenticationOnRefresh = true;
     clock.advance(const Duration(minutes: 15));
-    final refresh = await harness.auth.accessToken();
+    final refresh = await harness.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
 
     expect(refresh.errorOrNull, const ReauthenticationRequired());
     await phaseOf<SignInOtpEntry>();

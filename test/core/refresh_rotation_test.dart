@@ -35,11 +35,15 @@ void main() {
     test('an expired access token is refreshed and the new refresh token '
         'is persisted', () async {
       final fixture = await signedInFixture();
-      final firstAccess = (await fixture.auth.accessToken()).data;
+      final firstAccess = (await fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      )).data;
       final firstRefresh = (await fixture.storedSession())?.refreshToken;
       fixture.clock.advance(const Duration(minutes: 15));
 
-      final secondAccess = (await fixture.auth.accessToken()).data;
+      final secondAccess = (await fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      )).data;
 
       expect(secondAccess, isNot(firstAccess));
       final refresh = server.tokenRequests.last;
@@ -55,9 +59,9 @@ void main() {
       fixture.clock.advance(const Duration(minutes: 15));
 
       final tokens = await Future.wait(<Future<Result<String, LoginFlowError>>>[
-        fixture.auth.accessToken(),
-        fixture.auth.accessToken(),
-        fixture.auth.accessToken(),
+        fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi),
+        fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi),
+        fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi),
       ]);
 
       expect(server.refreshRequestCount(), 1);
@@ -71,7 +75,7 @@ void main() {
         final fixture = await signedInFixture(sessionStore: store);
         final staleRefresh = (await fixture.storedSession())!.refreshToken;
         fixture.clock.advance(const Duration(minutes: 15));
-        await fixture.auth.accessToken();
+        await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
 
         // A copy of the app restored from an old backup presents the
         // already-rotated token: the server sees reuse and revokes the family.
@@ -81,11 +85,15 @@ void main() {
         );
         final clone = AuthFixture.create(server, sessionStore: stale);
         await clone.auth.initialize();
-        final cloneResult = await clone.auth.accessToken();
+        final cloneResult = await clone.auth.accessTokenFor(
+          FakeLoginFlowServer.routesApi,
+        );
         expect(cloneResult.errorOrNull, const SessionRevoked());
 
         fixture.clock.advance(const Duration(minutes: 15));
-        final result = await fixture.auth.accessToken();
+        final result = await fixture.auth.accessTokenFor(
+          FakeLoginFlowServer.routesApi,
+        );
 
         expect(result.errorOrNull, const SessionRevoked());
         expect(
@@ -94,7 +102,8 @@ void main() {
         );
         expect(await fixture.storedSession(), isNull);
         expect(
-          (await fixture.auth.accessToken()).errorOrNull,
+          (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+              .errorOrNull,
           const NotSignedIn(),
         );
       },
@@ -106,7 +115,9 @@ void main() {
       server.requiresReauthenticationOnRefresh = true;
       fixture.clock.advance(const Duration(minutes: 15));
 
-      final result = await fixture.auth.accessToken();
+      final result = await fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      );
 
       expect(result.errorOrNull, const ReauthenticationRequired());
       expect(
@@ -143,7 +154,11 @@ void main() {
         final initialized = await restarted.auth.initialize();
 
         expect(initialized.data, isA<SignedIn>());
-        expect((await restarted.auth.accessToken()).isOk, isTrue);
+        expect(
+          (await restarted.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+              .isOk,
+          isTrue,
+        );
         expect(server.refreshRequestCount(), 1);
       },
     );
@@ -163,7 +178,9 @@ void main() {
       final gate = Completer<void>();
       server.refreshResponseGate = gate;
 
-      final refreshing = fixture.auth.accessToken();
+      final refreshing = fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      );
       await untilRefreshArrives();
       await fixture.auth.signOut(SignOutScope.app);
       final lateToken = server.lastIssuedRefreshToken;
@@ -181,7 +198,8 @@ void main() {
         contains(lateToken),
       );
       expect(
-        (await fixture.auth.accessToken()).errorOrNull,
+        (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+            .errorOrNull,
         const NotSignedIn(),
       );
     });
@@ -194,7 +212,9 @@ void main() {
         ..refreshResponseGate = gate
         ..rejectNextRefresh = true;
 
-      final refreshing = fixture.auth.accessToken();
+      final refreshing = fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      );
       await untilRefreshArrives();
       await fixture.auth.signOut(SignOutScope.app);
       await fixture.auth.signInWithPassword(
@@ -226,7 +246,9 @@ void main() {
     fixture.clock.advance(const Duration(minutes: 15));
     store.failsWrites = true;
 
-    final result = await fixture.auth.accessToken();
+    final result = await fixture.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
 
     expect(result.errorOrNull, isA<StorageFailure>());
     expect(
@@ -237,7 +259,11 @@ void main() {
       server.revocationRequests.map((request) => request['token']),
       contains(server.lastIssuedRefreshToken),
     );
-    expect((await fixture.auth.accessToken()).errorOrNull, const NotSignedIn());
+    expect(
+      (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+          .errorOrNull,
+      const NotSignedIn(),
+    );
   });
 
   group('Late challenge and code responses (doc/decisions.md D9)', () {
@@ -333,6 +359,10 @@ void main() {
       server.revocationRequests.map((request) => request['token']),
       contains(lateToken),
     );
-    expect((await fixture.auth.accessToken()).errorOrNull, const NotSignedIn());
+    expect(
+      (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+          .errorOrNull,
+      const NotSignedIn(),
+    );
   });
 }

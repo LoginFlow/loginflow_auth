@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.0
+
+Organizations and per-API access tokens (`doc/server-contract.md` §17).
+Breaking: the single session-wide access token is gone.
+
+- Breaking: `LoginFlowAuth.accessToken()` and
+  `authorizeResourceRequest({method, uri})` are removed. Use
+  `accessTokenFor(String api)` and `authorizedHeadersFor(String api,
+  {method, uri})`: one token per API, refreshed with `resource=<api>`
+  (RFC 8707) on the same refresh family and DPoP key, cached per API.
+  Refreshes are queued so a rotated refresh token is never presented twice.
+  `shouldRetryResourceRequest` is unchanged.
+- New: `LoginFlowConfig.apis` (JSON `apis`) declares the audiences of the
+  APIs the app calls; any other is refused locally with
+  `ConfigurationInvalid`, before a request. `validate()` refuses an empty or
+  repeated audience.
+- New: `InvalidTarget(api)` when the server answers `invalid_target` for an
+  API not linked to the client; the session and the other APIs keep
+  working.
+- New: every sign-in method takes `organization:` (native challenge opening
+  and the hosted authorization URL). `listOrganizations()` reads
+  `GET {organizations_endpoint}` (`OrganizationList`, `Organization`,
+  `OrganizationKind`); `switchOrganization(id)` refreshes with
+  `organization`, drops every cached API token and fails with
+  `OrganizationUnavailable(id)` (session kept) when the user holds no role
+  there. A step-up and a re-authentication open in the active organization
+  (`StoredSession.organizationId`).
+- New: `LoginFlowSession.accessClaims` — `AccessTokenClaims`
+  (`organizationId`, `organizationExternalId`, `permissions`,
+  `isPermissionsOverage`) per API, decoded from the token WITHOUT
+  verification: for the UI only, never for access decisions. A new
+  `SignedIn` is emitted when they change.
+- New: `DiscoveryDocument.organizationsEndpoint` (`organizations_endpoint`).
+
 ## 0.9.2
 
 - Fix: on the web (and every platform using the `passkeys` plugin), a

@@ -108,6 +108,9 @@ final auth = LoginFlowPlatform.createAuth(
     issuer: LoginFlowEnvironment.production.issuer,
     clientId: 'acme-orders-mobile',
     scopes: const ['profile', 'email'],
+    // The audience of every API this app calls (see "APIs, organizations
+    // and permissions" below).
+    apis: const ['APP-ACME0RDERS'],
     redirectUri: Uri.parse('https://acme.example.com/oauth/callback'),
     postLogoutRedirectUri: Uri.parse('https://acme.example.com/signed-out'),
     uiLocales: const ['es', 'en'],
@@ -144,8 +147,8 @@ result.when(
   err: (error) => showError(error),
 );
 
-// Calling your API: always ask for a fresh token.
-final token = await auth.accessToken(); // refreshes when needed
+// Calling your API: always ask for a fresh token for THAT API.
+final token = await auth.accessTokenFor('APP-ACME0RDERS'); // refreshes when needed
 ```
 
 Every operation returns `Result<T, LoginFlowError>`; `LoginFlowError` is a
@@ -168,7 +171,8 @@ the cached server nonce — so the app does not reimplement RFC 9449:
 ```dart
 Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
   Future<http.Response?> send() async {
-    final authorization = await auth.authorizeResourceRequest(
+    final authorization = await auth.authorizedHeadersFor(
+      'APP-ACME0RDERS',
       method: 'GET',
       uri: uri,
     );
@@ -192,9 +196,10 @@ Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
 }
 ```
 
-- `authorizeResourceRequest({required String method, required Uri uri})`
-  → `Future<Result<ResourceAuthorization, LoginFlowError>>`: refreshes the
-  token when needed and returns `authorization` (`DPoP …`, or `Bearer …`
+- `authorizedHeadersFor(String api, {required String method, required Uri
+  uri})` → `Future<Result<ResourceAuthorization, LoginFlowError>>`: takes
+  the token of `api` ([`accessTokenFor`](#apis-organizations-and-permissions),
+  refreshed when needed) and returns `authorization` (`DPoP …`, or `Bearer …`
   for a client without DPoP) and `dpopProof` (`htm` = `method`, `htu` = the
   URI without query/fragment, `ath`, a fresh `jti`, the last nonce of that
   server). `toHeaders()` gives both. A proof is single use: authorize every
@@ -208,6 +213,57 @@ Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
 - Your API (and, for a browser app, its CORS policy) must accept the `DPoP`
   request header and expose `DPoP-Nonce` and `WWW-Authenticate`.
   LoginFlow's own `/v1/*` scopes already do.
+
+### APIs, organizations and permissions
+
+An application can have several independent APIs; each one is a resource
+with its own audience and its own permissions (RFC 8707, RFC 9068). The
+user has ONE session, and gets ONE access token per API, carrying only that
+API's permissions in the active organization.
+
+- Declare every API the app calls in `LoginFlowConfig.apis`, by audience.
+  `accessTokenFor(api)` and `authorizedHeadersFor(api, …)` refuse any other
+  with `ConfigurationInvalid`, before a request leaves the device.
+- `accessTokenFor(String api)` → `Future<Result<String, LoginFlowError>>`:
+  the first call for an API, and every call once its token is about to
+  expire, refreshes the session with `resource=<api>` — same refresh
+  family, same DPoP key, no new sign-in. Tokens are cached per API.
+  Refreshes never overlap (each rotates the refresh token); concurrent
+  callers for one API share one. `InvalidTarget(api)` means the server does
+  not issue tokens for that API to this client (`invalid_target`); the
+  session and the other APIs keep working.
+- The organization is the product's unit of scope (a client company, a
+  school). Every sign-in method takes `organization:` (an `Organization.id`)
+  to start the session in it; without it the server activates the user's
+  only organization, or none when there are several.
+- `listOrganizations()` → `Future<Result<OrganizationList, LoginFlowError>>`:
+  the organizations where the user has an active assignment
+  (`id`, `name`, `kind` root/regular, `externalId`) and
+  `activeOrganizationId`.
+- `switchOrganization(String id)` → `Future<Result<void, LoginFlowError>>`:
+  a refresh with `organization`. It drops every cached API token (they were
+  issued for the previous organization) and empties
+  `session.accessClaims`; the next `accessTokenFor` gets a token for the
+  new one. `OrganizationUnavailable(id)` means the user has no assignment
+  there; the session keeps its organization. A step-up keeps the active
+  organization too.
+- `session.accessClaims` (`Map<String, AccessTokenClaims>`, keyed by API):
+  `organizationId`, `organizationExternalId`, `permissions` and
+  `isPermissionsOverage` of each API token obtained so far; a new
+  `SignedIn` is emitted when they change. **For the UI only**: they are
+  decoded WITHOUT verifying the token. Show or hide parts of the interface
+  with them; the API that verifies the token is the only authority on what
+  the user may do. With `isPermissionsOverage` the token did not fit the
+  permissions and only the API can resolve them.
+
+```dart
+final organizations = await auth.listOrganizations();
+await auth.switchOrganization(organizations.data.organizations.first.id);
+await auth.accessTokenFor('APP-ACME0RDERS');
+final claims = (auth.state as SignedIn).session.accessClaims['APP-ACME0RDERS'];
+final canCreateDrivers =
+    claims?.permissions.contains('acme.drivers.create') ?? false; // UI only
+```
 
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
@@ -940,7 +996,7 @@ Future<Result<PasskeyCredential, LoginFlowError>> enroll(
 For people and devices that live in **your** backend, not in LoginFlow —
 a driver or recorder, a student, a referee, a kiosk — your backend issues
 a single-use code (`POST /v1/service/access-codes` with a confidential
-client holding `access_codes:issue`) and hands it out; the person or
+client holding `loginflow.accessCodes.issue`) and hands it out; the person or
 device types it in the app:
 
 1. Your backend issues the code for its own subject id (`external_subject`),

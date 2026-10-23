@@ -74,18 +74,37 @@ final class AuthorizationCodeGrant extends TokenGrant {
 
 /// `refresh_token` (RFC 6749 §6).
 final class RefreshTokenGrant extends TokenGrant {
-  const RefreshTokenGrant({required this.refreshToken, this.deviceSecret});
+  const RefreshTokenGrant({
+    required this.refreshToken,
+    this.deviceSecret,
+    this.resource,
+    this.organization,
+  });
 
   final String refreshToken;
 
   /// SHOULD be sent so the server can rotate it (Native SSO §3.3).
   final String? deviceSecret;
 
-  RefreshTokenGrant copyWith({String? refreshToken, String? deviceSecret}) =>
-      RefreshTokenGrant(
-        refreshToken: refreshToken ?? this.refreshToken,
-        deviceSecret: deviceSecret ?? this.deviceSecret,
-      );
+  /// The audience of the API the new access token is for (RFC 8707 §2);
+  /// `null` asks for the session's own token.
+  final String? resource;
+
+  /// The organization to make active for the whole refresh family
+  /// (`doc/server-contract.md` §17); `null` keeps the current one.
+  final String? organization;
+
+  RefreshTokenGrant copyWith({
+    String? refreshToken,
+    String? deviceSecret,
+    String? resource,
+    String? organization,
+  }) => RefreshTokenGrant(
+    refreshToken: refreshToken ?? this.refreshToken,
+    deviceSecret: deviceSecret ?? this.deviceSecret,
+    resource: resource ?? this.resource,
+    organization: organization ?? this.organization,
+  );
 
   @override
   Map<String, String> toFormFields({required String clientId}) =>
@@ -94,6 +113,8 @@ final class RefreshTokenGrant extends TokenGrant {
         'client_id': clientId,
         'refresh_token': refreshToken,
         'device_secret': ?deviceSecret,
+        'resource': ?resource,
+        'organization': ?organization,
       };
 
   @override
@@ -101,10 +122,13 @@ final class RefreshTokenGrant extends TokenGrant {
       identical(this, other) ||
       other is RefreshTokenGrant &&
           refreshToken == other.refreshToken &&
-          deviceSecret == other.deviceSecret;
+          deviceSecret == other.deviceSecret &&
+          resource == other.resource &&
+          organization == other.organization;
 
   @override
-  int get hashCode => Object.hash(refreshToken, deviceSecret);
+  int get hashCode =>
+      Object.hash(refreshToken, deviceSecret, resource, organization);
 }
 
 /// The OpenID Connect Native SSO token exchange (Native SSO §4.1, RFC 8693).

@@ -60,7 +60,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     AuthorizationDenied() ||
     StorageFailure() ||
     UnsupportedByServer() ||
-    StepUpRequired() => SignInFeedback.unexpected,
+    StepUpRequired() ||
+    InvalidTarget() ||
+    OrganizationUnavailable() => SignInFeedback.unexpected,
   };
 }
 
@@ -95,7 +97,9 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     InvalidAccessCode() ||
     AccessCodeThrottled() ||
     AccessCodesUnavailable() ||
-    StepUpRequired() => toFeedback(),
+    StepUpRequired() ||
+    InvalidTarget() ||
+    OrganizationUnavailable() => toFeedback(),
   };
 }
 

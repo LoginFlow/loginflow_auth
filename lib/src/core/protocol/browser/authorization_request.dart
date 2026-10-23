@@ -15,6 +15,7 @@ class AuthorizationRequest {
     this.prompt,
     this.loginHint,
     this.requestUri,
+    this.organization,
   });
 
   factory AuthorizationRequest.fromJson(Map<String, Object?> json) =>
@@ -28,6 +29,7 @@ class AuthorizationRequest {
         prompt: json.optionalString('prompt'),
         loginHint: json.optionalString('login_hint'),
         requestUri: json.optionalString('request_uri'),
+        organization: json.optionalString('organization'),
       );
 
   final String clientId;
@@ -45,6 +47,10 @@ class AuthorizationRequest {
   /// (RFC 9126 §4): every other parameter was pushed by the server.
   final String? requestUri;
 
+  /// The organization the session starts in (`doc/server-contract.md`
+  /// §17). Not sent with [requestUri]: the server already holds it.
+  final String? organization;
+
   Uri toUri(Uri authorizationEndpoint) {
     final pushed = requestUri;
     final parameters = pushed == null
@@ -59,6 +65,7 @@ class AuthorizationRequest {
             'code_challenge_method': PkcePair.method,
             'prompt': ?prompt,
             'login_hint': ?loginHint,
+            'organization': ?organization,
           }
         : <String, String>{'client_id': clientId, 'request_uri': pushed};
     return authorizationEndpoint.replace(
@@ -79,6 +86,7 @@ class AuthorizationRequest {
     String? prompt,
     String? loginHint,
     String? requestUri,
+    String? organization,
   }) => AuthorizationRequest(
     clientId: clientId ?? this.clientId,
     redirectUri: redirectUri ?? this.redirectUri,
@@ -89,6 +97,7 @@ class AuthorizationRequest {
     prompt: prompt ?? this.prompt,
     loginHint: loginHint ?? this.loginHint,
     requestUri: requestUri ?? this.requestUri,
+    organization: organization ?? this.organization,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -101,6 +110,7 @@ class AuthorizationRequest {
     'prompt': ?prompt,
     'login_hint': ?loginHint,
     'request_uri': ?requestUri,
+    'organization': ?organization,
   };
 
   @override
@@ -115,7 +125,8 @@ class AuthorizationRequest {
           codeChallenge == other.codeChallenge &&
           prompt == other.prompt &&
           loginHint == other.loginHint &&
-          requestUri == other.requestUri;
+          requestUri == other.requestUri &&
+          organization == other.organization;
 
   @override
   int get hashCode => Object.hash(
@@ -128,5 +139,6 @@ class AuthorizationRequest {
     prompt,
     loginHint,
     requestUri,
+    organization,
   );
 }

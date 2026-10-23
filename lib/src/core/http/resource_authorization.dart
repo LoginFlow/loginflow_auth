@@ -1,6 +1,5 @@
-/// The credentials of ONE request to a resource server (the app's own API,
-/// or LoginFlow's `/v1/*` REST scopes), from
-/// `LoginFlowAuth.authorizeResourceRequest`.
+/// The credentials of ONE request to one of the app's APIs, from
+/// `LoginFlowAuth.authorizedHeadersFor`.
 ///
 /// Single use: a DPoP proof carries a fresh `jti` and is bound to the method
 /// and URL it was built for (RFC 9449 §4.2), so every request — including a

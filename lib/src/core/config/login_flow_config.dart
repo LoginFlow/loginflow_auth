@@ -10,6 +10,7 @@ class LoginFlowConfig {
     required this.issuer,
     required this.clientId,
     this.scopes = const <String>[],
+    this.apis = const <String>[],
     this.redirectUri,
     this.postLogoutRedirectUri,
     this.uiLocales = const <String>[],
@@ -25,6 +26,7 @@ class LoginFlowConfig {
       issuer: Uri.parse(json.requireString('issuer')),
       clientId: json.requireString('client_id'),
       scopes: json.stringList('scopes'),
+      apis: json.stringList('apis'),
       redirectUri: redirect == null ? null : Uri.parse(redirect),
       postLogoutRedirectUri: postLogout == null ? null : Uri.parse(postLogout),
       uiLocales: json.stringList('ui_locales'),
@@ -45,6 +47,13 @@ class LoginFlowConfig {
   /// Extra scopes for the app's own APIs. `openid` and `offline_access` are
   /// always requested, and `device_sso` when Native SSO is enabled.
   final List<String> scopes;
+
+  /// The APIs this app calls, by audience (the `resource` value of
+  /// RFC 8707, e.g. `APP-S0R6Y0T0X6`). Each one gets its own access token
+  /// from `LoginFlowAuth.accessTokenFor`, carrying only that API's
+  /// permissions; an API missing here is refused locally, before any
+  /// request. Leave it empty for an app that only signs users in.
+  final List<String> apis;
 
   /// Redirect URI for every step that needs the system browser
   /// (`redirect_to_web`, Microsoft, sign-up, password reset, web sign-in).
@@ -78,6 +87,14 @@ class LoginFlowConfig {
     if (clientId.isEmpty) {
       return Err(const ConfigurationInvalid(description: 'client_id is empty'));
     }
+    if (apis.any((api) => api.trim().isEmpty) ||
+        apis.toSet().length != apis.length) {
+      return Err(
+        const ConfigurationInvalid(
+          description: 'apis has an empty or a repeated audience',
+        ),
+      );
+    }
     if (!issuer.isValidIssuer) {
       return Err(
         const ConfigurationInvalid(
@@ -102,6 +119,7 @@ class LoginFlowConfig {
     Uri? issuer,
     String? clientId,
     List<String>? scopes,
+    List<String>? apis,
     Uri? redirectUri,
     Uri? postLogoutRedirectUri,
     List<String>? uiLocales,
@@ -112,6 +130,7 @@ class LoginFlowConfig {
     issuer: issuer ?? this.issuer,
     clientId: clientId ?? this.clientId,
     scopes: scopes ?? this.scopes,
+    apis: apis ?? this.apis,
     redirectUri: redirectUri ?? this.redirectUri,
     postLogoutRedirectUri: postLogoutRedirectUri ?? this.postLogoutRedirectUri,
     uiLocales: uiLocales ?? this.uiLocales,
@@ -124,6 +143,7 @@ class LoginFlowConfig {
     'issuer': issuer.toString(),
     'client_id': clientId,
     'scopes': scopes,
+    'apis': apis,
     'redirect_uri': redirectUri?.toString(),
     'post_logout_redirect_uri': postLogoutRedirectUri?.toString(),
     'ui_locales': uiLocales,
@@ -139,6 +159,7 @@ class LoginFlowConfig {
           issuer == other.issuer &&
           clientId == other.clientId &&
           scopes.hasSameValues(other.scopes) &&
+          apis.hasSameValues(other.apis) &&
           redirectUri == other.redirectUri &&
           postLogoutRedirectUri == other.postLogoutRedirectUri &&
           uiLocales.hasSameValues(other.uiLocales) &&
@@ -151,6 +172,7 @@ class LoginFlowConfig {
     issuer,
     clientId,
     scopes.valuesHash,
+    apis.valuesHash,
     redirectUri,
     postLogoutRedirectUri,
     uiLocales.valuesHash,

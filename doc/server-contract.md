@@ -111,6 +111,7 @@ The library **refuses** the document (no request is made to any endpoint) when:
 | `loginflow_login_options_endpoint` | for the built-in UI | **LoginFlow extension**, §4 |
 | `loginflow_device_logout_endpoint` | for device logout | **LoginFlow extension**, §10 |
 | `loginflow_global_logout_endpoint` | for "everywhere" logout | **LoginFlow extension**, §11 |
+| `organizations_endpoint` | for organizations | **LoginFlow extension**, §17 |
 
 The library requests `device_sso` only when `native_sso_supported` is `true`
 and the app enabled Native SSO.
@@ -243,6 +244,7 @@ Every request carries:
 | `prompt` | OPTIONAL; `create` = sign-up (OIDC-CREATE), always answered with `redirect_to_web` |
 | `ui_locales` | OPTIONAL; e.g. `es en`; language of the email OTP and hosted pages |
 | `id_token_hint` | OPTIONAL; identifies the user for a step-up without `auth_session` (OIDC-CORE §3.1.2.1). It **only identifies** the user and is never a primary factor: the server answers the primary step that applies (e.g. `next: password`), never an authorization code |
+| `organization` | OPTIONAL; **LoginFlow extension**, the organization id the session starts in (§17). An organization of another application → `400 invalid_request`. A step-up sends the session's organization |
 
 A missing `code_challenge` on an opening request → `400 invalid_request`.
 
@@ -481,7 +483,8 @@ Pushed form (RFC9126 §4): `?client_id=…&request_uri=…`.
 Full form (RFC6749 §4.1.1, RFC7636 §4.3, OIDC-CORE §3.1.2.1):
 `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, `nonce`,
 `code_challenge`, `code_challenge_method=S256`, optional `prompt`
-(`none` | `login` | `create` | `select_account`) and `login_hint`.
+(`none` | `login` | `create` | `select_account`), `login_hint` and
+`organization` (§17).
 
 - `redirect_uri` exact match; on an invalid `client_id`/`redirect_uri` show an
   error page and never redirect (RFC6749 §4.1.2.1).
@@ -518,6 +521,8 @@ Public clients authenticate with `client_id` only
 | `refresh_token` | REQUIRED |
 | `client_id` | REQUIRED; must equal the token's client |
 | `device_secret` | OPTIONAL; SHOULD be sent so it can be rotated (OIDC-NSSO §3.3) |
+| `resource` | OPTIONAL; the audience of the API the access token is for (RFC8707 §2, §17). Not one of the client's APIs → `400 invalid_target`, nothing rotated |
+| `organization` | OPTIONAL; makes that organization the active one of the whole family (§17). Not one where the user has an active assignment → `400 invalid_grant`, nothing revoked or rotated |
 
 Server behaviour (RFC9700 §4.14.2, `doc/decisions.md` D9):
 
@@ -529,8 +534,8 @@ Server behaviour (RFC9700 §4.14.2, `doc/decisions.md` D9):
   `invalid_grant` on refresh as a logout: it clears the stored session and
   emits `SignedOut(reason: sessionRevoked)`.
 - A refresh token whose family, `sid` or user was revoked → `invalid_grant`.
-- The library sends one refresh at a time per app (single-flight), so a
-  legitimate client never presents a rotated token twice.
+- The library sends one refresh at a time per app (queued, one per API at
+  most), so a legitimate client never presents a rotated token twice.
 - Re-authentication: the server MAY answer `403` with the §5.5
   `insufficient_authorization` body (with `auth_session` and `next`) instead
   of tokens (FIPA §6.2, App. A.6). The library then asks the user and opens a
@@ -645,9 +650,12 @@ refresh/step-up that `sub` is unchanged.
 
 ### 8.2 Access token
 
-Opaque to the library. RFC9068 JWT (`typ: at+jwt`, ES256, `aud` = the
-application) is the server's choice for resource servers. It MUST carry `sid`
-so §10 can identify the device session from it.
+RFC9068 JWT (`typ: at+jwt`, ES256). `aud` is the audience of ONE API of the
+application (§17), or the issuer for the session's own token. It MUST carry
+`sid` so §10 can identify the device session from it. The library verifies
+nothing in it; it only decodes `org_id`, `org_ext`, `permissions` and
+`permissions_overage` for the UI (§17), and treats any other token as
+opaque.
 
 ## 9. Revocation: `POST {revocation_endpoint}`
 
@@ -876,7 +884,7 @@ the person or device types it in the app and gets a LoginFlow session.
 LoginFlow keeps no personal data for these subjects, only a minimal subject
 record whose id is the token `sub`. Issuing, listing and revoking codes are
 machine routes of the tenant backend (`/v1/service/access-codes`, scope
-`access_codes:issue`), not part of this library.
+`loginflow.accessCodes.issue`), not part of this library.
 
 **The code.** Exactly 8 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ`
 (no `0 O 1 I L`), generated with a CSPRNG, shown as `XXXX-XXXX`. Input is
@@ -913,4 +921,67 @@ standard OIDC `profile` claim, which is a profile-page URL). No `email`; `name` 
 issuer gave a display name. Refresh rotation (§7.2) is unchanged; revoking
 the subject on the server ends its sessions, and the next refresh fails with
 `invalid_grant` (`SessionRevoked`).
+
+## 17. Organizations and per-API access tokens (LoginFlow extension)
+
+An application can have several independent APIs. Each one is a resource
+(RFC8707) with its own audience; its permissions are its own. The user has
+one session and one refresh family per application; every access token is
+for ONE API and carries only that API's permissions in the **active
+organization** — the product's unit of scope (a client company, a school).
+Every application has one `root` organization; the product creates the
+`regular` ones.
+
+**Which token a request gets.**
+
+| Request | `aud` of the access token | `permissions` |
+|---|---|---|
+| `resource=<api>`, an API linked to the client | `<api>` | that API's, in the active organization |
+| `resource=<api>`, an API not linked to the client | — `400 {"error":"invalid_target"}` | — |
+| no `resource`, the client has exactly one API | that API | that API's |
+| no `resource`, the client has zero or several APIs | the issuer (the session's own token: userinfo, organizations, passkeys, logout) | absent |
+
+**Active organization.** A request names one with `organization` (opening
+of §5.3 / §6, or the refresh of §7.2) and gets it if the user holds an
+active assignment there, `invalid_grant` otherwise. Without one, the family keeps
+its organization; a new family gets the user's only organization, or none
+when there are zero or several. With none, `org_id` is absent and
+`permissions` is `[]`.
+
+**Access-token claims** (beyond §8.2):
+
+| Claim | Meaning |
+|---|---|
+| `app` | the application id (`aud` is no longer the application) |
+| `org_id` | the active organization id; absent when none |
+| `org_ext` | the product's own id of the active organization; absent for `root` |
+| `permissions` | array of `app.resource.action` keys; absent on the session's own token and on overage |
+| `permissions_overage` | `true` when the permissions exceed 150 entries or 4096 bytes; the API resolves them through introspection |
+
+**`GET {organizations_endpoint}`** with the session's access token
+(`Authorization: Bearer` or `DPoP` + proof, §13), plain JSON, no envelope:
+
+```json
+{
+  "active": "5f0c…",
+  "organizations": [
+    {"id": "5f0c…", "external_id": "client-42", "name": "Transportes Norte", "kind": "regular"},
+    {"id": "9a1b…", "external_id": null, "name": "RutaFácil", "kind": "root"}
+  ]
+}
+```
+
+`active` is `null` when no organization is active. Errors as any resource
+(`401` + `WWW-Authenticate`).
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| any sign-in method with `organization:` | `organization` on the opening request (§5.3) or the authorization URL (§6) | the session starts in it |
+| `accessTokenFor(api)` | refresh with `resource=<api>`, same DPoP key; cached per API until 30 s before `expires_in` | the token; `InvalidTarget(api)` on `invalid_target` (session kept); `ConfigurationInvalid` for an API missing from `LoginFlowConfig.apis` (no request) |
+| `authorizedHeadersFor(api, method:, uri:)` | — | `Authorization` + `DPoP` for that API's token (§13.3) |
+| `listOrganizations()` | `GET {organizations_endpoint}` | `OrganizationList`; `UnsupportedByServer('organizations_endpoint')` without it in discovery |
+| `switchOrganization(id)` | refresh with `organization=<id>`, no `resource` | every cached API token dropped, `accessClaims` emptied; `OrganizationUnavailable(id)` on `invalid_grant` (session kept) |
+| `session.accessClaims[api]` | the four claims above, decoded **without verification** | for the UI only; the API decides access |
 

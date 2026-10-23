@@ -45,6 +45,10 @@ class AuthFixture {
         issuer: server.issuer,
         clientId: clientId,
         scopes: const <String>['profile', 'email'],
+        apis: const <String>[
+          FakeLoginFlowServer.routesApi,
+          FakeLoginFlowServer.reportsApi,
+        ],
         redirectUri: Uri.parse('https://app.example.com/oauth/callback'),
         postLogoutRedirectUri: Uri.parse('https://app.example.com/signed-out'),
         uiLocales: const <String>['es', 'en'],

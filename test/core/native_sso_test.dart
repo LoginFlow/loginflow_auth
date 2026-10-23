@@ -136,7 +136,7 @@ void main() {
     server.omitsIdTokenOnRefresh = true;
     appOne.clock.advance(const Duration(minutes: 15));
 
-    await appOne.auth.accessToken();
+    await appOne.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
 
     expect(server.tokenRequests.last['device_secret'], 'ds_unknown');
     expect(

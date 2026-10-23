@@ -1,8 +1,10 @@
+import 'package:loginflow_auth/src/core/flow/issued_access_token.dart';
+import 'package:loginflow_auth/src/core/session/access_token_claims.dart';
 import 'package:loginflow_auth/src/core/session/login_flow_session.dart';
 import 'package:loginflow_auth/src/core/session/user_identity.dart';
 import 'package:loginflow_auth/src/core/storage/stored_session.dart';
 
-/// The in-memory session: what is stored plus the current access token.
+/// The in-memory session: what is stored plus the access tokens it holds.
 ///
 /// Internal flow state; the persisted part is [stored], so this holder has no
 /// `toJson`/`fromJson`.
@@ -10,44 +12,55 @@ class ActiveSession {
   const ActiveSession({
     required this.stored,
     required this.identity,
-    this.accessToken,
-    this.accessTokenExpiresAt,
+    this.sessionToken,
+    this.apiTokens = const <String, IssuedAccessToken>{},
   });
-
-  /// How long before `expires_in` the access token is considered stale, so a
-  /// request never leaves with a token that expires in flight.
-  static const Duration expiryMargin = Duration(seconds: 30);
 
   final StoredSession stored;
   final UserIdentity identity;
-  final String? accessToken;
-  final DateTime? accessTokenExpiresAt;
 
-  /// The access token, when it is still usable at [now].
-  String? freshAccessToken(DateTime now) {
-    final expiresAt = accessTokenExpiresAt;
-    if (expiresAt == null || !now.isBefore(expiresAt.subtract(expiryMargin))) {
-      return null;
-    }
-    return accessToken;
-  }
+  /// The session's own access token (issued without `resource`), for
+  /// LoginFlow's endpoints: passkeys, logout, organizations.
+  final IssuedAccessToken? sessionToken;
+
+  /// One token per API the app asked for, keyed by its audience (RFC 8707
+  /// `resource`). All of them are issued for the active organization.
+  final Map<String, IssuedAccessToken> apiTokens;
+
+  String? freshSessionToken(DateTime now) => sessionToken?.freshValue(now);
+
+  String? freshApiToken(String api, DateTime now) =>
+      apiTokens[api]?.freshValue(now);
+
+  /// This session with [token] cached for [api].
+  ActiveSession withApiToken(String api, IssuedAccessToken token) => copyWith(
+    apiTokens: Map<String, IssuedAccessToken>.unmodifiable(
+      <String, IssuedAccessToken>{...apiTokens, api: token},
+    ),
+  );
 
   LoginFlowSession toPublic() => LoginFlowSession(
     identity: identity,
     scope: stored.scope,
     isSsoBound: stored.isSsoBound,
+    accessClaims: Map<String, AccessTokenClaims>.unmodifiable(
+      <String, AccessTokenClaims>{
+        for (final MapEntry(key: api, value: token) in apiTokens.entries)
+          api: ?token.claims,
+      },
+    ),
   );
 
   ActiveSession copyWith({
     StoredSession? stored,
     UserIdentity? identity,
-    String? accessToken,
-    DateTime? accessTokenExpiresAt,
+    IssuedAccessToken? sessionToken,
+    Map<String, IssuedAccessToken>? apiTokens,
   }) => ActiveSession(
     stored: stored ?? this.stored,
     identity: identity ?? this.identity,
-    accessToken: accessToken ?? this.accessToken,
-    accessTokenExpiresAt: accessTokenExpiresAt ?? this.accessTokenExpiresAt,
+    sessionToken: sessionToken ?? this.sessionToken,
+    apiTokens: apiTokens ?? this.apiTokens,
   );
 
   @override
@@ -56,13 +69,27 @@ class ActiveSession {
       other is ActiveSession &&
           stored == other.stored &&
           identity == other.identity &&
-          accessToken == other.accessToken &&
-          accessTokenExpiresAt == other.accessTokenExpiresAt;
+          sessionToken == other.sessionToken &&
+          _sameTokens(apiTokens, other.apiTokens);
 
   @override
-  int get hashCode =>
-      Object.hash(stored, identity, accessToken, accessTokenExpiresAt);
+  int get hashCode => Object.hash(
+    stored,
+    identity,
+    sessionToken,
+    Object.hashAllUnordered(apiTokens.entries.map(_entryHash)),
+  );
 
   @override
   String toString() => 'ActiveSession(subject: ${identity.subject})';
+
+  static bool _sameTokens(
+    Map<String, IssuedAccessToken> first,
+    Map<String, IssuedAccessToken> second,
+  ) =>
+      first.length == second.length &&
+      first.entries.every((entry) => second[entry.key] == entry.value);
+
+  static int _entryHash(MapEntry<String, IssuedAccessToken> entry) =>
+      Object.hash(entry.key, entry.value);
 }

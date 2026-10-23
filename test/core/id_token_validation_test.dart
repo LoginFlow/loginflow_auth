@@ -45,7 +45,8 @@ void main() {
         expect(fixture.auth.state, const SignedOut());
         expect(await fixture.storedSession(), isNull);
         expect(
-          (await fixture.auth.accessToken()).errorOrNull,
+          (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+              .errorOrNull,
           const NotSignedIn(),
         );
       });

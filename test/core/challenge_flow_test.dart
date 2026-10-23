@@ -59,7 +59,11 @@ void main() {
         final stored = await fixture.storedSession();
         expect(stored?.refreshToken, startsWith('rt_'));
         expect(stored?.authSession, isNotNull);
-        expect((await fixture.auth.accessToken()).data, startsWith('at_'));
+        expect(
+          (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+              .isOk,
+          isTrue,
+        );
       },
     );
 
@@ -494,7 +498,10 @@ void main() {
       );
       expect(await confused.storedSession(), isNull);
       appTwo.clock.advance(const Duration(minutes: 15));
-      expect((await appTwo.auth.accessToken()).isOk, isTrue);
+      expect(
+        (await appTwo.auth.accessTokenFor(FakeLoginFlowServer.routesApi)).isOk,
+        isTrue,
+      );
     });
   });
 }

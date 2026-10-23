@@ -27,6 +27,10 @@ class SignInHarness {
       config: LoginFlowConfig(
         issuer: server.issuer,
         clientId: clientId,
+        apis: const <String>[
+          FakeLoginFlowServer.routesApi,
+          FakeLoginFlowServer.reportsApi,
+        ],
         redirectUri: Uri.parse('https://app.example.com/oauth/callback'),
         enableDpop: enableDpop,
       ),

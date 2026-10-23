@@ -49,7 +49,11 @@ void main() {
         expect(await appOne.storedSession(), isNull);
         expect((await shared.read(server.issuerText)).data, isNotNull);
         appTwo.clock.advance(const Duration(minutes: 15));
-        expect((await appTwo.auth.accessToken()).isOk, isTrue);
+        expect(
+          (await appTwo.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+              .isOk,
+          isTrue,
+        );
       },
     );
 
@@ -66,7 +70,9 @@ void main() {
         expect((await shared.read(server.issuerText)).data, isNull);
 
         appTwo.clock.advance(const Duration(minutes: 15));
-        final sibling = await appTwo.auth.accessToken();
+        final sibling = await appTwo.auth.accessTokenFor(
+          FakeLoginFlowServer.routesApi,
+        );
         expect(sibling.errorOrNull, const SessionRevoked());
         expect(
           appTwo.auth.state,
@@ -97,7 +103,8 @@ void main() {
       expect(server.globalLogoutTokens, hasLength(1));
       appTwo.clock.advance(const Duration(minutes: 15));
       expect(
-        (await appTwo.auth.accessToken()).errorOrNull,
+        (await appTwo.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
+            .errorOrNull,
         const SessionRevoked(),
       );
     });

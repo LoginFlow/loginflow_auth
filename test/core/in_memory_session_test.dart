@@ -42,7 +42,9 @@ void main() {
         loginHint: 'ana@example.com',
         password: 'correct-horse',
       );
-      final accessToken = (await tab.auth.accessToken()).data;
+      final accessToken = (await tab.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      )).data;
 
       final stored = (await tab.storedSession())!.toJson();
 

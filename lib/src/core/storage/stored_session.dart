@@ -14,6 +14,7 @@ class StoredSession {
     this.isBrowserSessionUsed = false,
     this.isSsoBound = false,
     this.dpopJkt,
+    this.organizationId,
   });
 
   factory StoredSession.fromJson(Map<String, Object?> json) => StoredSession(
@@ -28,6 +29,7 @@ class StoredSession {
     ),
     isSsoBound: json.optionalBool('sso_bound', absent: false),
     dpopJkt: json.optionalString('dpop_jkt'),
+    organizationId: json.optionalString('organization_id'),
   );
 
   final String refreshToken;
@@ -56,6 +58,12 @@ class StoredSession {
   /// platform cannot be refreshed and is ended locally.
   final String? dpopJkt;
 
+  /// The organization this app asked for, at sign-in or with the last
+  /// `LoginFlowAuth.switchOrganization`, or `null` when the server chose
+  /// (`doc/server-contract.md` §17). A step-up opens its authorization in
+  /// it, so re-authenticating never changes the active organization.
+  final String? organizationId;
+
   StoredSession copyWith({
     String? refreshToken,
     String? idToken,
@@ -65,6 +73,7 @@ class StoredSession {
     bool? isBrowserSessionUsed,
     bool? isSsoBound,
     String? dpopJkt,
+    String? organizationId,
   }) => StoredSession(
     refreshToken: refreshToken ?? this.refreshToken,
     idToken: idToken ?? this.idToken,
@@ -74,6 +83,7 @@ class StoredSession {
     isBrowserSessionUsed: isBrowserSessionUsed ?? this.isBrowserSessionUsed,
     isSsoBound: isSsoBound ?? this.isSsoBound,
     dpopJkt: dpopJkt ?? this.dpopJkt,
+    organizationId: organizationId ?? this.organizationId,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -85,6 +95,7 @@ class StoredSession {
     'browser_session_used': isBrowserSessionUsed,
     'sso_bound': isSsoBound,
     'dpop_jkt': ?dpopJkt,
+    'organization_id': ?organizationId,
   };
 
   @override
@@ -98,7 +109,8 @@ class StoredSession {
           nonce == other.nonce &&
           isBrowserSessionUsed == other.isBrowserSessionUsed &&
           isSsoBound == other.isSsoBound &&
-          dpopJkt == other.dpopJkt;
+          dpopJkt == other.dpopJkt &&
+          organizationId == other.organizationId;
 
   @override
   int get hashCode => Object.hash(
@@ -110,6 +122,7 @@ class StoredSession {
     isBrowserSessionUsed,
     isSsoBound,
     dpopJkt,
+    organizationId,
   );
 
   @override

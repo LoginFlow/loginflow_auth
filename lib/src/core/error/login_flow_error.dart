@@ -477,3 +477,46 @@ final class StepUpRequired extends LoginFlowError {
   @override
   int get hashCode => Object.hash(StepUpRequired, requirement);
 }
+
+/// The server does not issue tokens for [api] to this client
+/// (`invalid_target`, RFC 8707 §2): the API is not linked to the client, or
+/// no longer exists. The session is untouched; tokens for the other APIs
+/// keep working.
+final class InvalidTarget extends LoginFlowError {
+  const InvalidTarget({required this.api});
+
+  /// The API audience that was asked for (the `resource` value).
+  final String api;
+
+  @override
+  String get message => 'The server refused tokens for the API $api.';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is InvalidTarget && api == other.api;
+
+  @override
+  int get hashCode => Object.hash(InvalidTarget, api);
+}
+
+/// `LoginFlowAuth.switchOrganization` asked for an organization where the
+/// user has no active assignment (`invalid_grant` on the refresh with
+/// `organization`, `doc/server-contract.md` §17). The session keeps its
+/// active organization.
+final class OrganizationUnavailable extends LoginFlowError {
+  const OrganizationUnavailable({required this.organizationId});
+
+  final String organizationId;
+
+  @override
+  String get message => 'The organization $organizationId is not available.';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is OrganizationUnavailable &&
+          organizationId == other.organizationId;
+
+  @override
+  int get hashCode => Object.hash(OrganizationUnavailable, organizationId);
+}
