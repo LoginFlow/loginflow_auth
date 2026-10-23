@@ -57,7 +57,7 @@ reads every endpoint from discovery and never builds a path itself.
    Lockouts per account use the same 429, so the response does not reveal
    whether the account exists (RFC6749 §10.10, FIPA §9.3).
 7. CORS: allowed on discovery, JWKS, token, revocation, the login options
-   endpoint, device logout and global logout, and on the REST scopes `/v1/user`, `/v1/admin` and `/v1/master`,
+   endpoint, device logout and global logout, and on the REST scopes `/v1/user`, `/v1/app` and the panel's,
    for the server's configured origins (`CORS_ALLOWED_ORIGINS`); never on
    `/oauth2/authorize` (RFC9700 §2.6). Those endpoints allow the request
    headers `Authorization, Content-Type, Accept, X-Requested-With, DPoP` and
@@ -706,7 +706,8 @@ library attaches a proof to the authorization challenge endpoint (§5), the
 token endpoint (§7) and every resource request that carries an access token
 (§10, §11): the device-logout and global-logout endpoints, `userinfo`, and
 the REST scopes `/v1/user` (including the passkey account API of §15),
-`/v1/admin` and `/v1/master`. Every one of those resource endpoints runs the
+`/v1/app` (the members API of §18) and the panel's. Every one of those
+resource endpoints runs the
 same check (§13.3–§13.5): a DPoP-bound token only as `DPoP` with a matching
 proof, a plain token only as `Bearer`.
 `token_endpoint_auth_method=none` public clients outside that combination
@@ -938,6 +939,7 @@ Every application has one `root` organization; the product creates the
 |---|---|---|
 | `resource=<api>`, an API linked to the client | `<api>` | that API's, in the active organization |
 | `resource=<api>`, an API not linked to the client | — `400 {"error":"invalid_target"}` | — |
+| `resource=<issuer>` (any sign-in client, §18) | the issuer (LoginFlow's own token, for the members API) | absent |
 | no `resource`, the client has exactly one API | that API | that API's |
 | no `resource`, the client has zero or several APIs | the issuer (the session's own token: userinfo, organizations, passkeys, logout) | absent |
 
@@ -985,3 +987,64 @@ when there are zero or several. With none, `org_id` is absent and
 | `switchOrganization(id)` | refresh with `organization=<id>`, no `resource` | every cached API token dropped, `accessClaims` emptied; `OrganizationUnavailable(id)` on `invalid_grant` (session kept) |
 | `session.accessClaims[api]` | the four claims above, decoded **without verification** | for the UI only; the API decides access |
 
+## 18. Members API (LoginFlow extension, authenticated)
+
+A person of a product manages who holds which role in the organizations
+their own roles reach — the generic "Team" screen of any product. The server
+decides every grant and revocation with its delegation rules: a role is
+granted only if one of the person's live assignments lists it as grantable,
+in an organization that assignment reaches (the same one, or from the root
+into the company's regular organizations), only with permissions and an
+expiry the person holds there, and never to or from the person's own
+account. There is no route here that edits roles, catalogs or grantable
+lists: that is the application owner's, on the LoginFlow panel.
+
+**Token.** The person's OWN LoginFlow token: `aud` = the issuer, asked with
+`resource=<issuer>` on the session's refresh (§7.2), which is valid for every
+sign-in client whatever its APIs (§17). Presented as `Authorization: DPoP
+<token>` with its proof (§13): a plain bearer token is `401` +
+`WWW-Authenticate: DPoP error="invalid_token"`; a product API's token is `403
+wrong_audience` (a product backend that received it can never replay it here);
+an access-code subject's token is `403 permission_denied`. Every write needs a
+recent strong sign-in: `401` + `WWW-Authenticate: Bearer
+error="insufficient_user_authentication", max_age=300` otherwise (RFC 9470).
+
+Fixed account-API paths under the issuer, with the `ApiResponse` envelope
+(`{"data", "meta"}` / `{"error": {"code", "message", "details"?}, "meta"}`),
+like §15. Instants in answers are UTC without an offset
+(`2026-12-31T00:00:00`); `expires_at` in a request is RFC 3339 with its
+offset. Bodies and queries reject unknown fields (`400`).
+
+| Route | Body / query | Answer |
+|---|---|---|
+| `GET /v1/app/members/grantable-roles` | `?organization_id` | `200 {organization: {id, name, kind}, roles: [{id, key, name, description, max_expires_at}]}`; empty `roles` = no grant power there |
+| `GET /v1/app/members` | `?organization_id&q&limit(1..100, default 50)&offset` | `200 {items: [{principal_id, email, name, assignments: [{id, role: {id, key, name}, expires_at, manageable}]}], total}` |
+| `POST /v1/app/members/invitations` | `{organization_id, email, first_name?, last_name?, role_id, expires_at?}` | `201` (`200` when the same assignment existed) `{member: {principal_id, email, name}, assignment, invitation: sent \| not_needed \| rate_limited \| failed}` |
+| `POST /v1/app/members/{principal_id}/assignments` | `{organization_id, role_id, expires_at?}` | `201` (`200` when it existed) `{id, role, expires_at, manageable}` |
+| `DELETE /v1/app/members/assignments/{assignment_id}` | — | `204` |
+
+**Refusals** (`error.code`): `404` `organization_not_found`,
+`role_not_found`, `member_not_found`, `assignment_not_found`; `403`
+`organization_out_of_reach`, `role_not_grantable`,
+`privilege_exceeds_grantor` (`details.dimension`: `permissions` /
+`expiry`), `self_assignment_forbidden`, `wrong_audience`,
+`permission_denied`; `409` `member_inactive`, `system_application`; `422`
+`role_not_assignable_here`, `expires_at_in_past`.
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `listGrantableRoles(organizationId:)` | `GET …/grantable-roles` | `GrantableRoles` (`canGrant` false: hide the screen) |
+| `listMembers(organizationId:, query:, limit:, offset:)` | `GET /v1/app/members` | `MembersPage` of `OrganizationMember` |
+| `inviteMember(organizationId:, email:, roleId:, …)` | `POST …/invitations` | `MemberInvitation` (`InvitationStatus`) |
+| `grantRole(organizationId:, principalId:, roleId:, expiresAt:)` | `POST …/{principal_id}/assignments` | `MemberAssignment` |
+| `revokeAssignment(assignmentId)` | `DELETE …/assignments/{id}` | `void`; offer it only when `MemberAssignment.manageable` |
+
+Every call uses LoginFlow's own token, asked once with `resource=<issuer>`
+(same refresh family and DPoP key) and cached until 30 s before it expires,
+apart from the API tokens (it never appears in `session.accessClaims`). A
+refusal is `DelegationDenied(code, statusCode)` with a
+`DelegationDenialCode`; a write past the recent-sign-in window is
+`StepUpRequired` (call `stepUp`, then the call again); `429` is
+`RateLimited`.

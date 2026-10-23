@@ -32,7 +32,8 @@ extension PasskeysErrorFeedback on LoginFlowError {
     AccessCodeThrottled() ||
     AccessCodesUnavailable() ||
     InvalidTarget() ||
-    OrganizationUnavailable() => PasskeysFeedback.unexpected,
+    OrganizationUnavailable() ||
+    DelegationDenied() => PasskeysFeedback.unexpected,
   };
 }
 

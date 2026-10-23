@@ -92,6 +92,34 @@ class FakeOrganization {
   };
 }
 
+/// An organization as the members API sees it (`doc/server-contract.md`
+/// §18), its JSON exactly as `loginflow_api` serializes it.
+class FakeMembersOrganization {
+  const FakeMembersOrganization({
+    required this.id,
+    required this.name,
+    this.kind = 'regular',
+    this.grantableRoles = const <Map<String, Object?>>[],
+    this.members = const <Map<String, Object?>>[],
+  });
+
+  final String id;
+  final String name;
+  final String kind;
+
+  /// `GrantableRole` objects: what the signed-in user may grant here.
+  final List<Map<String, Object?>> grantableRoles;
+
+  /// `OrganizationMember` objects.
+  final List<Map<String, Object?>> members;
+
+  Map<String, Object?> get summary => <String, Object?>{
+    'id': id,
+    'name': name,
+    'kind': kind,
+  };
+}
+
 /// One HTTP exchange, independent of the transport.
 class FakeHttpRequest {
   const FakeHttpRequest({
@@ -592,6 +620,9 @@ class FakeLoginFlowServer {
       case ('DELETE', final path)
           when path.startsWith('$passkeysCollectionPath/'):
         _passkeysDelete(request, response, path.split('/').last);
+      case (final method, final path)
+          when path == membersPath || path.startsWith('$membersPath/'):
+        _members(request, response, method, path.substring(membersPath.length));
       case ('GET', '/oauth2/end-session'):
         endSessionRequests.add(request.uri);
         hasBrowserSession = false;
@@ -1013,7 +1044,10 @@ class FakeLoginFlowServer {
       return _oauthError(response, 401, 'invalid_client');
     }
     final resource = form['resource'];
+    // `resource=<issuer>` (LoginFlow's own token) is valid for every sign-in
+    // client, whatever its APIs (`doc/server-contract.md` §18).
     if (resource != null &&
+        resource != issuerText &&
         !(clientApis[clientId] ?? const <String>{}).contains(resource)) {
       // RFC 8707 §2: the API is not one this client may ask tokens for.
       return _oauthError(response, 400, 'invalid_target');
@@ -1203,6 +1237,7 @@ class FakeLoginFlowServer {
       subject: user.subject,
       sid: sid,
       organizationId: organization?.id,
+      audience: CompactJws.parse(accessToken).data.claims['aud']! as String,
     );
     _refreshTokens[refreshToken] = _RefreshRecord(
       familyId: familyId,
@@ -1256,7 +1291,9 @@ class FakeLoginFlowServer {
     required String? resource,
   }) {
     final apis = clientApis[clientId] ?? const <String>{};
-    final api = resource ?? (apis.length == 1 ? apis.single : null);
+    final api = resource == issuerText
+        ? null
+        : resource ?? (apis.length == 1 ? apis.single : null);
     final permissions = api == null
         ? null
         : organization?.permissions[api] ?? const <String>[];
@@ -1566,6 +1603,202 @@ class FakeLoginFlowServer {
     });
   }
 
+  /// LoginFlow's members API for a person (`doc/server-contract.md` §18).
+  static const String membersPath = '/v1/app/members';
+
+  /// The organizations the members API knows, keyed by id: their grantable
+  /// roles (for the signed-in user) and their members. Empty by default:
+  /// every organization is `404 organization_not_found`.
+  final Map<String, FakeMembersOrganization> membersOrganizations =
+      <String, FakeMembersOrganization>{};
+
+  /// Every request that reached the members API, in order.
+  final List<FakeHttpRequest> membersRequests = <FakeHttpRequest>[];
+
+  int _assignmentSequence = 0;
+
+  /// `require_dpop_bound_loginflow_token`, then the route: a DPoP-bound
+  /// token (`401 DPoP error="invalid_token"` otherwise) for LoginFlow itself
+  /// (`403 wrong_audience` for a product API's token), a recent sign-in on
+  /// every write (RFC 9470 `401`), and the delegation refusals as
+  /// `error.code` — the shapes `app_members_handler.rs` answers.
+  void _members(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    membersRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final access = header.startsWith('DPoP ')
+        ? _accessTokens[header.substring(5)]
+        : null;
+    if (access == null || _checkDpop(request, response) != null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] = 'DPoP error="invalid_token"';
+      return;
+    }
+    if (access.audience != issuerText) {
+      return _envelopeError(response, 403, 'wrong_audience', 'Wrong audience');
+    }
+    final isWrite = method != 'GET';
+    if (isWrite && _staleAuthentications.contains(access.sid)) {
+      response.headers['www-authenticate'] =
+          'Bearer error="insufficient_user_authentication", max_age=300';
+      return _envelopeError(
+        response,
+        401,
+        'UNAUTHORIZED',
+        'Authentication is required.',
+      );
+    }
+    final query = request.uri.queryParameters;
+    final body = isWrite && request.body.isNotEmpty
+        ? jsonDecode(request.body) as Map<String, Object?>
+        : const <String, Object?>{};
+    switch ((method, route)) {
+      case ('GET', '/grantable-roles'):
+        if (!_onlyKeys(query.keys, const <String>{'organization_id'})) {
+          return _envelopeError(response, 400, 'BAD_REQUEST', 'Bad query');
+        }
+        final organization = membersOrganizations[query['organization_id']];
+        if (organization == null) {
+          return _organizationNotFound(response);
+        }
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'organization': organization.summary,
+          'roles': organization.grantableRoles,
+        });
+      case ('GET', ''):
+        const accepted = <String>{'organization_id', 'q', 'limit', 'offset'};
+        if (!_onlyKeys(query.keys, accepted)) {
+          return _envelopeError(response, 400, 'BAD_REQUEST', 'Bad query');
+        }
+        final organization = membersOrganizations[query['organization_id']];
+        if (organization == null) {
+          return _organizationNotFound(response);
+        }
+        final needle = query['q'];
+        final items = organization.members
+            .where(
+              (member) =>
+                  needle == null ||
+                  (member['email']! as String).contains(needle),
+            )
+            .toList();
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'items': items,
+          'total': items.length,
+        });
+      case ('POST', '/invitations'):
+        const accepted = <String>{
+          'organization_id',
+          'email',
+          'first_name',
+          'last_name',
+          'role_id',
+          'expires_at',
+        };
+        if (!_onlyKeys(body.keys, accepted)) {
+          return _envelopeError(response, 400, 'BAD_REQUEST', 'Unknown field');
+        }
+        final caller = users.values
+            .where((user) => user.subject == access.subject)
+            .firstOrNull;
+        if (caller?.email == body['email']) {
+          return _denied(response, 403, 'self_assignment_forbidden');
+        }
+        final granted = _grantIn(response, body);
+        if (granted == null) {
+          return;
+        }
+        final email = body['email']! as String;
+        final isKnown = users.containsKey(email);
+        _envelopeSuccess(response, 201, <String, Object?>{
+          'member': <String, Object?>{
+            'principal_id': users[email]?.subject ?? 'cu_invited',
+            'email': email,
+            'name': body['first_name'],
+          },
+          'assignment': granted,
+          'invitation': isKnown ? 'not_needed' : 'sent',
+        });
+      case ('POST', final path) when path.endsWith('/assignments'):
+        if (!_onlyKeys(body.keys, const <String>{
+          'organization_id',
+          'role_id',
+          'expires_at',
+        })) {
+          return _envelopeError(response, 400, 'BAD_REQUEST', 'Unknown field');
+        }
+        final principal = Uri.decodeComponent(path.split('/')[1]);
+        if (principal == access.subject) {
+          return _denied(response, 403, 'self_assignment_forbidden');
+        }
+        final granted = _grantIn(response, body);
+        if (granted != null) {
+          _envelopeSuccess(response, 201, granted);
+        }
+      case ('DELETE', final path) when path.startsWith('/assignments/'):
+        final id = Uri.decodeComponent(path.substring('/assignments/'.length));
+        final isKnown = membersOrganizations.values.any(
+          (organization) => organization.members.any(
+            (member) => (member['assignments']! as List<Object?>).any(
+              (assignment) => (assignment! as Map<String, Object?>)['id'] == id,
+            ),
+          ),
+        );
+        if (!isKnown) {
+          return _denied(response, 404, 'assignment_not_found');
+        }
+        response.statusCode = 204;
+      default:
+        _envelopeError(response, 404, 'NOT_FOUND', 'No such route');
+    }
+  }
+
+  /// The assignment a grant of `role_id` in `organization_id` creates, or
+  /// `null` after writing the refusal: `404 organization_not_found`, `403
+  /// role_not_grantable` for a role outside the caller's grantable list.
+  Map<String, Object?>? _grantIn(
+    FakeHttpResponse response,
+    Map<String, Object?> body,
+  ) {
+    final organization = membersOrganizations[body['organization_id']];
+    if (organization == null) {
+      _organizationNotFound(response);
+      return null;
+    }
+    final role = organization.grantableRoles
+        .where((role) => role['id'] == body['role_id'])
+        .firstOrNull;
+    if (role == null) {
+      _denied(response, 403, 'role_not_grantable');
+      return null;
+    }
+    _assignmentSequence++;
+    return <String, Object?>{
+      'id': 'as_$_assignmentSequence',
+      'role': <String, Object?>{
+        'id': role['id'],
+        'key': role['key'],
+        'name': role['name'],
+      },
+      'expires_at': body['expires_at'],
+      'manageable': true,
+    };
+  }
+
+  void _organizationNotFound(FakeHttpResponse response) =>
+      _denied(response, 404, 'organization_not_found');
+
+  void _denied(FakeHttpResponse response, int status, String code) =>
+      _envelopeError(response, status, code, 'Refused: $code');
+
+  static bool _onlyKeys(Iterable<String> keys, Set<String> accepted) =>
+      keys.every(accepted.contains);
+
   /// The caller of a `/v1/user/passkeys*` request, or `null` after writing a
   /// `401` to [response] — same Bearer/DPoP check as [_userProfile].
   _AccessRecord? _authenticatedPasskeyCaller(
@@ -1838,7 +2071,9 @@ class FakeLoginFlowServer {
     response
       ..statusCode = status
       ..body = jsonEncode(body);
-    response.headers['content-type'] = 'application/json';
+    // UTF-8, like the real server (`ApiResponse` and the OAuth endpoints):
+    // without the charset `dart:io` would write the body as Latin-1.
+    response.headers['content-type'] = 'application/json; charset=utf-8';
   }
 
   void _oauthError(FakeHttpResponse response, int status, String error) =>
@@ -1939,11 +2174,15 @@ class _AccessRecord {
     required this.subject,
     required this.sid,
     required this.organizationId,
+    required this.audience,
   });
 
   final String subject;
   final String sid;
   final String? organizationId;
+
+  /// The token's `aud`: an API, or the issuer for LoginFlow's own token.
+  final String audience;
 }
 
 /// A passkey enrolled through the account API (`doc/server-contract.md`

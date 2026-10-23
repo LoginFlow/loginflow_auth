@@ -265,6 +265,31 @@ final canCreateDrivers =
     claims?.permissions.contains('acme.drivers.create') ?? false; // UI only
 ```
 
+Members (a generic "Team" screen, `doc/server-contract.md` §18): the
+signed-in person manages who holds which role in an organization, decided by
+LoginFlow's delegation rules — the UI never deduces power from roles.
+
+- `listGrantableRoles(organizationId:)` → `GrantableRoles`: what a grant
+  there would allow. Empty (`canGrant` false): hide the screen.
+- `listMembers(organizationId:, query:, limit:, offset:)` → `MembersPage`:
+  the people holding a role there, each `MemberAssignment` with
+  `manageable` (offer "revoke" only when `true`).
+- `inviteMember(organizationId:, email:, roleId:, …)` → `MemberInvitation`;
+  `grantRole(…)` → `MemberAssignment`; `revokeAssignment(id)`.
+- Refusals are `DelegationDenied(code: DelegationDenialCode.…)`; a write past
+  the recent-sign-in window is `StepUpRequired` (call `stepUp`, then retry).
+
+```dart
+final roles = await auth.listGrantableRoles(organizationId: clientOrgId);
+if (roles.data.canGrant) {
+  await auth.inviteMember(
+    organizationId: clientOrgId,
+    email: 'admin@client.example',
+    roleId: roles.data.roles.first.id,
+  );
+}
+```
+
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
 `verifyDeviceSession()` when the app resumes so a device logout done by a

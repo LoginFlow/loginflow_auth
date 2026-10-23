@@ -62,7 +62,8 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     UnsupportedByServer() ||
     StepUpRequired() ||
     InvalidTarget() ||
-    OrganizationUnavailable() => SignInFeedback.unexpected,
+    OrganizationUnavailable() ||
+    DelegationDenied() => SignInFeedback.unexpected,
   };
 }
 
@@ -99,7 +100,8 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     AccessCodesUnavailable() ||
     StepUpRequired() ||
     InvalidTarget() ||
-    OrganizationUnavailable() => toFeedback(),
+    OrganizationUnavailable() ||
+    DelegationDenied() => toFeedback(),
   };
 }
 

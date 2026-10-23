@@ -92,4 +92,46 @@ extension JsonFieldReader on Map<String, Object?> {
     }
     throw FormatException('Field "$field" must be an object.');
   }
+
+  Map<String, Object?> requireObject(String field) {
+    final value = optionalObject(field);
+    if (value != null) {
+      return value;
+    }
+    throw FormatException('Field "$field" must be an object.');
+  }
+
+  bool requireBool(String field) {
+    final value = this[field];
+    if (value is bool) {
+      return value;
+    }
+    throw FormatException('Field "$field" must be a boolean.');
+  }
+
+  /// An array of objects; an absent field is an error, an empty array is not.
+  List<Map<String, Object?>> objectList(String field) {
+    final value = this[field];
+    if (value is List<Object?> &&
+        value.every((entry) => entry is Map<String, Object?>)) {
+      return value.cast<Map<String, Object?>>();
+    }
+    throw FormatException('Field "$field" must be an array of objects.');
+  }
+
+  /// A UTC instant. LoginFlow's REST API serializes its `NaiveDateTime`
+  /// values without an offset (`2026-10-23T09:00:00`), always in UTC; one
+  /// without an offset is read as UTC, never as the device's local time.
+  DateTime? optionalUtcDateTime(String field) {
+    final value = optionalString(field);
+    if (value == null) {
+      return null;
+    }
+    final hasOffset = RegExp(r'(Z|[+-]\d{2}:?\d{2})$').hasMatch(value);
+    final parsed = DateTime.tryParse(hasOffset ? value : '${value}Z');
+    if (parsed == null) {
+      throw FormatException('Field "$field" must be an ISO 8601 date-time.');
+    }
+    return parsed;
+  }
 }

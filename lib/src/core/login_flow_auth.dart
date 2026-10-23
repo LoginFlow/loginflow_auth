@@ -50,6 +50,11 @@ import 'package:loginflow_auth/src/core/protocol/login_options/client_login_opti
 import 'package:loginflow_auth/src/core/protocol/login_options/login_options_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/revocation_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/session_logout_client.dart';
+import 'package:loginflow_auth/src/core/protocol/members/app_members_client.dart';
+import 'package:loginflow_auth/src/core/protocol/members/grantable_roles.dart';
+import 'package:loginflow_auth/src/core/protocol/members/member_assignment.dart';
+import 'package:loginflow_auth/src/core/protocol/members/member_invitation.dart';
+import 'package:loginflow_auth/src/core/protocol/members/members_page.dart';
 import 'package:loginflow_auth/src/core/protocol/organizations/organization_list.dart';
 import 'package:loginflow_auth/src/core/protocol/organizations/organizations_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
@@ -148,6 +153,7 @@ class LoginFlowAuth {
       issuer: config.issuer,
     );
     _organizations = OrganizationsClient(transport: transport);
+    _appMembers = AppMembersClient(transport: transport, issuer: config.issuer);
   }
 
   final LoginFlowConfig config;
@@ -199,6 +205,7 @@ class LoginFlowAuth {
   late final LoginOptionsClient _loginOptions;
   late final PasskeyAccountClient _passkeyAccount;
   late final OrganizationsClient _organizations;
+  late final AppMembersClient _appMembers;
 
   final StreamController<AuthState> _states =
       StreamController<AuthState>.broadcast();
@@ -989,6 +996,125 @@ class LoginFlowAuth {
       return Err(error);
     }
     return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
+  }
+
+  /// The roles the signed-in user may grant in [organizationId]
+  /// (`GET /v1/app/members/grantable-roles`, `doc/server-contract.md` §18):
+  /// exactly what [grantRole] there would allow. Empty
+  /// [GrantableRoles.roles] means no grant power there: hide the "Team"
+  /// screen. Fails with [DelegationDenied] (`organizationOutOfReach`,
+  /// `organizationNotFound`).
+  Future<Result<GrantableRoles, LoginFlowError>> listGrantableRoles({
+    required String organizationId,
+  }) => _withMembersToken(
+    (token) => _appMembers.grantableRoles(
+      bearerToken: token,
+      organizationId: organizationId,
+    ),
+  );
+
+  /// The people holding a role in [organizationId], with those roles and
+  /// whether the signed-in user may revoke each one (`GET /v1/app/members`).
+  /// [query] matches part of the email; [limit] is 1 to 100.
+  Future<Result<MembersPage, LoginFlowError>> listMembers({
+    required String organizationId,
+    String? query,
+    int limit = 50,
+    int offset = 0,
+  }) => _withMembersToken(
+    (token) => _appMembers.list(
+      bearerToken: token,
+      organizationId: organizationId,
+      query: query,
+      limit: limit,
+      offset: offset,
+    ),
+  );
+
+  /// Finds or creates the person [email] in this application and grants
+  /// them [roleId] in [organizationId] (`POST /v1/app/members/invitations`);
+  /// a new account gets the invitation email. Needs a recent strong sign-in:
+  /// fails with [StepUpRequired] past it — call [stepUp], then this again.
+  /// Fails with [DelegationDenied] when a delegation rule refuses.
+  Future<Result<MemberInvitation, LoginFlowError>> inviteMember({
+    required String organizationId,
+    required String email,
+    required String roleId,
+    String? firstName,
+    String? lastName,
+    DateTime? expiresAt,
+  }) => _withMembersToken(
+    (token) => _appMembers.invite(
+      bearerToken: token,
+      organizationId: organizationId,
+      email: email,
+      roleId: roleId,
+      firstName: firstName,
+      lastName: lastName,
+      expiresAt: expiresAt,
+    ),
+  );
+
+  /// Grants [roleId] in [organizationId] to the member [principalId]
+  /// (`POST /v1/app/members/{principal_id}/assignments`). Same step-up and
+  /// refusals as [inviteMember].
+  Future<Result<MemberAssignment, LoginFlowError>> grantRole({
+    required String organizationId,
+    required String principalId,
+    required String roleId,
+    DateTime? expiresAt,
+  }) => _withMembersToken(
+    (token) => _appMembers.grant(
+      bearerToken: token,
+      organizationId: organizationId,
+      principalId: principalId,
+      roleId: roleId,
+      expiresAt: expiresAt,
+    ),
+  );
+
+  /// Revokes the assignment [assignmentId]
+  /// (`DELETE /v1/app/members/assignments/{assignment_id}`); offer it only
+  /// when [MemberAssignment.manageable]. Same step-up and refusals as
+  /// [inviteMember].
+  Future<Result<void, LoginFlowError>> revokeAssignment(String assignmentId) =>
+      _withMembersToken(
+        (token) =>
+            _appMembers.revoke(bearerToken: token, assignmentId: assignmentId),
+      );
+
+  /// Runs [call] with LoginFlow's own token ([_loginFlowAccessToken]), the
+  /// only one the members API accepts.
+  Future<Result<T, LoginFlowError>> _withMembersToken<T>(
+    Future<Result<T, LoginFlowError>> Function(String token) call,
+  ) async {
+    final tokenResult = await _loginFlowAccessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return call(tokenResult.data);
+  }
+
+  /// The `resource` that asks for LoginFlow's own token (`aud` = the
+  /// issuer, no permissions), valid for every sign-in client
+  /// (`doc/server-contract.md` §18).
+  String get _loginFlowResource => config.issuer.toString();
+
+  /// LoginFlow's own access token, asked with `resource=<issuer>` on the
+  /// session's refresh family and DPoP key, and cached until shortly before
+  /// it expires. The session's own token is not used: for a client with
+  /// exactly one API its `aud` is that API, which the members API refuses
+  /// (`wrong_audience`).
+  Future<Result<String, LoginFlowError>> _loginFlowAccessToken() async {
+    final session = _session;
+    if (session == null) {
+      return Err(const NotSignedIn());
+    }
+    final fresh = session.freshLoginFlowToken(_clock.now());
+    if (fresh != null) {
+      return Ok(fresh);
+    }
+    return _refreshFor(_loginFlowResource);
   }
 
   /// Reports the response to a request authorized with
@@ -1825,6 +1951,9 @@ class LoginFlowAuth {
         identity: session.identity,
         sessionToken: token,
       );
+    }
+    if (api == _loginFlowResource) {
+      return session.copyWith(loginFlowToken: token);
     }
     if (api != null) {
       return session.withApiToken(api, token);

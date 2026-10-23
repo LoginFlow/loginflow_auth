@@ -13,6 +13,7 @@ class ActiveSession {
     required this.stored,
     required this.identity,
     this.sessionToken,
+    this.loginFlowToken,
     this.apiTokens = const <String, IssuedAccessToken>{},
   });
 
@@ -23,6 +24,11 @@ class ActiveSession {
   /// LoginFlow's endpoints: passkeys, logout, organizations.
   final IssuedAccessToken? sessionToken;
 
+  /// LoginFlow's own token, asked with `resource=<issuer>` (`aud` = the
+  /// issuer, no permissions), for the members API — which refuses any other
+  /// audience. Kept apart from [apiTokens]: it is not an API of the app.
+  final IssuedAccessToken? loginFlowToken;
+
   /// One token per API the app asked for, keyed by its audience (RFC 8707
   /// `resource`). All of them are issued for the active organization.
   final Map<String, IssuedAccessToken> apiTokens;
@@ -31,6 +37,8 @@ class ActiveSession {
 
   String? freshApiToken(String api, DateTime now) =>
       apiTokens[api]?.freshValue(now);
+
+  String? freshLoginFlowToken(DateTime now) => loginFlowToken?.freshValue(now);
 
   /// This session with [token] cached for [api].
   ActiveSession withApiToken(String api, IssuedAccessToken token) => copyWith(
@@ -55,11 +63,13 @@ class ActiveSession {
     StoredSession? stored,
     UserIdentity? identity,
     IssuedAccessToken? sessionToken,
+    IssuedAccessToken? loginFlowToken,
     Map<String, IssuedAccessToken>? apiTokens,
   }) => ActiveSession(
     stored: stored ?? this.stored,
     identity: identity ?? this.identity,
     sessionToken: sessionToken ?? this.sessionToken,
+    loginFlowToken: loginFlowToken ?? this.loginFlowToken,
     apiTokens: apiTokens ?? this.apiTokens,
   );
 
@@ -70,6 +80,7 @@ class ActiveSession {
           stored == other.stored &&
           identity == other.identity &&
           sessionToken == other.sessionToken &&
+          loginFlowToken == other.loginFlowToken &&
           _sameTokens(apiTokens, other.apiTokens);
 
   @override
@@ -77,6 +88,7 @@ class ActiveSession {
     stored,
     identity,
     sessionToken,
+    loginFlowToken,
     Object.hashAllUnordered(apiTokens.entries.map(_entryHash)),
   );
 

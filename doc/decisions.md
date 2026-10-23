@@ -299,7 +299,7 @@ fixed on `loginflow_api` (`feat/oidc-provider-cutover`):
 - **`/oauth2/device-logout` and `/oauth2/logout-everywhere` now accept
   `Authorization: DPoP <token>` with a matching proof** (contract §13.3),
   the same split `authenticate_access` (`shared/helper/jwt_middleware.rs`)
-  already enforced on `/v1/user`/`/v1/master` — extracted to a shared, pure
+  already enforced on `/v1/user` and the panel's routes — extracted to a shared, pure
   `dpop_service::classify_resource_authorization` both now call, so the
   decision logic lives in one place. A DPoP-bound token presented as
   `Bearer` is rejected (`invalid_dpop_proof`); a non-bound token keeps

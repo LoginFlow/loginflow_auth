@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+Members (`doc/server-contract.md` §18): any product's "Team" screen on
+LoginFlow's delegation rules, with no product-specific code.
+
+- New: `listGrantableRoles`, `listMembers`, `inviteMember`, `grantRole` and
+  `revokeAssignment` on `LoginFlowAuth`, over `/v1/app/members`, with the
+  models `GrantableRoles`, `GrantableRole`, `MembersPage`,
+  `OrganizationMember`, `MemberIdentity`, `MemberAssignment`, `MemberRole`,
+  `MemberInvitation` and `InvitationStatus`.
+- New: every members call uses LoginFlow's own token, asked with
+  `resource=<issuer>` on the session's refresh family and DPoP key and
+  cached apart from the API tokens (it never appears in
+  `session.accessClaims`). The session's own token is not used: for a client
+  with exactly one API its audience is that API, which the members API
+  refuses.
+- Breaking: `LoginFlowError` gains `DelegationDenied(code, statusCode)`
+  (`DelegationDenialCode`); an exhaustive `switch` over `LoginFlowError`
+  needs its case.
+
 ## 0.10.0
 
 Organizations and per-API access tokens (`doc/server-contract.md` §17).

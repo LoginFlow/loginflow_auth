@@ -1,5 +1,6 @@
 import 'package:loginflow_auth/src/core/error/authorization_response_problem.dart';
 import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
+import 'package:loginflow_auth/src/core/error/delegation_denial_code.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
 import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
@@ -519,4 +520,28 @@ final class OrganizationUnavailable extends LoginFlowError {
 
   @override
   int get hashCode => Object.hash(OrganizationUnavailable, organizationId);
+}
+
+/// LoginFlow refused a members call (`doc/server-contract.md` §18): [code]
+/// names the delegation rule, so the UI shows why without parsing text.
+final class DelegationDenied extends LoginFlowError {
+  const DelegationDenied({required this.code, required this.statusCode});
+
+  final DelegationDenialCode code;
+
+  /// `403`, `404`, `409` or `422`, as the server answered.
+  final int statusCode;
+
+  @override
+  String get message => 'Members call refused ($statusCode): ${code.wireName}';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DelegationDenied &&
+          code == other.code &&
+          statusCode == other.statusCode;
+
+  @override
+  int get hashCode => Object.hash(DelegationDenied, code, statusCode);
 }
