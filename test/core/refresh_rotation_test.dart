@@ -280,6 +280,8 @@ void main() {
         await fixture.auth.stepUp(
           const StepUpRequirement(acrValues: <String>['mfa']),
         );
+        // A step-up asks the primary factor again before the TOTP.
+        await fixture.auth.submitPassword('correct-horse');
         final gate = Completer<void>();
         server.codeResponseGate = gate;
         final codeRequests = server.tokenRequests.length;

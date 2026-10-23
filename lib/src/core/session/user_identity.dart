@@ -13,6 +13,7 @@ import 'package:loginflow_auth/src/core/session/access_subject_kind.dart';
 /// keeps no personal data for it, so [email] and [name] are usually `null`.
 /// All three are `null` for a regular user.
 class UserIdentity {
+  /// Creates an [UserIdentity].
   const UserIdentity({
     required this.subject,
     this.companyId,
@@ -28,6 +29,7 @@ class UserIdentity {
     this.subjectProfile,
   });
 
+  /// The identity carried by validated ID token [claims].
   factory UserIdentity.fromClaims(IdTokenClaims claims) => UserIdentity(
     subject: claims.subject,
     companyId: claims.companyId,
@@ -43,6 +45,7 @@ class UserIdentity {
     subjectProfile: claims.subjectProfile,
   );
 
+  /// Reads an [UserIdentity] from its JSON form ([toJson]).
   factory UserIdentity.fromJson(Map<String, Object?> json) {
     final authTime = json.optionalInt('auth_time');
     return UserIdentity(
@@ -65,14 +68,31 @@ class UserIdentity {
     );
   }
 
+  /// `sub`: the stable identifier of the user in this company.
   final String subject;
+
+  /// `company_id`: the company (tenant) of the identity.
   final String? companyId;
+
+  /// `sid`: the device or browser session.
   final String? sessionId;
+
+  /// `email`; absent for access-code subjects.
   final String? email;
+
+  /// `email_verified`.
   final bool isEmailVerified;
+
+  /// `name`.
   final String? name;
+
+  /// `auth_time`: when the user last authenticated.
   final DateTime? authTime;
+
+  /// `amr` (RFC 8176), e.g. `pwd`, `otp`, `mfa`, `hwk`.
   final List<String> authenticationMethods;
+
+  /// `acr`, e.g. `urn:loginflow:acr:mfa`.
   final String? authenticationContext;
 
   /// The subject's id in the tenant backend that issued its access code
@@ -88,6 +108,7 @@ class UserIdentity {
   /// `profile` claim (a profile-page URL).
   final String? subjectProfile;
 
+  /// A copy of this [UserIdentity] with the given fields replaced.
   UserIdentity copyWith({
     String? subject,
     String? companyId,
@@ -116,6 +137,7 @@ class UserIdentity {
     subjectProfile: subjectProfile ?? this.subjectProfile,
   );
 
+  /// The JSON form of this [UserIdentity], read back by [UserIdentity.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'sub': subject,
     'company_id': ?companyId,

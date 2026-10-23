@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// Access tokens are deliberately absent: they stay in memory on every
 /// platform and are re-obtained with the refresh token after a restart.
 class StoredSession {
+  /// Creates a [StoredSession].
   const StoredSession({
     required this.refreshToken,
     required this.idToken,
@@ -17,6 +18,7 @@ class StoredSession {
     this.organizationId,
   });
 
+  /// Reads a [StoredSession] from its JSON form ([toJson]).
   factory StoredSession.fromJson(Map<String, Object?> json) => StoredSession(
     refreshToken: json.requireString('refresh_token'),
     idToken: json.requireString('id_token'),
@@ -32,10 +34,13 @@ class StoredSession {
     organizationId: json.optionalString('organization_id'),
   );
 
+  /// The current refresh token; rotated by every refresh.
   final String refreshToken;
 
   /// The latest validated ID token (also the `id_token_hint` for logout).
   final String idToken;
+
+  /// The granted scopes, space-separated.
   final String scope;
 
   /// The first-party-apps `auth_session`, kept after sign-in for step-up
@@ -64,6 +69,7 @@ class StoredSession {
   /// it, so re-authenticating never changes the active organization.
   final String? organizationId;
 
+  /// A copy of this [StoredSession] with the given fields replaced.
   StoredSession copyWith({
     String? refreshToken,
     String? idToken,
@@ -86,6 +92,7 @@ class StoredSession {
     organizationId: organizationId ?? this.organizationId,
   );
 
+  /// The JSON form of this [StoredSession], read back by [StoredSession.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'refresh_token': refreshToken,
     'id_token': idToken,

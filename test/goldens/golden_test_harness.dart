@@ -77,10 +77,7 @@ Future<void> pumpSignInGolden(
         locale: locale,
         supportedLocales: const [Locale('en'), Locale('es')],
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: ThemeData(
-          colorScheme: colorScheme,
-          extensions: [theme],
-        ),
+        theme: ThemeData(colorScheme: colorScheme, extensions: [theme]),
         home: LoginFlowSignIn(onSignedIn: (_) {}, logo: logo),
       ),
     ),

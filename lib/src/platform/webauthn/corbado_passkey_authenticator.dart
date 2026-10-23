@@ -32,6 +32,7 @@ import 'package:result_controller/result_controller.dart';
 /// throws — comes back as `PasskeyFailed` with a [PasskeyFailureReason],
 /// never as an exception.
 class CorbadoPasskeyAuthenticator implements PasskeyAuthenticator {
+  /// Creates the adapter; the arguments exist for tests.
   CorbadoPasskeyAuthenticator({
     corbado.PasskeyAuthenticator? authenticator,
     this.ceremonyTimeout = defaultCeremonyTimeout,

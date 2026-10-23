@@ -4,6 +4,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// (`GET /v1/app/members/grantable-roles`, `doc/server-contract.md` §18):
 /// exactly what a grant there would allow.
 class GrantableRole {
+  /// Creates a [GrantableRole].
   const GrantableRole({
     required this.id,
     required this.key,
@@ -12,6 +13,7 @@ class GrantableRole {
     this.maxExpiresAt,
   });
 
+  /// Reads a [GrantableRole] from its JSON form ([toJson]).
   factory GrantableRole.fromJson(Map<String, Object?> json) => GrantableRole(
     id: json.requireString('id'),
     key: json.requireString('key'),
@@ -25,13 +27,18 @@ class GrantableRole {
 
   /// The role's immutable key (e.g. `client_admin`).
   final String key;
+
+  /// The role's display name.
   final String name;
+
+  /// What the role is for, when the application described it.
   final String? description;
 
   /// The latest expiry the user may give (their own assignment's), in UTC;
   /// `null` when unbounded.
   final DateTime? maxExpiresAt;
 
+  /// A copy of this [GrantableRole] with the given fields replaced.
   GrantableRole copyWith({
     String? id,
     String? key,
@@ -46,6 +53,7 @@ class GrantableRole {
     maxExpiresAt: maxExpiresAt ?? this.maxExpiresAt,
   );
 
+  /// The JSON form of this [GrantableRole], read back by [GrantableRole.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'key': key,

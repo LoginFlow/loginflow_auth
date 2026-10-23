@@ -84,6 +84,22 @@ void main() {
     expect(listed.data.activeOrganization?.name, 'Transportes Sur');
   });
 
+  test('a token the server refuses is the RFC 6750 error of its challenge, '
+      'not an unreadable body', () async {
+    final fixture = await signedIn(organization: south.id);
+    // The session ended elsewhere (a "sign out everywhere", an
+    // administrator): the still-unexpired access token is refused with
+    // `401` + `WWW-Authenticate: Bearer error="invalid_token"` and no body.
+    server.endEveryDeviceSession();
+
+    final listed = await fixture.auth.listOrganizations();
+
+    expect(
+      listed.errorOrNull,
+      const OAuthProtocolError(statusCode: 401, code: 'invalid_token'),
+    );
+  });
+
   test('a hosted sign-in opened with an organization carries it to the '
       'authorization endpoint', () async {
     final fixture = AuthFixture.create(server);

@@ -10,6 +10,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// Only `S256` exists here: `plain` is prohibited by RFC 9700 §2.1.1 and
 /// draft-ietf-oauth-v2-1 §4.1.1.
 class PkcePair {
+  /// Creates a [PkcePair].
   const PkcePair({required this.codeVerifier, required this.codeChallenge});
 
   /// A fresh pair: 32 random bytes base64url-encoded give a 43-character
@@ -22,6 +23,7 @@ class PkcePair {
     );
   }
 
+  /// Reads a [PkcePair] from its JSON form ([toJson]).
   factory PkcePair.fromJson(Map<String, Object?> json) => PkcePair(
     codeVerifier: json.requireString('code_verifier'),
     codeChallenge: json.requireString('code_challenge'),
@@ -30,7 +32,10 @@ class PkcePair {
   /// The value sent as `code_challenge_method`.
   static const String method = 'S256';
 
+  /// The secret verifier, sent only to the token endpoint (RFC 7636 §4.1).
   final String codeVerifier;
+
+  /// `BASE64URL(SHA256(codeVerifier))`, sent with the authorization (RFC 7636 §4.2).
   final String codeChallenge;
 
   /// `BASE64URL(SHA256(ASCII(code_verifier)))` (RFC 7636 §4.2).
@@ -43,11 +48,13 @@ class PkcePair {
   bool isVerifiedBy(String challenge) =>
       challengeFor(codeVerifier) == challenge;
 
+  /// A copy of this [PkcePair] with the given fields replaced.
   PkcePair copyWith({String? codeVerifier, String? codeChallenge}) => PkcePair(
     codeVerifier: codeVerifier ?? this.codeVerifier,
     codeChallenge: codeChallenge ?? this.codeChallenge,
   );
 
+  /// The JSON form of this [PkcePair], read back by [PkcePair.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'code_verifier': codeVerifier,
     'code_challenge': codeChallenge,

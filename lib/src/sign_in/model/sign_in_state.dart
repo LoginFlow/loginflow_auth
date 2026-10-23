@@ -134,8 +134,7 @@ class SignInState {
           canGoBack == other.canGoBack &&
           isSignUpOffered == other.isSignUpOffered &&
           isPasskeySignInOffered == other.isPasskeySignInOffered &&
-          isTemporaryAccessPassOffered ==
-              other.isTemporaryAccessPassOffered &&
+          isTemporaryAccessPassOffered == other.isTemporaryAccessPassOffered &&
           isAccessCodeOffered == other.isAccessCodeOffered &&
           isMagicLinkOffered == other.isMagicLinkOffered &&
           copy == other.copy &&

@@ -30,8 +30,10 @@ extension AuthMethodPresentation on AuthMethod {
   IconData? toIcon() => switch (this) {
     PasswordMethod() => Icons.password,
     EmailOtpMethod() => Icons.mail_outline,
-    GoogleMethod() || MicrosoftMethod() || AppleMethod() || FacebookMethod() =>
-      null,
+    GoogleMethod() ||
+    MicrosoftMethod() ||
+    AppleMethod() ||
+    FacebookMethod() => null,
   };
 }
 

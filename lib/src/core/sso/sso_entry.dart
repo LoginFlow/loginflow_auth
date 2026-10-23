@@ -6,6 +6,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// Refresh tokens are never shared; each app keeps its own
 /// (OpenID Connect Native SSO §4; `doc/decisions.md` D11).
 class SsoEntry {
+  /// Creates a [SsoEntry].
   const SsoEntry({
     required this.issuer,
     required this.deviceSecret,
@@ -13,6 +14,7 @@ class SsoEntry {
     required this.updatedAt,
   });
 
+  /// Reads a [SsoEntry] from its JSON form ([toJson]).
   factory SsoEntry.fromJson(Map<String, Object?> json) => SsoEntry(
     issuer: json.requireString('issuer'),
     deviceSecret: json.requireString('device_secret'),
@@ -23,14 +25,20 @@ class SsoEntry {
     ),
   );
 
+  /// The issuer the entry belongs to.
   final String issuer;
+
+  /// The shared `device_secret` (OpenID Connect Native SSO §3.4).
   final String deviceSecret;
+
+  /// The ID token bound to it through `ds_hash`.
   final String idToken;
 
   /// When the entry was written; with several copies (Android providers) the
   /// newest wins.
   final DateTime updatedAt;
 
+  /// A copy of this [SsoEntry] with the given fields replaced.
   SsoEntry copyWith({
     String? issuer,
     String? deviceSecret,
@@ -43,6 +51,7 @@ class SsoEntry {
     updatedAt: updatedAt ?? this.updatedAt,
   );
 
+  /// The JSON form of this [SsoEntry], read back by [SsoEntry.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'issuer': issuer,
     'device_secret': deviceSecret,

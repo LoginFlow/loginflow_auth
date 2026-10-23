@@ -33,9 +33,7 @@ void main() {
     });
   }
 
-  testWidgets('$screen renders — phone_light_custom_branding', (
-    tester,
-  ) async {
+  testWidgets('$screen renders — phone_light_custom_branding', (tester) async {
     await pumpSignInGolden(
       tester,
       state: state,

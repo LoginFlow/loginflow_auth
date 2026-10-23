@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// credential material — only what the user needs to recognize and manage
 /// their own passkeys.
 class PasskeyCredential {
+  /// Creates a [PasskeyCredential].
   const PasskeyCredential({
     required this.id,
     required this.name,
@@ -12,6 +13,7 @@ class PasskeyCredential {
     required this.lastUsedAt,
   });
 
+  /// Reads a [PasskeyCredential] from its JSON form ([toJson]).
   factory PasskeyCredential.fromJson(Map<String, Object?> json) {
     final lastUsedAt = json.optionalString('last_used_at');
     return PasskeyCredential(
@@ -22,11 +24,20 @@ class PasskeyCredential {
     );
   }
 
+  /// The credential's identifier, for [LoginFlowAuth.renamePasskey] and
+  /// [LoginFlowAuth.deletePasskey].
   final String id;
+
+  /// The name the user gave it, when any.
   final String? name;
+
+  /// When it was enrolled.
   final DateTime createdAt;
+
+  /// When it last signed in, when ever.
   final DateTime? lastUsedAt;
 
+  /// A copy of this [PasskeyCredential] with the given fields replaced.
   PasskeyCredential copyWith({
     String? id,
     String? name,
@@ -39,6 +50,7 @@ class PasskeyCredential {
     lastUsedAt: lastUsedAt ?? this.lastUsedAt,
   );
 
+  /// The JSON form of this [PasskeyCredential], read back by [PasskeyCredential.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'name': ?name,

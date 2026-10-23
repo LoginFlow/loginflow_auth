@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.13.0
+
+Contract audit against `loginflow_api` `main`: every flow checked field by
+field, the fake server the tests run against now answers what the server
+answers, and the documentation covers integrating an app end to end.
+
+- Breaking: `signInWithAccessCode` no longer takes `organization`. The
+  server issues an access code's authorization code without one (and
+  without a `redirect_uri`), so the parameter was silently ignored; the
+  session starts in the subject's only organization, or none — then
+  `switchOrganization`.
+- Fixed: an access code is redeemed without `redirect_uri`. An app that
+  configured `LoginFlowConfig.redirectUri` (browser fallback) and redeemed
+  an access code got `OAuthProtocolError(invalid_grant)` (`redirect_uri
+  mismatch`) at the token endpoint.
+- Fixed: `selectMethod` with a step the user answers by typing a value
+  (`password`, `totp`, `recoveryCode`, `temporaryAccessPass`) switches the
+  prompt locally, on the same `auth_session`, instead of sending
+  `method=<step>`, which the server answers `400 invalid_request` (it takes
+  the typed value on any step). `emailOtp`, `magicLink` and
+  `webauthnIdentify` are still sent: they act on the server.
+- Fixed: a refusal of an OAuth resource endpoint (organizations, device and
+  global logout) — `401` with only a `WWW-Authenticate` challenge, no body —
+  is `OAuthProtocolError(statusCode, code)` read from the challenge (e.g.
+  `invalid_token`), instead of `ServerResponseInvalid` ("the body is not
+  valid JSON").
+- Fixed: `signOut(SignOutScope.device)` and `signOut(SignOutScope.everywhere)`
+  on a session that already ended on the server (another app's device
+  logout, a global logout, an administrator) clear the local session and the
+  shared SSO entry and answer `SignedOut(reason: sessionRevoked)`, instead
+  of failing and leaving the dead session signed in until its next refresh.
+- Fixed: the Linux loopback page's title no longer names LoginFlow: the
+  library is white-label.
+- Docs: `doc/integration-guide.md`, a step-by-step guide to integrate a
+  Flutter app per platform, and how to use per-API tokens, organizations,
+  step-up, members and email change, with the RutaFácil apps as examples.
+  `doc/server-contract.md` now states what `loginflow_api` answers where it
+  differs from the contract (Apple/Facebook `upstream_flow=browser`, legal
+  links in the login options, `auth_session` never in the token response,
+  `method=password`), and adds the magic link (§5.8). Every exported member
+  has dartdoc.
+- Tests: the fake server rotates `auth_session` on every `403`, keeps the
+  presented one as the step-up handle of a completed transaction, opens a
+  new transaction for a step-up, never returns `auth_session` from the
+  token endpoint, answers a continuation without a recognized step with
+  `400 invalid_request`, issues access-code codes without `redirect_uri` or
+  organization, and refuses tokens of ended sessions on every resource with
+  `401` + `WWW-Authenticate` and no body, the logout endpoints included.
+
 ## 0.12.0
 
 Email change (`doc/server-contract.md` §19): a person changes their own

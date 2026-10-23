@@ -55,6 +55,20 @@ void main() {
   }
 
   group('Access-code sign-in', () {
+    test('the code is redeemed without a redirect_uri, even when the app has '
+        'one: the server issues access-code codes without it', () async {
+      final fixture = await signedOutFixture();
+
+      final result = await fixture.auth.signInWithAccessCode(
+        FakeLoginFlowServer.accessCode,
+      );
+
+      expect(result.data, isA<SignedIn>());
+      final redemption = server.tokenRequests.single;
+      expect(redemption['grant_type'], 'authorization_code');
+      expect(redemption.containsKey('redirect_uri'), isFalse);
+    });
+
     test('a typed code (any case, spaces, dash) is redeemed into a DPoP-bound '
         'session exposing the subject claims', () async {
       final fixture = await signedOutFixture();

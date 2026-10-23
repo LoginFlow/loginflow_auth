@@ -6,6 +6,7 @@
 /// retry — asks for a new one. Never persisted, so it has no
 /// `toJson`/`fromJson`.
 class ResourceAuthorization {
+  /// Creates the headers of one request.
   const ResourceAuthorization({required this.authorization, this.dpopProof});
 
   /// The `Authorization` header value: `DPoP <access token>` for a
@@ -22,6 +23,7 @@ class ResourceAuthorization {
     'DPoP': ?dpopProof,
   };
 
+  /// A copy of this [ResourceAuthorization] with the given fields replaced.
   ResourceAuthorization copyWith({String? authorization, String? dpopProof}) =>
       ResourceAuthorization(
         authorization: authorization ?? this.authorization,

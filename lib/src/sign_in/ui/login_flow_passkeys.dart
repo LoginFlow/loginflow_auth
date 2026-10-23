@@ -14,6 +14,7 @@ import 'package:reactive_notifier/reactive_notifier.dart';
 /// `LoginFlowSignIn`, and the passkey is added right after. Themed with
 /// `LoginFlowSignInTheme` and translated like the sign-in UI.
 class LoginFlowPasskeys extends StatelessWidget {
+  /// Creates a [LoginFlowPasskeys].
   const LoginFlowPasskeys({this.username, this.displayName, super.key});
 
   /// The account name the platform's passkey sheet shows for a new

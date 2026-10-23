@@ -15,6 +15,7 @@ sealed class AuthState {
 
 /// Before `LoginFlowAuth.initialize` finished reading storage.
 final class AuthInitializing extends AuthState {
+  /// Creates an [AuthInitializing].
   const AuthInitializing();
 
   @override
@@ -26,13 +27,16 @@ final class AuthInitializing extends AuthState {
 
 /// No session.
 final class SignedOut extends AuthState {
+  /// Creates a [SignedOut].
   const SignedOut({this.reason = SignOutReason.none, this.loginHint});
 
+  /// Why nobody is signed in.
   final SignOutReason reason;
 
   /// Identifier to prefill, e.g. after Native SSO needed interaction.
   final String? loginHint;
 
+  /// A copy of this [SignedOut] with the given fields replaced.
   SignedOut copyWith({SignOutReason? reason, String? loginHint}) => SignedOut(
     reason: reason ?? this.reason,
     loginHint: loginHint ?? this.loginHint,
@@ -52,10 +56,13 @@ final class SignedOut extends AuthState {
 /// Another app of the publisher is signed in on this device; the user can
 /// continue as [candidate] without entering credentials.
 final class SsoAvailable extends AuthState {
+  /// Creates a [SsoAvailable].
   const SsoAvailable({required this.candidate});
 
+  /// Whose shared session can be continued.
   final SsoCandidate candidate;
 
+  /// A copy of this [SsoAvailable] with the given fields replaced.
   SsoAvailable copyWith({SsoCandidate? candidate}) =>
       SsoAvailable(candidate: candidate ?? this.candidate);
 
@@ -70,11 +77,16 @@ final class SsoAvailable extends AuthState {
 
 /// The server needs one more step from the user.
 final class ChallengeRequired extends AuthState {
+  /// Creates a [ChallengeRequired].
   const ChallengeRequired({required this.prompt, required this.purpose});
 
+  /// What to ask the user.
   final ChallengePrompt prompt;
+
+  /// Whether this is a sign-in, a step-up or a re-authentication.
   final ChallengePurpose purpose;
 
+  /// A copy of this [ChallengeRequired] with the given fields replaced.
   ChallengeRequired copyWith({
     ChallengePrompt? prompt,
     ChallengePurpose? purpose,
@@ -96,6 +108,7 @@ final class ChallengeRequired extends AuthState {
 
 /// The system browser is open (or, on the web, the page is navigating away).
 final class AwaitingBrowser extends AuthState {
+  /// Creates an [AwaitingBrowser].
   const AwaitingBrowser();
 
   @override
@@ -107,10 +120,13 @@ final class AwaitingBrowser extends AuthState {
 
 /// A user is signed in.
 final class SignedIn extends AuthState {
+  /// Creates a [SignedIn].
   const SignedIn({required this.session});
 
+  /// The signed-in session.
   final LoginFlowSession session;
 
+  /// A copy of this [SignedIn] with the given fields replaced.
   SignedIn copyWith({LoginFlowSession? session}) =>
       SignedIn(session: session ?? this.session);
 

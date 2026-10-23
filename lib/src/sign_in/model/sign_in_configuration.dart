@@ -10,6 +10,7 @@ import 'package:loginflow_auth/src/sign_in/model/sign_in_copy.dart';
 /// shown. With a single resulting method the UI opens it directly. A TOTP
 /// step is shown automatically whenever the server asks for one.
 class SignInConfiguration {
+  /// Creates a [SignInConfiguration].
   const SignInConfiguration({
     required this.methods,
     this.isSelfSignUpOffered = false,
@@ -20,6 +21,7 @@ class SignInConfiguration {
     this.copy = const SignInCopy(),
   });
 
+  /// Reads a [SignInConfiguration] from its JSON form ([toJson]).
   factory SignInConfiguration.fromJson(Map<String, Object?> json) {
     final rawMethods = json['methods'];
     if (rawMethods is! List<Object?>) {
@@ -48,6 +50,8 @@ class SignInConfiguration {
     );
   }
 
+  /// The methods the UI may offer, in order; the server's login options
+  /// filter them.
   final List<AuthMethod> methods;
 
   /// "Create an account" is shown only if this is true AND the server
@@ -91,8 +95,11 @@ class SignInConfiguration {
   /// With no other method allowed, the access-code step is the entry
   /// screen itself. Needs `LoginFlowConfig.enableDpop`.
   final bool isAccessCodeOffered;
+
+  /// The title and subtitle of the entry screen.
   final SignInCopy copy;
 
+  /// A copy of this [SignInConfiguration] with the given fields replaced.
   SignInConfiguration copyWith({
     List<AuthMethod>? methods,
     bool? isSelfSignUpOffered,
@@ -114,6 +121,7 @@ class SignInConfiguration {
     copy: copy ?? this.copy,
   );
 
+  /// The JSON form of this [SignInConfiguration], read back by [SignInConfiguration.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'methods': methods.map((method) => method.toJson()).toList(),
     'self_signup': isSelfSignUpOffered,
@@ -132,8 +140,7 @@ class SignInConfiguration {
           isSelfSignUpOffered == other.isSelfSignUpOffered &&
           isPasskeySignInOffered == other.isPasskeySignInOffered &&
           isPasskeyAutoSuggestOffered == other.isPasskeyAutoSuggestOffered &&
-          isTemporaryAccessPassOffered ==
-              other.isTemporaryAccessPassOffered &&
+          isTemporaryAccessPassOffered == other.isTemporaryAccessPassOffered &&
           isAccessCodeOffered == other.isAccessCodeOffered &&
           copy == other.copy;
 

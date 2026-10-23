@@ -31,9 +31,11 @@ final class LoopbackUserAgent implements ExternalUserAgent {
   /// pending authorization (`LoginFlowAuth.pendingLifetime`).
   final Duration timeout;
 
-  /// Shown in the browser tab once the callback is received.
+  /// Shown in the browser tab once the callback is received. It names no
+  /// product: the library is white-label, and this page is the only text
+  /// the user reads on the loopback redirect.
   static const String _completionPage =
-      '<!doctype html><meta charset="utf-8"><title>LoginFlow</title>'
+      '<!doctype html><meta charset="utf-8"><title>Sign-in finished</title>'
       '<p>Sign-in finished. You can close this tab.</p>';
 
   static Future<bool> openInSystemBrowser(Uri url) async {

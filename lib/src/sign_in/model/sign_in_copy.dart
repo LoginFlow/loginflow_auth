@@ -3,8 +3,10 @@ import 'package:loginflow_auth/src/sign_in/model/localized_text.dart';
 
 /// Branding texts that replace the built-in title and subtitle.
 class SignInCopy {
+  /// Creates a [SignInCopy].
   const SignInCopy({this.title, this.subtitle});
 
+  /// Reads a [SignInCopy] from its JSON form ([toJson]).
   factory SignInCopy.fromJson(Map<String, Object?> json) {
     final title = json.optionalObject('title');
     final subtitle = json.optionalObject('subtitle');
@@ -14,15 +16,20 @@ class SignInCopy {
     );
   }
 
+  /// Replaces the default title; `null` keeps it.
   final LocalizedText? title;
+
+  /// Replaces the default subtitle; `null` keeps it.
   final LocalizedText? subtitle;
 
+  /// A copy of this [SignInCopy] with the given fields replaced.
   SignInCopy copyWith({LocalizedText? title, LocalizedText? subtitle}) =>
       SignInCopy(
         title: title ?? this.title,
         subtitle: subtitle ?? this.subtitle,
       );
 
+  /// The JSON form of this [SignInCopy], read back by [SignInCopy.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'title': ?title?.toJson(),
     'subtitle': ?subtitle?.toJson(),

@@ -24,7 +24,12 @@ class TestDpopKeyStore implements DpopKeyStore {
         ),
       );
     final generator = ECKeyGenerator()
-      ..init(ParametersWithRandom(ECKeyGeneratorParameters(ECCurve_secp256r1()), _random));
+      ..init(
+        ParametersWithRandom(
+          ECKeyGeneratorParameters(ECCurve_secp256r1()),
+          _random,
+        ),
+      );
     final pair = generator.generateKeyPair();
     _privateKey = pair.privateKey;
     final publicKey = pair.publicKey;
@@ -32,8 +37,14 @@ class TestDpopKeyStore implements DpopKeyStore {
     _publicJwk = JsonWebKey(
       keyType: 'EC',
       curve: 'P-256',
-      x: publicKey.Q!.x!.toBigInteger()!.toUnsignedBytes(fieldSize).toBase64UrlNoPadding(),
-      y: publicKey.Q!.y!.toBigInteger()!.toUnsignedBytes(fieldSize).toBase64UrlNoPadding(),
+      x: publicKey.Q!.x!
+          .toBigInteger()!
+          .toUnsignedBytes(fieldSize)
+          .toBase64UrlNoPadding(),
+      y: publicKey.Q!.y!
+          .toBigInteger()!
+          .toUnsignedBytes(fieldSize)
+          .toBase64UrlNoPadding(),
     );
   }
 
@@ -59,8 +70,9 @@ class TestDpopKeyStore implements DpopKeyStore {
           _random,
         ),
       );
-    final signature =
-        signer.generateSignature(Uint8List.fromList(signingInput)) as ECSignature;
+    final signature = signer.generateSignature(
+      Uint8List.fromList(signingInput),
+    ) as ECSignature;
     final bytes = <int>[
       ...signature.r.toUnsignedBytes(32),
       ...signature.s.toUnsignedBytes(32),

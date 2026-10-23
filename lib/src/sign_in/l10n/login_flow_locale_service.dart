@@ -13,6 +13,7 @@ import 'package:reactive_notifier/reactive_notifier.dart';
 /// `context.loginFlowStrings`, and this is the only place that decides
 /// which translation set that resolves to.
 mixin LoginFlowLocaleService {
+  /// The explicit locale override; `null` follows the app's [Localizations].
   static final instance = ReactiveNotifier<Locale?>(() => null);
 
   /// Locales the library ships translations for today. Adding a new one

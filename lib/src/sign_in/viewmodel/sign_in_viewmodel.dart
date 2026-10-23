@@ -447,8 +447,7 @@ class SignInViewModel extends ViewModel<SignInState> {
   Future<void> _run(
     Future<Result<AuthState, LoginFlowError>> Function(LoginFlowAuth auth)
     action, {
-    SignInFeedback Function(LoginFlowError error) toFeedback =
-        _defaultFeedback,
+    SignInFeedback Function(LoginFlowError error) toFeedback = _defaultFeedback,
   }) async {
     final auth = _environment.auth;
     if (auth == null || _isRunning) {

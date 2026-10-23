@@ -7,8 +7,10 @@ import 'package:loginflow_auth/src/core/protocol/organizations/organization.dart
 /// (`GET /v1/app/members/grantable-roles`, `doc/server-contract.md` §18).
 /// Empty [roles] means no grant power there: hide the "Team" screen.
 class GrantableRoles {
+  /// Creates a [GrantableRoles].
   const GrantableRoles({required this.organization, required this.roles});
 
+  /// Reads a [GrantableRoles] from its JSON form ([toJson]).
   factory GrantableRoles.fromJson(Map<String, Object?> json) => GrantableRoles(
     organization: Organization.fromJson(json.requireObject('organization')),
     roles: List<GrantableRole>.unmodifiable(
@@ -16,12 +18,16 @@ class GrantableRoles {
     ),
   );
 
+  /// The organization the answer is about.
   final Organization organization;
+
+  /// The roles the signed-in user may grant there; empty: none.
   final List<GrantableRole> roles;
 
   /// Whether the user may grant anything in [organization].
   bool get canGrant => roles.isNotEmpty;
 
+  /// A copy of this [GrantableRoles] with the given fields replaced.
   GrantableRoles copyWith({
     Organization? organization,
     List<GrantableRole>? roles,
@@ -30,6 +36,7 @@ class GrantableRoles {
     roles: roles ?? this.roles,
   );
 
+  /// The JSON form of this [GrantableRoles], read back by [GrantableRoles.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'organization': organization.toJson(),
     'roles': roles.map((role) => role.toJson()).toList(),

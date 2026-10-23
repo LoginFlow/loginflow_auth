@@ -96,6 +96,22 @@ void main() {
       },
     );
 
+    test('device: a session another app already ended is cleared locally, '
+        'not kept alive by the refused logout', () async {
+      await appOne.auth.signOut(SignOutScope.device);
+
+      // appTwo still holds an unexpired access token of the ended `sid`:
+      // the logout endpoint refuses it (`401`, `WWW-Authenticate`).
+      final result = await appTwo.auth.signOut(SignOutScope.device);
+
+      expect(
+        result.data,
+        const SignedOut(reason: SignOutReason.sessionRevoked),
+      );
+      expect(await appTwo.storedSession(), isNull);
+      expect(server.deviceLogoutTokens, hasLength(1));
+    });
+
     test('everywhere: every session of the user ends', () async {
       final result = await appOne.auth.signOut(SignOutScope.everywhere);
 

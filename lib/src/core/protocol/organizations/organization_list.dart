@@ -6,11 +6,13 @@ import 'package:loginflow_auth/src/core/protocol/organizations/organization.dart
 /// and the one the session has active (`GET {organizations_endpoint}`,
 /// `doc/server-contract.md` §17).
 class OrganizationList {
+  /// Creates an [OrganizationList].
   const OrganizationList({
     required this.organizations,
     this.activeOrganizationId,
   });
 
+  /// Reads an [OrganizationList] from its JSON form ([toJson]).
   factory OrganizationList.fromJson(Map<String, Object?> json) {
     final rawOrganizations = json['organizations'];
     if (rawOrganizations is! List<Object?> ||
@@ -29,6 +31,7 @@ class OrganizationList {
     );
   }
 
+  /// The organizations, sorted by [Organization.id].
   final List<Organization> organizations;
 
   /// The [Organization.id] the session's tokens are issued for, or `null`
@@ -46,6 +49,7 @@ class OrganizationList {
     return null;
   }
 
+  /// A copy of this [OrganizationList] with the given fields replaced.
   OrganizationList copyWith({
     List<Organization>? organizations,
     String? activeOrganizationId,
@@ -54,6 +58,7 @@ class OrganizationList {
     activeOrganizationId: activeOrganizationId ?? this.activeOrganizationId,
   );
 
+  /// The JSON form of this [OrganizationList], read back by [OrganizationList.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'active': activeOrganizationId,
     'organizations': organizations

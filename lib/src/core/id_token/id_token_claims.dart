@@ -7,6 +7,7 @@ import 'package:loginflow_auth/src/core/session/access_subject_kind.dart';
 /// access-code subject claims `ext_sub`/`subject_kind`/`ext_profile`,
 /// `doc/server-contract.md` §16).
 class IdTokenClaims {
+  /// Creates an [IdTokenClaims].
   const IdTokenClaims({
     required this.issuer,
     required this.subject,
@@ -29,6 +30,7 @@ class IdTokenClaims {
     this.subjectProfile,
   });
 
+  /// Reads an [IdTokenClaims] from its JSON form ([toJson]).
   factory IdTokenClaims.fromJson(Map<String, Object?> json) {
     final authTime = json.optionalInt('auth_time');
     final externalSubject = json.optionalString('ext_sub');
@@ -60,12 +62,25 @@ class IdTokenClaims {
     );
   }
 
+  /// `iss`.
   final String issuer;
+
+  /// `sub`: the stable identifier of the user, never the email.
   final String subject;
+
+  /// `aud`, always as a list.
   final List<String> audiences;
+
+  /// `exp`.
   final DateTime expiresAt;
+
+  /// `iat`.
   final DateTime issuedAt;
+
+  /// `auth_time`: when the user last authenticated.
   final DateTime? authTime;
+
+  /// `nonce`, echoed from the authorization request.
   final String? nonce;
 
   /// `sid`: the device or browser session the token belongs to.
@@ -85,8 +100,14 @@ class IdTokenClaims {
 
   /// LoginFlow tenant claim: the company the identity belongs to.
   final String? companyId;
+
+  /// `email`, with the `email` scope.
   final String? email;
+
+  /// `email_verified`.
   final bool isEmailVerified;
+
+  /// `name`, with the `profile` scope.
   final String? name;
 
   /// `ext_sub`: the subject's id in the database of the tenant backend that
@@ -107,6 +128,7 @@ class IdTokenClaims {
 
   static int _seconds(DateTime value) => value.millisecondsSinceEpoch ~/ 1000;
 
+  /// A copy of this [IdTokenClaims] with the given fields replaced.
   IdTokenClaims copyWith({
     String? issuer,
     String? subject,
@@ -149,6 +171,7 @@ class IdTokenClaims {
     subjectProfile: subjectProfile ?? this.subjectProfile,
   );
 
+  /// The JSON form of this [IdTokenClaims], read back by [IdTokenClaims.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'iss': issuer,
     'sub': subject,

@@ -10,5 +10,7 @@ import 'package:result_controller/result_controller.dart';
 /// `serverClientId = prompt.clientId` and `nonce = prompt.nonce`
 /// (`doc/decisions.md` D5).
 abstract interface class GoogleIdTokenSource {
+  /// A Google ID token for [prompt]: issued to `prompt.clientId` (the
+  /// company's web client) and carrying `prompt.nonce`.
   Future<Result<String, LoginFlowError>> obtainIdToken(UpstreamPrompt prompt);
 }

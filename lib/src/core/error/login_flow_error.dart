@@ -17,13 +17,16 @@ import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dar
 sealed class LoginFlowError {
   const LoginFlowError();
 
+  /// Developer-facing text for logs; never a token, secret or credential.
   String get message;
 }
 
 /// The request never produced an HTTP response (DNS, TLS, timeout, offline).
 final class NetworkFailure extends LoginFlowError {
+  /// Creates a [NetworkFailure].
   const NetworkFailure({required this.description});
 
+  /// What went wrong, for logs.
   final String description;
 
   @override
@@ -40,12 +43,16 @@ final class NetworkFailure extends LoginFlowError {
 
 /// The server answered with something outside the contract.
 final class ServerResponseInvalid extends LoginFlowError {
+  /// Creates a [ServerResponseInvalid].
   const ServerResponseInvalid({
     required this.statusCode,
     required this.description,
   });
 
+  /// The HTTP status of the reply.
   final int statusCode;
+
+  /// What went wrong, for logs.
   final String description;
 
   @override
@@ -66,12 +73,14 @@ final class ServerResponseInvalid extends LoginFlowError {
 
 /// A standard OAuth error response (RFC 6749 §5.2), e.g. `invalid_grant`.
 final class OAuthProtocolError extends LoginFlowError {
+  /// Creates an [OAuthProtocolError].
   const OAuthProtocolError({
     required this.statusCode,
     required this.code,
     this.description,
   });
 
+  /// The HTTP status of the reply.
   final int statusCode;
 
   /// The `error` parameter value.
@@ -98,6 +107,7 @@ final class OAuthProtocolError extends LoginFlowError {
 
 /// HTTP 429: too many attempts for this account, IP or auth session.
 final class RateLimited extends LoginFlowError {
+  /// Creates a [RateLimited].
   const RateLimited({this.retryAfter});
 
   /// From the `Retry-After` header, when the server sent one.
@@ -117,8 +127,10 @@ final class RateLimited extends LoginFlowError {
 
 /// The discovery document is unreachable, malformed, or for another issuer.
 final class DiscoveryInvalid extends LoginFlowError {
+  /// Creates a [DiscoveryInvalid].
   const DiscoveryInvalid({required this.description});
 
+  /// What went wrong, for logs.
   final String description;
 
   @override
@@ -136,8 +148,10 @@ final class DiscoveryInvalid extends LoginFlowError {
 /// The app's [LoginFlowConfig] is unusable (insecure issuer, malformed or
 /// disallowed redirect URI).
 final class ConfigurationInvalid extends LoginFlowError {
+  /// Creates a [ConfigurationInvalid].
   const ConfigurationInvalid({required this.description});
 
+  /// What went wrong, for logs.
   final String description;
 
   @override
@@ -154,8 +168,10 @@ final class ConfigurationInvalid extends LoginFlowError {
 
 /// An ID token failed validation and was not trusted.
 final class IdTokenRejected extends LoginFlowError {
+  /// Creates an [IdTokenRejected].
   const IdTokenRejected({required this.reason});
 
+  /// Which check the ID token failed.
   final IdTokenFailure reason;
 
   @override
@@ -173,8 +189,10 @@ final class IdTokenRejected extends LoginFlowError {
 /// The token endpoint asked for more user interaction before issuing tokens
 /// (draft-ietf-oauth-first-party-apps-04 §6.2).
 final class InsufficientAuthorization extends LoginFlowError {
+  /// Creates an [InsufficientAuthorization].
   const InsufficientAuthorization({required this.challenge});
 
+  /// The step the server asks for.
   final ChallengeStepRequired challenge;
 
   @override
@@ -193,6 +211,7 @@ final class InsufficientAuthorization extends LoginFlowError {
 /// The refresh token was rejected (expired, revoked, or reused). The library
 /// already cleared the local session.
 final class SessionRevoked extends LoginFlowError {
+  /// Creates a [SessionRevoked].
   const SessionRevoked();
 
   @override
@@ -208,6 +227,7 @@ final class SessionRevoked extends LoginFlowError {
 /// A refresh needs the user to authenticate again; the state is now
 /// `ChallengeRequired` with purpose `reauthentication`.
 final class ReauthenticationRequired extends LoginFlowError {
+  /// Creates a [ReauthenticationRequired].
   const ReauthenticationRequired();
 
   @override
@@ -222,6 +242,7 @@ final class ReauthenticationRequired extends LoginFlowError {
 
 /// The operation needs a signed-in session and there is none.
 final class NotSignedIn extends LoginFlowError {
+  /// Creates a [NotSignedIn].
   const NotSignedIn();
 
   @override
@@ -236,6 +257,7 @@ final class NotSignedIn extends LoginFlowError {
 
 /// A challenge step was submitted while no sign-in was in progress.
 final class NoChallengeInProgress extends LoginFlowError {
+  /// Creates a [NoChallengeInProgress].
   const NoChallengeInProgress();
 
   @override
@@ -250,9 +272,13 @@ final class NoChallengeInProgress extends LoginFlowError {
 
 /// The system browser step failed or was cancelled.
 final class BrowserFailed extends LoginFlowError {
+  /// Creates a [BrowserFailed].
   const BrowserFailed({required this.reason, this.description});
 
+  /// Why the browser step did not complete.
   final BrowserFailureReason reason;
+
+  /// Extra detail, for logs.
   final String? description;
 
   @override
@@ -271,8 +297,10 @@ final class BrowserFailed extends LoginFlowError {
 
 /// A redirect back from the authorization endpoint failed validation.
 final class AuthorizationResponseRejected extends LoginFlowError {
+  /// Creates an [AuthorizationResponseRejected].
   const AuthorizationResponseRejected({required this.problem});
 
+  /// What was wrong with the callback.
   final AuthorizationResponseProblem problem;
 
   @override
@@ -289,9 +317,13 @@ final class AuthorizationResponseRejected extends LoginFlowError {
 
 /// The authorization endpoint returned an `error` (RFC 6749 §4.1.2.1).
 final class AuthorizationDenied extends LoginFlowError {
+  /// Creates an [AuthorizationDenied].
   const AuthorizationDenied({required this.code, this.description});
 
+  /// The `error` parameter of the callback (OpenID Connect Core §3.1.2.6).
   final String code;
+
+  /// Extra detail, for logs.
   final String? description;
 
   @override
@@ -310,8 +342,10 @@ final class AuthorizationDenied extends LoginFlowError {
 
 /// Secure storage on the device failed.
 final class StorageFailure extends LoginFlowError {
+  /// Creates a [StorageFailure].
   const StorageFailure({required this.description});
 
+  /// What went wrong, for logs.
   final String description;
 
   @override
@@ -328,6 +362,7 @@ final class StorageFailure extends LoginFlowError {
 
 /// The server's discovery document does not advertise a needed capability.
 final class UnsupportedByServer extends LoginFlowError {
+  /// Creates an [UnsupportedByServer].
   const UnsupportedByServer({required this.feature});
 
   /// The discovery field or capability that is missing.
@@ -347,9 +382,13 @@ final class UnsupportedByServer extends LoginFlowError {
 
 /// A federated provider step could not produce a token.
 final class UpstreamFailed extends LoginFlowError {
+  /// Creates an [UpstreamFailed].
   const UpstreamFailed({required this.provider, required this.reason});
 
+  /// The provider whose sign-in failed.
   final UpstreamProvider provider;
+
+  /// Why the native provider ceremony failed.
   final UpstreamFailureReason reason;
 
   @override
@@ -368,8 +407,10 @@ final class UpstreamFailed extends LoginFlowError {
 
 /// A passkey (WebAuthn) ceremony could not produce a credential.
 final class PasskeyFailed extends LoginFlowError {
+  /// Creates a [PasskeyFailed].
   const PasskeyFailed({required this.reason, this.code, this.description});
 
+  /// Why the passkey ceremony failed.
   final PasskeyFailureReason reason;
 
   /// The platform's own error code (a WebAuthn `DOMException` name such as
@@ -402,6 +443,7 @@ final class PasskeyFailed extends LoginFlowError {
 /// every case so a response never tells which codes exist
 /// (`doc/server-contract.md` §16).
 final class InvalidAccessCode extends LoginFlowError {
+  /// Creates an [InvalidAccessCode].
   const InvalidAccessCode();
 
   @override
@@ -418,6 +460,7 @@ final class InvalidAccessCode extends LoginFlowError {
 /// for the whole application (`429`/`slow_down`, `doc/server-contract.md`
 /// §16). Wait [retryAfter] before the next attempt.
 final class AccessCodeThrottled extends LoginFlowError {
+  /// Creates an [AccessCodeThrottled].
   const AccessCodeThrottled({this.retryAfter});
 
   /// From the `Retry-After` header, when the server sent one.
@@ -440,6 +483,7 @@ final class AccessCodeThrottled extends LoginFlowError {
 /// (`access_codes_disabled`), or a server that does not implement the
 /// `access_code` method (`doc/server-contract.md` §16).
 final class AccessCodesUnavailable extends LoginFlowError {
+  /// Creates an [AccessCodesUnavailable].
   const AccessCodesUnavailable();
 
   @override
@@ -459,6 +503,7 @@ final class AccessCodesUnavailable extends LoginFlowError {
 /// more than 300 s after signing in. Re-authenticate with
 /// `LoginFlowAuth.stepUp(requirement)`, then retry the same operation.
 final class StepUpRequired extends LoginFlowError {
+  /// Creates a [StepUpRequired].
   const StepUpRequired({required this.requirement});
 
   /// The server's demand (`acr_values`, `max_age`), ready for
@@ -484,6 +529,7 @@ final class StepUpRequired extends LoginFlowError {
 /// no longer exists. The session is untouched; tokens for the other APIs
 /// keep working.
 final class InvalidTarget extends LoginFlowError {
+  /// Creates an [InvalidTarget].
   const InvalidTarget({required this.api});
 
   /// The API audience that was asked for (the `resource` value).
@@ -505,8 +551,10 @@ final class InvalidTarget extends LoginFlowError {
 /// `organization`, `doc/server-contract.md` §17). The session keeps its
 /// active organization.
 final class OrganizationUnavailable extends LoginFlowError {
+  /// Creates an [OrganizationUnavailable].
   const OrganizationUnavailable({required this.organizationId});
 
+  /// The organization that was asked for.
   final String organizationId;
 
   @override
@@ -525,8 +573,10 @@ final class OrganizationUnavailable extends LoginFlowError {
 /// LoginFlow refused a members call (`doc/server-contract.md` §18): [code]
 /// names the delegation rule, so the UI shows why without parsing text.
 final class DelegationDenied extends LoginFlowError {
+  /// Creates a [DelegationDenied].
   const DelegationDenied({required this.code, required this.statusCode});
 
+  /// The delegation rule that refused the call.
   final DelegationDenialCode code;
 
   /// `403`, `404`, `409` or `422`, as the server answered.
@@ -553,6 +603,7 @@ final class DelegationDenied extends LoginFlowError {
 /// same for every case, so neither does this error; a code that is not
 /// 6 digits (`422`) is this error too.
 final class InvalidEmailChangeCode extends LoginFlowError {
+  /// Creates an [InvalidEmailChangeCode].
   const InvalidEmailChangeCode();
 
   @override
@@ -569,6 +620,7 @@ final class InvalidEmailChangeCode extends LoginFlowError {
 /// `doc/server-contract.md` §19): malformed, a disposable mailbox, or the
 /// account's current email.
 final class InvalidEmailAddress extends LoginFlowError {
+  /// Creates an [InvalidEmailAddress].
   const InvalidEmailAddress();
 
   @override

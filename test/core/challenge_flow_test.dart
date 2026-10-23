@@ -58,7 +58,10 @@ void main() {
 
         final stored = await fixture.storedSession();
         expect(stored?.refreshToken, startsWith('rt_'));
-        expect(stored?.authSession, isNotNull);
+        // One request opened and completed the transaction: the server's
+        // `200` carries only the code, never an `auth_session`, so a later
+        // step-up identifies the user with the ID token instead.
+        expect(stored?.authSession, isNull);
         expect(
           (await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi))
               .isOk,
@@ -66,6 +69,48 @@ void main() {
         );
       },
     );
+
+    test('choosing password on select_method prompts for it without a '
+        'request: the server has no method=password step', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.beginSignIn(loginHint: 'ana@example.com');
+      final sent = server.challengeRequests.length;
+
+      final chosen = await fixture.auth.selectMethod(ChallengeStep.password);
+
+      final prompt = (chosen.data as ChallengeRequired).prompt;
+      expect(prompt.step, ChallengeStep.password);
+      expect(prompt.loginHint, 'ana@example.com');
+      expect(server.challengeRequests, hasLength(sent));
+      final done = await fixture.auth.submitPassword('correct-horse');
+      expect(done.data, isA<SignedIn>());
+    });
+
+    test('choosing the recovery code on a TOTP step prompts for it without a '
+        'request, and the code completes the sign-in', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.signInWithPassword(
+        loginHint: 'tomas@example.com',
+        password: 'battery-staple',
+      );
+      final sent = server.challengeRequests.length;
+
+      final chosen = await fixture.auth.selectMethod(
+        ChallengeStep.recoveryCode,
+      );
+
+      expect(
+        (chosen.data as ChallengeRequired).prompt.step,
+        ChallengeStep.recoveryCode,
+      );
+      expect(server.challengeRequests, hasLength(sent));
+      final done = await fixture.auth.submitRecoveryCode(
+        FakeLoginFlowServer.recoveryCode,
+      );
+      expect(done.data, isA<SignedIn>());
+    });
 
     test('a wrong password keeps the user on the password step', () async {
       final fixture = AuthFixture.create(server);
@@ -206,36 +251,50 @@ void main() {
       expect(signedIn.data, isA<SignedIn>());
     });
 
-    test(
-      'TOTP step-up reuses auth_session and keeps the same subject',
-      () async {
-        final fixture = AuthFixture.create(server);
-        await fixture.auth.initialize();
-        await fixture.auth.signInWithPassword(
-          loginHint: 'ana@example.com',
-          password: 'correct-horse',
-        );
-        final storedBefore = await fixture.storedSession();
+    test('a strong step-up opens on the kept auth_session, asks the primary '
+        'factor again, then the TOTP, and keeps the same subject', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+      await fixture.auth.signInWithPassword(
+        loginHint: 'tomas@example.com',
+        password: 'battery-staple',
+      );
+      await fixture.auth.submitTotp(FakeLoginFlowServer.totpCode);
+      final storedBefore = await fixture.storedSession();
+      // The completed transaction keeps the auth_session the TOTP step
+      // presented as its step-up handle.
+      expect(
+        storedBefore?.authSession,
+        server.challengeRequests.last['auth_session'],
+      );
 
-        final stepUp = await fixture.auth.stepUp(
-          const StepUpRequirement(acrValues: <String>['mfa']),
-        );
-        final required = stepUp.data as ChallengeRequired;
-        expect(required.purpose, ChallengePurpose.stepUp);
-        expect(required.prompt.step, ChallengeStep.totp);
-        final stepUpRequest = server.challengeRequests.last;
-        expect(stepUpRequest['auth_session'], storedBefore?.authSession);
-        expect(stepUpRequest['acr_values'], 'mfa');
-        expect(stepUpRequest['code_challenge'], isNotNull);
+      final stepUp = await fixture.auth.stepUp(
+        const StepUpRequirement(
+          acrValues: <String>['urn:loginflow:acr:phr', 'urn:loginflow:acr:mfa'],
+          maxAge: Duration(minutes: 5),
+        ),
+      );
+      final required = stepUp.data as ChallengeRequired;
+      expect(required.purpose, ChallengePurpose.stepUp);
+      expect(required.prompt.step, ChallengeStep.password);
+      final stepUpRequest = server.challengeRequests.last;
+      expect(stepUpRequest['auth_session'], storedBefore?.authSession);
+      expect(
+        stepUpRequest['acr_values'],
+        'urn:loginflow:acr:phr urn:loginflow:acr:mfa',
+      );
+      expect(stepUpRequest['code_challenge'], isNotNull);
 
-        final done = await fixture.auth.submitTotp(
-          FakeLoginFlowServer.totpCode,
-        );
+      final second = await fixture.auth.submitPassword('battery-staple');
+      expect(
+        (second.data as ChallengeRequired).prompt.step,
+        ChallengeStep.totp,
+      );
+      final done = await fixture.auth.submitTotp(FakeLoginFlowServer.totpCode);
 
-        expect((done.data as SignedIn).session.identity.subject, 'cu_ana');
-        expect(server.tokenRequests, hasLength(2));
-      },
-    );
+      expect((done.data as SignedIn).session.identity.subject, 'cu_tomas');
+      expect(server.tokenRequests, hasLength(2));
+    });
 
     test('a step-up whose stored auth_session the server no longer knows '
         'retries once with id_token_hint', () async {

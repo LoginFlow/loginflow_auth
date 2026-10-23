@@ -6,8 +6,10 @@ import 'package:loginflow_auth/src/core/protocol/members/member_identity.dart';
 /// A person holding at least one role in the organization, with those roles
 /// (`GET /v1/app/members`, `doc/server-contract.md` §18).
 class OrganizationMember {
+  /// Creates an [OrganizationMember].
   const OrganizationMember({required this.identity, required this.assignments});
 
+  /// Reads an [OrganizationMember] from its JSON form ([toJson]).
   factory OrganizationMember.fromJson(Map<String, Object?> json) =>
       OrganizationMember(
         identity: MemberIdentity.fromJson(json),
@@ -16,9 +18,13 @@ class OrganizationMember {
         ),
       );
 
+  /// Who the member is.
   final MemberIdentity identity;
+
+  /// The member's roles in the organization.
   final List<MemberAssignment> assignments;
 
+  /// A copy of this [OrganizationMember] with the given fields replaced.
   OrganizationMember copyWith({
     MemberIdentity? identity,
     List<MemberAssignment>? assignments,

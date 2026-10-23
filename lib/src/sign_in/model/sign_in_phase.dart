@@ -202,7 +202,8 @@ final class SignInTemporaryAccessPassEntry extends SignInPhase {
           isIdentifierLocked == other.isIdentifierLocked;
 
   @override
-  int get hashCode => Object.hash(SignInTemporaryAccessPassEntry, isIdentifierLocked);
+  int get hashCode =>
+      Object.hash(SignInTemporaryAccessPassEntry, isIdentifierLocked);
 }
 
 /// Access-code entry: a single-use code the tenant's backend issued

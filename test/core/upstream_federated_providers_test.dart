@@ -40,30 +40,27 @@ void main() {
 
   tearDown(() => server.close());
 
-  test(
-    'Apple natively: the server nonce reaches the SDK and back, carrying '
-    'id_token and the first-authorization name',
-    () async {
-      final apple = FakeAppleSource(givenName: 'Ana', familyName: 'Ruiz');
-      final fixture = AuthFixture.create(server, apple: apple);
-      await fixture.auth.initialize();
+  test('Apple natively: the server nonce reaches the SDK and back, carrying '
+      'id_token and the first-authorization name', () async {
+    final apple = FakeAppleSource(givenName: 'Ana', familyName: 'Ruiz');
+    final fixture = AuthFixture.create(server, apple: apple);
+    await fixture.auth.initialize();
 
-      final result = await fixture.auth.signInWithApple();
+    final result = await fixture.auth.signInWithApple();
 
-      expect(result.data, isA<SignedIn>());
-      expect(
-        (result.data as SignedIn).session.identity.subject,
-        'cu_ana',
-      );
-      final prompt = apple.prompts.single;
-      expect(server.challengeRequests.first['upstream_flow'], 'native');
-      expect(server.challengeRequests.first['upstream_provider'], 'apple');
-      final tokenRequest = server.challengeRequests.last;
-      expect(tokenRequest['upstream_token'], 'apple:${prompt.nonce}:ana@example.com');
-      expect(tokenRequest['upstream_token_type'], 'id_token');
-      expect(tokenRequest['upstream_user_name'], 'Ana Ruiz');
-    },
-  );
+    expect(result.data, isA<SignedIn>());
+    expect((result.data as SignedIn).session.identity.subject, 'cu_ana');
+    final prompt = apple.prompts.single;
+    expect(server.challengeRequests.first['upstream_flow'], 'native');
+    expect(server.challengeRequests.first['upstream_provider'], 'apple');
+    final tokenRequest = server.challengeRequests.last;
+    expect(
+      tokenRequest['upstream_token'],
+      'apple:${prompt.nonce}:ana@example.com',
+    );
+    expect(tokenRequest['upstream_token_type'], 'id_token');
+    expect(tokenRequest['upstream_user_name'], 'Ana Ruiz');
+  });
 
   test('a cancelled Apple sheet returns to signed out', () async {
     final apple = FakeAppleSource()..shouldCancel = true;
@@ -94,39 +91,33 @@ void main() {
     },
   );
 
-  test(
-    'Facebook Limited Login (iOS shape): id_token bound to the server '
-    'nonce signs in',
-    () async {
-      final facebook = FakeFacebookSource();
-      final fixture = AuthFixture.create(server, facebook: facebook);
-      await fixture.auth.initialize();
+  test('Facebook Limited Login (iOS shape): id_token bound to the server '
+      'nonce signs in', () async {
+    final facebook = FakeFacebookSource();
+    final fixture = AuthFixture.create(server, facebook: facebook);
+    await fixture.auth.initialize();
 
-      final result = await fixture.auth.signInWithFacebook();
+    final result = await fixture.auth.signInWithFacebook();
 
-      expect(result.data, isA<SignedIn>());
-      final tokenRequest = server.challengeRequests.last;
-      expect(tokenRequest['upstream_token_type'], 'id_token');
-    },
-  );
+    expect(result.data, isA<SignedIn>());
+    final tokenRequest = server.challengeRequests.last;
+    expect(tokenRequest['upstream_token_type'], 'id_token');
+  });
 
-  test(
-    'Facebook classic login (Android shape): nonceless access_token signs '
-    'in',
-    () async {
-      final facebook = FakeFacebookSource(
-        tokenType: UpstreamTokenType.accessToken,
-      );
-      final fixture = AuthFixture.create(server, facebook: facebook);
-      await fixture.auth.initialize();
+  test('Facebook classic login (Android shape): nonceless access_token signs '
+      'in', () async {
+    final facebook = FakeFacebookSource(
+      tokenType: UpstreamTokenType.accessToken,
+    );
+    final fixture = AuthFixture.create(server, facebook: facebook);
+    await fixture.auth.initialize();
 
-      final result = await fixture.auth.signInWithFacebook();
+    final result = await fixture.auth.signInWithFacebook();
 
-      expect(result.data, isA<SignedIn>());
-      final tokenRequest = server.challengeRequests.last;
-      expect(tokenRequest['upstream_token_type'], 'access_token');
-    },
-  );
+    expect(result.data, isA<SignedIn>());
+    final tokenRequest = server.challengeRequests.last;
+    expect(tokenRequest['upstream_token_type'], 'access_token');
+  });
 
   test(
     'Facebook without a registered source falls back to the hosted page',
@@ -141,37 +132,33 @@ void main() {
     },
   );
 
-  test(
-    'Apple sign-in against a DPoP-requiring server binds the issued '
-    'tokens to the same proving key as the challenge request',
-    () async {
-      final dpopServer = FakeLoginFlowServer.inMemory(keys)
-        ..requiresDpop = true;
-      final auth = LoginFlowAuth(
-        config: LoginFlowConfig(
-          issuer: dpopServer.issuer,
-          clientId: 'app-one',
-          redirectUri: Uri.parse('https://app.example.com/oauth/callback'),
-          enableDpop: true,
-        ),
-        httpClient: dpopServer.client,
-        sessionStore: InMemorySessionStore(),
-        pendingAuthorizationStore: InMemoryPendingAuthorizationStore(),
-        appleTokenSource: FakeAppleSource(),
-        dpopKeyStore: TestDpopKeyStore(),
-      );
+  test('Apple sign-in against a DPoP-requiring server binds the issued '
+      'tokens to the same proving key as the challenge request', () async {
+    final dpopServer = FakeLoginFlowServer.inMemory(keys)..requiresDpop = true;
+    final auth = LoginFlowAuth(
+      config: LoginFlowConfig(
+        issuer: dpopServer.issuer,
+        clientId: 'app-one',
+        redirectUri: Uri.parse('https://app.example.com/oauth/callback'),
+        enableDpop: true,
+      ),
+      httpClient: dpopServer.client,
+      sessionStore: InMemorySessionStore(),
+      pendingAuthorizationStore: InMemoryPendingAuthorizationStore(),
+      appleTokenSource: FakeAppleSource(),
+      dpopKeyStore: TestDpopKeyStore(),
+    );
 
-      final result = await auth.signInWithApple();
+    final result = await auth.signInWithApple();
 
-      expect(result.data, isA<SignedIn>());
-      // 2 challenge legs (the opening `upstream_provider` prompt, then the
-      // `upstream_token` submission) plus the token-endpoint exchange.
-      expect(dpopServer.acceptedDpopThumbprints, hasLength(3));
-      expect(
-        dpopServer.acceptedDpopThumbprints.toSet(),
-        hasLength(1),
-        reason: 'every request of the attempt must use the same key',
-      );
-    },
-  );
+    expect(result.data, isA<SignedIn>());
+    // 2 challenge legs (the opening `upstream_provider` prompt, then the
+    // `upstream_token` submission) plus the token-endpoint exchange.
+    expect(dpopServer.acceptedDpopThumbprints, hasLength(3));
+    expect(
+      dpopServer.acceptedDpopThumbprints.toSet(),
+      hasLength(1),
+      reason: 'every request of the attempt must use the same key',
+    );
+  });
 }

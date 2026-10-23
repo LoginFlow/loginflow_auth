@@ -4,6 +4,7 @@ import 'package:loginflow_auth/src/core/protocol/members/member_role.dart';
 /// A role a member holds in the organization (`doc/server-contract.md`
 /// §18).
 class MemberAssignment {
+  /// Creates a [MemberAssignment].
   const MemberAssignment({
     required this.id,
     required this.role,
@@ -11,6 +12,7 @@ class MemberAssignment {
     this.expiresAt,
   });
 
+  /// Reads a [MemberAssignment] from its JSON form ([toJson]).
   factory MemberAssignment.fromJson(Map<String, Object?> json) =>
       MemberAssignment(
         id: json.requireString('id'),
@@ -21,6 +23,8 @@ class MemberAssignment {
 
   /// What `revokeAssignment` takes.
   final String id;
+
+  /// The role held.
   final MemberRole role;
 
   /// Whether the signed-in user may revoke it, decided by the server: offer
@@ -30,6 +34,7 @@ class MemberAssignment {
   /// In UTC; `null` when it never expires.
   final DateTime? expiresAt;
 
+  /// A copy of this [MemberAssignment] with the given fields replaced.
   MemberAssignment copyWith({
     String? id,
     MemberRole? role,
@@ -42,6 +47,7 @@ class MemberAssignment {
     expiresAt: expiresAt ?? this.expiresAt,
   );
 
+  /// The JSON form of this [MemberAssignment], read back by [MemberAssignment.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'role': role.toJson(),

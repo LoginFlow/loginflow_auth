@@ -7,20 +7,17 @@ void main() {
   final policyUri = Uri.parse('https://acme.example/privacy');
   final tosUri = Uri.parse('https://acme.example/terms');
 
-  Future<void> pump(
-    WidgetTester tester, {
-    Uri? policyUri,
-    Uri? tosUri,
-  }) => tester.pumpWidget(
-    MaterialApp(
-      locale: const Locale('es'),
-      supportedLocales: const [Locale('es'), Locale('en')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: Scaffold(
-        body: SignInLegalFooter(policyUri: policyUri, tosUri: tosUri),
-      ),
-    ),
-  );
+  Future<void> pump(WidgetTester tester, {Uri? policyUri, Uri? tosUri}) =>
+      tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('es'),
+          supportedLocales: const [Locale('es'), Locale('en')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: Scaffold(
+            body: SignInLegalFooter(policyUri: policyUri, tosUri: tosUri),
+          ),
+        ),
+      );
 
   group('SignInLegalFooter', () {
     testWidgets('renders nothing when neither link is configured', (

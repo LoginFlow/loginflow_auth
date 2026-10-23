@@ -11,8 +11,10 @@ import 'package:loginflow_auth/src/sign_in/ui/mobile/sign_in_screen_mobile.dart'
 /// `LoginFlowSignInSetup.install`, then show this widget as a route.
 /// [onSignedIn] runs once each time the flow completes.
 class LoginFlowSignIn extends StatefulWidget {
+  /// Creates a [LoginFlowSignIn].
   const LoginFlowSignIn({required this.onSignedIn, this.logo, super.key});
 
+  /// Called with the session each time the flow completes.
   final ValueChanged<LoginFlowSession> onSignedIn;
 
   /// Brand mark shown above the title.

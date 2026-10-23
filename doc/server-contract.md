@@ -1,10 +1,18 @@
-# LoginFlow server contract for `loginflow_auth` 0.1.0
+# LoginFlow server contract for `loginflow_auth`
 
-This document is the HTTP contract the Flutter library relies on. The server
-(phases 5 and 5b of `loginflow_api`) implements exactly this. Where a standard
-leaves a choice to the deployment, the choice made for LoginFlow is stated and
-marked **LoginFlow profile**. Anything marked **LoginFlow extension** is not
-defined by any standard.
+This document is the HTTP contract the Flutter library relies on, checked
+field by field against `loginflow_api` `main` for `loginflow_auth` 0.13.0.
+Where a standard leaves a choice to the deployment, the choice made for
+LoginFlow is stated and marked **LoginFlow profile**. Anything marked
+**LoginFlow extension** is not defined by any standard.
+
+Where `loginflow_api` answers differently from what this contract says, the
+difference is stated in place as **Server today** — the library is written
+for the contract and survives the difference, or the difference is a known
+server defect. The fake server the tests run against
+(`test/support/fake_login_flow_server.dart`) answers what `loginflow_api`
+answers, with one documented exception (§5.5, Apple and Facebook in the
+browser).
 
 The key words MUST, MUST NOT, SHOULD, MAY are used as in RFC 2119.
 
@@ -106,8 +114,10 @@ The library **refuses** the document (no request is made to any endpoint) when:
 | `end_session_endpoint` | for browser logout | e.g. `{issuer}/oauth2/end-session` |
 | `authorization_response_iss_parameter_supported` | yes, `true` | RFC9207 §3 |
 | `native_sso_supported` | for Native SSO | `true` (OIDC-NSSO §5) |
-| `scopes_supported` | — | include `openid`, `profile`, `email`, `offline_access`, `device_sso` |
-| `prompt_values_supported` | — | include `none`, `login`, `create` |
+| `scopes_supported` | — | `openid`, `profile`, `email`, `device_sso` (`offline_access` is granted to first-party clients without being listed) |
+| `prompt_values_supported` | — | not published; the library does not read it |
+| `dpop_signing_alg_values_supported` | — | `["ES256"]`; not read (§13.5) |
+| `userinfo_endpoint`, `introspection_endpoint`, `ui_locales_supported` | — | published; not read by the library |
 | `loginflow_login_options_endpoint` | for the built-in UI | **LoginFlow extension**, §4 |
 | `loginflow_device_logout_endpoint` | for device logout | **LoginFlow extension**, §10 |
 | `loginflow_global_logout_endpoint` | for "everywhere" logout | **LoginFlow extension**, §11 |
@@ -152,26 +162,30 @@ the server does not allow is never shown.
 ```
 
 - `client_id` MUST echo the request (the library rejects a mismatch).
-- `login_methods` wire names: `password`, `email_otp`, `google`,
-  `microsoft`, `apple`, `facebook`. A name only appears when the client is
-  configured for it **and** the company/application actually has it usable
-  (for `google`/`microsoft`/`apple`/`facebook`, an enabled upstream
-  provider config). Unknown future names are ignored by older libraries.
-  TOTP is not a primary method; it appears as a challenge step (§5).
-  `passkey` is never a member of this array (see below) and a Temporary
+- `login_methods` wire names: `password`, `email_otp`, `magic_link`,
+  `google`, `microsoft`, `apple`, `facebook`, `passkey`. A name only
+  appears when the client is configured for it **and** the
+  company/application actually has it usable (for
+  `google`/`microsoft`/`apple`/`facebook`, an enabled upstream provider
+  config; for `passkey`, the company policy `passwordless`). Unknown future
+  names are ignored by older libraries. TOTP is not a primary method; it
+  appears as a challenge step (§5). `magic_link` turns on the "email me a
+  sign-in link instead" action of the `email_otp` step (§5.8). A Temporary
   Access Pass is never advertised here — it is admin-issued, not
   client-selected.
 - `self_signup`: the application's `allow_self_signup` flag.
 - `password_reset`: whether the hosted reset flow is enabled for the client.
 - `passkey`: `true` when the company's passkey policy (company-wide, set by
-  the company's admin or by LoginFlow's master operators — never per end
-  user) is not `disabled`; absent fields `passkey_mode`/
-  `google_server_client_id` are omitted, not `null`, when not applicable.
+  the company's admin or by LoginFlow's operators — never per end user) is
+  `mfa_only`, or `passwordless` with `passkey` in this client's
+  `login_methods`; `false` otherwise. Absent fields `passkey_mode`/
+  `google_server_client_id`/`facebook_app_id` are omitted, not `null`, when
+  not applicable.
 - `passkey_mode` (present only when `passkey` is `true`): `"mfa_only"` —
   the passkey may stand in for the second factor on top of a primary
   method — or `"passwordless"` — it may also be the first factor on its
-  own. Drives whether the built-in UI offers "Sign in with a passkey" as a
-  first-factor option.
+  own, for this client. Drives whether the built-in UI offers "Sign in with
+  a passkey" as a first-factor option.
 - `google_server_client_id` (present only when `google` is configured and
   enabled): the Google OAuth client ID a native app needs for
   `CredentialManager`'s `GetGoogleIdOption` / `GoogleSignInOptions`. Not a
@@ -181,12 +195,15 @@ the server does not allow is never shown.
   Not a secret. Apple needs no equivalent field here: the native ceremony
   resolves entirely from the app's own Xcode capability and bundle/Services
   ID, never from a value the server hands out per request.
-- `policy_uri`/`tos_uri` (RFC 7591 client-metadata names): the company's
+- `policy_uri`/`tos_uri` (RFC 7591 client-metadata names): the client's
   privacy-policy/terms-of-service pages, each an `https` URL. Both are
-  optional and are omitted, not `null`, when the company has not
-  configured one; the library's built-in UI shows a link only for the
-  one(s) present, and nothing when neither is. A value that is present
-  but not `https` is treated by the library the same as absent.
+  optional and are omitted, not `null`, when not configured; the library's
+  built-in UI shows a link only for the one(s) present, and nothing when
+  neither is. A value that is present but not `https` is treated by the
+  library the same as absent. **Server today:** `loginflow_api` stores them
+  per client (`PATCH /v1/control/oauth-clients/{client_id}/legal-links`)
+  and shows them on its hosted pages, but does not serve them here yet, so
+  the built-in UI shows no legal footer.
 - Unknown `client_id`: `404 {"error":"invalid_client"}`.
 
 ## 5. Authorization Challenge Endpoint: `POST {authorization_challenge_endpoint}`
@@ -245,6 +262,7 @@ Every request carries:
 | `ui_locales` | OPTIONAL; e.g. `es en`; language of the email OTP and hosted pages |
 | `id_token_hint` | OPTIONAL; identifies the user for a step-up without `auth_session` (OIDC-CORE §3.1.2.1). It **only identifies** the user and is never a primary factor: the server answers the primary step that applies (e.g. `next: password`), never an authorization code |
 | `organization` | OPTIONAL; **LoginFlow extension**, the organization id the session starts in (§17). An organization of another application → `400 invalid_request`. A step-up sends the session's organization |
+| `resource` | OPTIONAL; RFC 8707 audience of one of the client's APIs, carried onto the code. Another one → `400 invalid_target`. The library never sends it here: it asks per-API tokens on refresh (§17) |
 
 A missing `code_challenge` on an opening request → `400 invalid_request`.
 
@@ -254,7 +272,9 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 |---|---|
 | `login_hint` | The identifier (email). MAY come together with `password` or `method` in the same request |
 | `password` | Password for `login_hint` (or for the session's user) |
-| `method` | `email_otp` → the server sends the code as a side effect and answers `next: email_otp` (FIPA App. A.4); `password` → answers `next: password` |
+| `method` | `email_otp` → the server sends the code as a side effect and answers `next: email_otp` (FIPA App. A.4). The server dispatches every step on the **field present** (`password`, `totp`, ...), so a value the user types has no `method`: a continuation carrying only `method=password` or `method=totp` is `400 invalid_request` ("No recognized step parameter"), and an opening one is answered `select_method`. The library therefore switches to such a step locally (`selectMethod`) and sends only the typed value |
+| `method` (magic link) | `magic_link` → one email carrying both a fresh email OTP and a sign-in link bound to this `auth_session`; answers `next: email_otp` (§5.8) |
+| `magic_link_token` | **LoginFlow extension.** The `token` of the intercepted magic link, on the `auth_session` that requested it (§5.8) |
 | `email_otp` | The emailed code |
 | `resend` | `email_otp` → send a new code, answer `next: email_otp` |
 | `totp` | 6-digit TOTP |
@@ -314,11 +334,18 @@ requires 403 for `insufficient_authorization`, and 200 is reserved for the
   client and, once known, to the user. Lifetime: short while signing in; kept
   longer after the code is issued for step-up (FIPA §5.3.1; the duration is an
   open point, our choice).
-- `next`: REQUIRED. An unknown value makes the library fail the attempt, so
-  new step names need a library release.
-- `methods`: alternatives the user may switch to (`select_method` choices;
-  `["totp","recovery_code"]` on a TOTP step). Unknown names are ignored by the
-  client.
+- `next`: REQUIRED; one of `select_method`, `password`, `email_otp`,
+  `totp`, `recovery_code`, `upstream_token`, `webauthn_assertion` (§5.7),
+  `temporary_access_pass`. An unknown value makes the library fail the
+  attempt, so new step names need a library release.
+- `methods`: alternatives the user may switch to, omitted when empty. On
+  `select_method`: the client's primary methods (`password`, `email_otp`,
+  `google`, `microsoft`, `apple`, `facebook`); on `password`: `password`,
+  `email_otp` and `webauthn_identify` (a passkey as first factor), each only
+  when the client allows it; on `totp`/`recovery_code`: `totp`, plus
+  `recovery_code` while the account holds an unused one. The provider names
+  are not challenge steps: the library drops them and every other unknown
+  name, and offers the providers from the login options (§4).
 - `step_error`: present when the previous step input was refused.
   `invalid_credential` for a wrong password/OTP/TOTP/recovery code;
   `code_expired` for an expired or burned email OTP (burned after 5 failures).
@@ -342,6 +369,15 @@ password hash so timing does not leak).
 TOTP: when the account has TOTP enabled, or the authorization's `acr_values`
 requires it, a correct first factor is followed by `next: totp`. The library
 shows the TOTP screen automatically.
+
+An opening request that also carries a step parameter (the library sends
+both together: identifier and password, `method=access_code`, ...) is
+answered in the same round trip. When that one request completes the
+authorization, the `200` carries only the code: the transaction keeps the
+internal `auth_session` it was opened with as its step-up handle, but the
+client never learns it, so its step-up identifies the user with
+`id_token_hint` (§5.2). After a `403`, the transaction keeps the last
+`auth_session` the client presented, which the library stores for step-up.
 
 **Continue in the browser — `403`** (FIPA §5.2.2.1.1):
 
@@ -370,6 +406,26 @@ the server MUST NOT return a `request_uri` (FIPA §5.2.2.1.1).
 When `request_uri` is absent, the library builds a full authorization request
 itself (§6) with the same `state`, `nonce` and `code_challenge`.
 
+**Server today:** two deviations.
+
+- `upstream_provider=apple|facebook` with `upstream_flow=browser` answers
+  `400 {"error":"unsupported_client"}` instead of `redirect_to_web`: only
+  Microsoft and Google have the browser hand-off in
+  `challenge_handler.rs::continue_with_step`. `signInWithApple` /
+  `signInWithFacebook` without an available native source (Apple on
+  Android, either one on the web) therefore fail with
+  `OAuthProtocolError(code: 'unsupported_client')` until the server adds
+  it. The fake server keeps the contract's `redirect_to_web` here on
+  purpose, so the tests pin the behaviour the server must reach.
+- A targeted passkey `webauthn_identify` for an account whose passkey is
+  enrolled at a `session`-level federation member answers `redirect_to_web`
+  with an extra `url` (that member's hosted-login origin) next to a valid
+  `request_uri`. The library ignores `url` and opens the pushed request at
+  its own issuer, whose hosted page sends the browser on to that member.
+
+A browser hand-off is refused inside a step-up (`400 invalid_request`): the
+browser could complete it with whatever account its cookie holds.
+
 **Session gone — `400`**:
 
 ```json
@@ -379,7 +435,21 @@ itself (§6) with the same `state`, `nonce` and `code_challenge`.
 The library discards the attempt and shows "start again".
 
 **Other `400`** (RFC6749 §5.2): `invalid_request`, `invalid_client`,
-`unauthorized_client`, `invalid_scope`. **`429`**: §1.
+`unauthorized_client`, `invalid_scope`, `invalid_target`,
+`unsupported_client`, and `unmet_authentication_requirements` (RFC 9470 §3:
+a step-up whose `acr_values` the account has no factor to meet). The
+library reports each as `OAuthProtocolError` with that code. **`429`**: §1.
+
+**Step-up openings** (§5.2, FIPA §7): the `auth_session` must name a
+completed sign-in of this client whose session is still live, else
+`400 invalid_session` (the library then retries once with `id_token_hint`);
+an `id_token_hint` that does not verify or names no live session is
+`400 invalid_request`. The new transaction is locked to that user and
+always asks the primary factor again (`next: password`, or
+`select_method` when the client does not allow passwords), then the second
+factor when `acr_values` only accepts `urn:loginflow:acr:phr` /
+`urn:loginflow:acr:mfa` — or, for an account without TOTP whose passkey
+meets it, the passkey ceremony directly. Never a code at the opening.
 
 ### 5.6 Google upstream validation (server side)
 
@@ -474,6 +544,20 @@ active first-party clients — and the server verifies the assertion's
 client's `allowed_web_origins`. A browser without Related Origin Requests
 support refuses the ceremony on the client side.
 
+### 5.8 Magic link (LoginFlow extension)
+
+On an open `email_otp` step, `method=magic_link` sends ONE email carrying a
+fresh code and a link `https://<company login host>/login/magic/<client_id>?token=…`
+bound to this transaction, and answers `next: email_otp` (the code keeps
+working). Only offered when the login options list `magic_link` (§4).
+
+An app that intercepts its own link (Android App Link / iOS Universal Link
+on its own `/login/magic/<client_id>` path) posts `magic_link_token=<token>`
+on the SAME `auth_session` that requested it: `200 {"authorization_code"}`,
+or the generic `next: email_otp` + `step_error: invalid_credential` for a
+wrong, expired, used or foreign token. A link opened where no attempt is in
+progress cannot be redeemed natively (it opens the hosted page instead).
+
 ## 6. Authorization endpoint (browser): `GET {authorization_endpoint}`
 
 Used by `redirect_to_web` and by Flutter web (top-level redirect).
@@ -511,7 +595,7 @@ Public clients authenticate with `client_id` only
 | `code` | REQUIRED |
 | `code_verifier` | REQUIRED; `BASE64URL(SHA256(code_verifier)) == code_challenge` (RFC7636 §4.6); a verifier for a code issued without a challenge → `invalid_grant` (downgrade protection, RFC9700 §2.1.1) |
 | `client_id` | REQUIRED; must equal the code's client |
-| `redirect_uri` | REQUIRED iff the code was issued through a browser redirect (§6), and then equal to it; absent for codes from the challenge endpoint (FIPA §6) |
+| `redirect_uri` | REQUIRED iff the code's authorization carried one, and then equal to it: a browser redirect (§6), or a challenge opening that sent `redirect_uri` (§5.3, kept on the code). Absent for a challenge opening without one and for an access code (§16), whose code never carries one. Any other combination → `400 invalid_grant` (`redirect_uri mismatch`) |
 | `device_secret` | OPTIONAL; the client MUST send it when it holds one (OIDC-NSSO §3.3). An invalid one is treated as absent (§3.4) |
 
 ### 7.2 `grant_type=refresh_token`
@@ -522,7 +606,7 @@ Public clients authenticate with `client_id` only
 | `client_id` | REQUIRED; must equal the token's client |
 | `device_secret` | OPTIONAL; SHOULD be sent so it can be rotated (OIDC-NSSO §3.3) |
 | `resource` | OPTIONAL; the audience of the API the access token is for (RFC8707 §2, §17). Not one of the client's APIs → `400 invalid_target`, nothing rotated |
-| `organization` | OPTIONAL; makes that organization the active one of the whole family (§17). Not one where the user has an active assignment → `400 invalid_grant`, nothing revoked or rotated |
+| `organization` | OPTIONAL; makes that organization the active one of the whole family (§17). Not a UUID → `400 invalid_request`; not one where the user has an active assignment → `400 invalid_grant`, nothing revoked or rotated |
 
 Server behaviour (RFC9700 §4.14.2, `doc/decisions.md` D9):
 
@@ -539,7 +623,8 @@ Server behaviour (RFC9700 §4.14.2, `doc/decisions.md` D9):
 - Re-authentication: the server MAY answer `403` with the §5.5
   `insufficient_authorization` body (with `auth_session` and `next`) instead
   of tokens (FIPA §6.2, App. A.6). The library then asks the user and opens a
-  new authorization on that `auth_session` (§5.2).
+  new authorization on that `auth_session` (§5.2). **Server today:**
+  `loginflow_api` never answers it; the library keeps the handling.
 - Lifetimes: refresh tokens of public **web** clients expire 24 h after the
   original grant (absolute, not extended by rotation; BBA §6.3.2.3). The
   library assumes no lifetime: an expired token is an `invalid_grant` and a
@@ -609,7 +694,9 @@ include `refresh_token` and an `id_token` for the second app (`aud` = its
 - `device_secret`: when `device_sso` was granted (OIDC-NSSO §3.4.2: the
   `device_secret` and the `id_token` are issued together or not at all).
 - `auth_session`: MAY be returned after a challenge-endpoint code
-  (FIPA §6.1); the library keeps it for step-up.
+  (FIPA §6.1); the library keeps it for step-up. **Server today:** never
+  returned; the library keeps the last `auth_session` the challenge answered
+  instead (§5.5).
 
 ### 7.5 Errors
 
@@ -676,8 +763,17 @@ whatever this call returns (including that 400).
 - Ends the `sid` carried by the access token: revokes every refresh token
   family under it and every `device_secret` bound to it. Sibling apps get
   `invalid_grant` on their next refresh.
-- `204` on success; `401 {"error":"invalid_token"}` for a bad token.
+- `204` on success. A refused token (invalid, expired, revoked, its session
+  or membership ended, a DPoP failure) is `401` with only a
+  `WWW-Authenticate` challenge, no body (RFC 6750 §3, e.g. `DPoP
+  error="invalid_token"`); a `client_id` that is not the token's, or a
+  session already ended, is `401 {"error":"invalid_client",
+  "error_description":"invalid_token"}`.
 - On success the library deletes the shared SSO entry and the local session.
+  On `invalid_token` the session is already over on the server: the library
+  deletes the SSO entry and the local session too and reports
+  `SignedOut(reason: sessionRevoked)` (for "everywhere" the user's other
+  sessions are then untouched: sign in again to end them).
 
 ## 11. Global logout: `POST {loginflow_global_logout_endpoint}`
 
@@ -798,12 +894,16 @@ not retried again.
   `htm`/`htu` mismatch, expired `iat`, reused `jti`, or `ath` mismatch.
 - `401` with a `WWW-Authenticate: DPoP error="invalid_dpop_proof"` header on
   a resource endpoint is treated the same as the `400` form above.
+- Every OAuth resource endpoint (organizations, device and global logout,
+  userinfo) answers a refusal with no body: the library reads the `error`
+  (and `error_description`) of the `WWW-Authenticate` challenge into
+  `OAuthProtocolError(statusCode, code)`.
 - Discovery publishes `dpop_signing_alg_values_supported: ["ES256"]` when
   DPoP is offered; the library does not currently gate on this field (every
   `first_party` client that is `native` or has browser origins is assumed to
   need DPoP per its registration, not per discovery), but a future version may.
 
-### 13.6 Not part of 0.1.0
+### 13.6 Not implemented by the library
 
 - **App attestation** (FIPA §9.1, ABCA): not implemented.
 - **Back-channel logout** (OIDC-BCL): a server-to-backend feature; no client
@@ -903,7 +1003,7 @@ the code is deleted on redeem, so it works once.
 
 | Outcome | Response | Library |
 |---|---|---|
-| Valid code | `200 {"authorization_code"}`, then §7.1 as usual (DPoP-bound tokens) | `SignedIn` |
+| Valid code | `200 {"authorization_code"}`, then §7.1 with no `redirect_uri` (the code carries none, whatever the app registered) and DPoP-bound tokens | `SignedIn` |
 | Unknown, expired, used or revoked code | `400 {"error":"invalid_grant","error_description":"the access code is invalid, expired or already used"}` — the same body for every case (no enumeration) | `InvalidAccessCode` |
 | Too many failures (per address/DPoP key, or the per-application threshold) | `429 {"error":"slow_down","error_description":"too many failed attempts"}` + `Retry-After: <seconds>` (e.g. `900`) | `AccessCodeThrottled(retryAfter)` |
 | Access codes disabled for the application | `400 {"error":"access_codes_disabled","error_description":"access codes are disabled for this application"}` | `AccessCodesUnavailable` |
@@ -913,6 +1013,10 @@ the code is deleted on redeem, so it works once.
 
 The challenge endpoint is not enveloped: error bodies are plain RFC 6749
 `{error, error_description}`.
+
+The code also carries no organization: the session starts in the subject's
+only organization, or none (§17), so `signInWithAccessCode` takes no
+`organization`.
 
 **Tokens.** `sub` is the subject id; the ID token and the access token carry
 `ext_sub` (the tenant's own id, `<=128` chars of `[A-Za-z0-9:._-]`),
@@ -980,7 +1084,7 @@ when there are zero or several. With none, `org_id` is absent and
 
 | Call | Wire | Result |
 |---|---|---|
-| any sign-in method with `organization:` | `organization` on the opening request (§5.3) or the authorization URL (§6) | the session starts in it |
+| any sign-in method with `organization:` (all but `signInWithAccessCode`, §16) | `organization` on the opening request (§5.3) or the authorization URL (§6) | the session starts in it |
 | `accessTokenFor(api)` | refresh with `resource=<api>`, same DPoP key; cached per API until 30 s before `expires_in` | the token; `InvalidTarget(api)` on `invalid_target` (session kept); `ConfigurationInvalid` for an API missing from `LoginFlowConfig.apis` (no request) |
 | `authorizedHeadersFor(api, method:, uri:)` | — | `Authorization` + `DPoP` for that API's token (§13.3) |
 | `listOrganizations()` | `GET {organizations_endpoint}` | `OrganizationList`; `UnsupportedByServer('organizations_endpoint')` without it in discovery |
@@ -1007,7 +1111,9 @@ sign-in client whatever its APIs (§17). Presented as `Authorization: DPoP
 wrong_audience` (a product backend that received it can never replay it here);
 an access-code subject's token is `403 permission_denied`. Every write needs a
 recent strong sign-in: `401` + `WWW-Authenticate: Bearer
-error="insufficient_user_authentication", max_age=300` otherwise (RFC 9470).
+error="insufficient_user_authentication", acr_values="urn:loginflow:acr:phr
+urn:loginflow:acr:mfa", max_age=300` otherwise (RFC 9470), so
+`StepUpRequirement.isStrongRequired` is `true`.
 
 Fixed account-API paths under the issuer, with the `ApiResponse` envelope
 (`{"data", "meta"}` / `{"error": {"code", "message", "details"?}, "meta"}`),

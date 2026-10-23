@@ -48,6 +48,7 @@ enum DelegationDenialCode {
 
   const DelegationDenialCode(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
   /// The code for [value], or `null` for any other `error.code`.

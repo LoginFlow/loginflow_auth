@@ -52,6 +52,34 @@ void main() {
     );
   });
 
+  test('the completion page names no product: the library is white-label '
+      'and the tab is the only text the user reads there', () async {
+    final port = await freePort();
+    final callbackUri = Uri.parse('http://127.0.0.1:$port/oauth/callback');
+    var page = '';
+    final userAgent = LoopbackUserAgent(
+      launch: (url) async {
+        final client = HttpClient();
+        final request = await client.getUrl(
+          callbackUri.replace(query: 'code=c1&state=s1'),
+        );
+        final response = await request.close();
+        page = await response.transform(const SystemEncoding().decoder).join();
+        client.close();
+        return true;
+      },
+    );
+
+    await userAgent.open(
+      Uri.parse('https://login.example.com/oauth2/authorize?client_id=app'),
+      callbackUri: callbackUri,
+      expectedState: 's1',
+    );
+
+    expect(page, contains('<title>'));
+    expect(page.toLowerCase(), isNot(contains('loginflow')));
+  });
+
   test(
     'a redirect URI that is not a loopback literal is unavailable',
     () async {

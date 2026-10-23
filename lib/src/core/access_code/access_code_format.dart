@@ -10,11 +10,13 @@ abstract final class AccessCodeFormat {
   /// so a code read aloud or copied from paper is typed right.
   static const String alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
+  /// How many characters a normalized code has.
   static const int length = 8;
 
   /// Characters before the [separator] in the displayed form.
   static const int groupLength = 4;
 
+  /// The dash shown between the two halves of a code (`XXXX-XXXX`).
   static const String separator = '-';
 
   static final RegExp _ignored = RegExp(r'[\s-]');

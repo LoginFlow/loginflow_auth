@@ -41,76 +41,70 @@ void main() {
   tearDown(() => server.close());
 
   group('Passkey sign-in (WebAuthn L3)', () {
-    test(
-      'identify -> assertion -> code -> tokens, with a DPoP proof on every '
-      'leg',
-      () async {
-        server.requiresDpop = true;
-        final passkey = FakePasskeyAuthenticator();
-        final fixture = AuthFixture.create(
-          server,
-          passkey: passkey,
-          enableDpop: true,
-        );
-        await fixture.auth.initialize();
+    test('identify -> assertion -> code -> tokens, with a DPoP proof on every '
+        'leg', () async {
+      server.requiresDpop = true;
+      final passkey = FakePasskeyAuthenticator();
+      final fixture = AuthFixture.create(
+        server,
+        passkey: passkey,
+        enableDpop: true,
+      );
+      await fixture.auth.initialize();
 
-        final result = await fixture.auth.signInWithPasskey(
-          loginHint: 'ana@example.com',
-        );
+      final result = await fixture.auth.signInWithPasskey(
+        loginHint: 'ana@example.com',
+      );
 
-        final state = result.data;
-        expect(state, isA<SignedIn>());
-        final identity = (state as SignedIn).session.identity;
-        expect(identity.subject, 'cu_ana');
+      final state = result.data;
+      expect(state, isA<SignedIn>());
+      final identity = (state as SignedIn).session.identity;
+      expect(identity.subject, 'cu_ana');
 
-        expect(passkey.assertionOptionsSeen, hasLength(1));
-        expect(
-          passkey.assertionOptionsSeen.single['publicKey'],
-          isA<Map<String, Object?>>().having(
-            (publicKey) => publicKey.keys,
-            'keys',
-            contains('challenge'),
-          ),
-        );
+      expect(passkey.assertionOptionsSeen, hasLength(1));
+      expect(
+        passkey.assertionOptionsSeen.single['publicKey'],
+        isA<Map<String, Object?>>().having(
+          (publicKey) => publicKey.keys,
+          'keys',
+          contains('challenge'),
+        ),
+      );
 
-        final tokenRequest = server.tokenRequests.single;
-        expect(tokenRequest['grant_type'], 'authorization_code');
+      final tokenRequest = server.tokenRequests.single;
+      expect(tokenRequest['grant_type'], 'authorization_code');
 
-        expect(
-          server.acceptedDpopThumbprints.toSet(),
-          hasLength(1),
-          reason:
-              'the challenge (identify + assertion) and token requests '
-              'must use the same DPoP key',
-        );
-        expect(server.acceptedDpopThumbprints, hasLength(3));
-      },
-    );
+      expect(
+        server.acceptedDpopThumbprints.toSet(),
+        hasLength(1),
+        reason:
+            'the challenge (identify + assertion) and token requests '
+            'must use the same DPoP key',
+      );
+      expect(server.acceptedDpopThumbprints, hasLength(3));
+    });
 
-    test(
-      'an unrecognized credential fails the attempt without issuing a code '
-      '(a WebAuthn challenge is single-use: the caller restarts with a new '
-      'signInWithPasskey call, there is nothing to retry blindly)',
-      () async {
-        final passkey = FakePasskeyAuthenticator(credentialId: 'not-enrolled');
-        final fixture = AuthFixture.create(server, passkey: passkey);
-        await fixture.auth.initialize();
+    test('an unrecognized credential fails the attempt without issuing a code '
+        '(a WebAuthn challenge is single-use: the caller restarts with a new '
+        'signInWithPasskey call, there is nothing to retry blindly)', () async {
+      final passkey = FakePasskeyAuthenticator(credentialId: 'not-enrolled');
+      final fixture = AuthFixture.create(server, passkey: passkey);
+      await fixture.auth.initialize();
 
-        final result = await fixture.auth.signInWithPasskey(
-          loginHint: 'ana@example.com',
-        );
+      final result = await fixture.auth.signInWithPasskey(
+        loginHint: 'ana@example.com',
+      );
 
-        expect(
-          result.errorOrNull,
-          isA<ServerResponseInvalid>().having(
-            (error) => error.statusCode,
-            'statusCode',
-            403,
-          ),
-        );
-        expect(server.tokenRequests, isEmpty);
-      },
-    );
+      expect(
+        result.errorOrNull,
+        isA<ServerResponseInvalid>().having(
+          (error) => error.statusCode,
+          'statusCode',
+          403,
+        ),
+      );
+      expect(server.tokenRequests, isEmpty);
+    });
 
     test('the user cancelling the platform sheet ends the attempt', () async {
       final passkey = FakePasskeyAuthenticator()..shouldCancel = true;

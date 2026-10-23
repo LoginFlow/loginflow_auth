@@ -2,11 +2,23 @@
 /// member of an `insufficient_authorization` response (LoginFlow profile of
 /// draft-ietf-oauth-first-party-apps-04 §5.2.2).
 enum ChallengeStep {
+  /// The account password.
   password('password'),
+
+  /// A one-time code emailed to the user.
   emailOtp('email_otp'),
+
+  /// A 6-digit code of the user's authenticator app (second factor).
   totp('totp'),
+
+  /// A single-use TOTP recovery code, instead of the authenticator app.
   recoveryCode('recovery_code'),
+
+  /// Choose a primary method among `ChallengeStepRequired.methods`.
   selectMethod('select_method'),
+
+  /// A Google, Apple or Facebook token obtained natively (answered by the
+  /// library itself through the configured source).
   upstreamToken('upstream_token'),
 
   /// Client-initiated only (`method=webauthn_identify`): never a `next`
@@ -39,8 +51,10 @@ enum ChallengeStep {
 
   const ChallengeStep(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
+  /// The value whose [wireName] is the given name, or `null` for an unknown one.
   static ChallengeStep? fromWireName(String value) {
     for (final step in values) {
       if (step.wireName == value) {

@@ -9,6 +9,7 @@ import 'package:loginflow_auth/src/core/protocol/login_options/passkey_mode.dart
 /// passkey policy and, when Google is configured, the client ID a native
 /// app needs for it.
 class ClientLoginOptions {
+  /// Creates a [ClientLoginOptions].
   const ClientLoginOptions({
     required this.clientId,
     required this.loginMethods,
@@ -22,6 +23,7 @@ class ClientLoginOptions {
     this.tosUri,
   });
 
+  /// Reads a [ClientLoginOptions] from its JSON form ([toJson]).
   factory ClientLoginOptions.fromJson(Map<String, Object?> json) {
     final hasPasskey = json.optionalBool('passkey', absent: false);
     return ClientLoginOptions(
@@ -67,17 +69,29 @@ class ClientLoginOptions {
     return mode;
   }
 
+  /// The client identifier the options are for; always this app's
+  /// (a response for another client is refused).
   final String clientId;
 
-  /// Wire names: `password`, `email_otp`, `google`, `microsoft`, `apple`,
-  /// `facebook`. Unknown names are kept so newer server methods are simply
-  /// not matched. `passkey` is never a member of this list (see
-  /// [hasPasskey]).
+  /// The primary methods the server allows for this client, by wire name:
+  /// `password`, `email_otp`, `magic_link`, `google`, `microsoft`, `apple`,
+  /// `facebook`, and `passkey` when a passkey may be the first factor (see
+  /// [isFirstFactorPasskeyOffered]). Unknown names are kept so newer server
+  /// methods are simply not matched.
   final List<String> loginMethods;
+
+  /// Whether the application lets people create their own account
+  /// (`self_signup`), so a "Create account" entry (`LoginFlowAuth.signUp`)
+  /// may be shown.
   final bool isSelfSignUpEnabled;
+
+  /// Whether the hosted password reset is enabled for this client
+  /// (`password_reset`), so a "Forgot password?" entry
+  /// (`LoginFlowAuth.resetPassword`) may be shown.
   final bool isPasswordResetEnabled;
 
-  /// `true` when the company's passkey policy is not `disabled`. `false`
+  /// `true` when the company's passkey policy is `mfa_only`, or
+  /// `passwordless` with `passkey` among this client's methods. `false`
   /// means no passkey entry of any kind — first factor or second — is
   /// available, regardless of what the app is configured to show.
   final bool hasPasskey;
@@ -102,6 +116,7 @@ class ClientLoginOptions {
   /// when the company has not configured one.
   final Uri? tosUri;
 
+  /// Whether [loginMethods] lists [methodWireName].
   bool allows(String methodWireName) => loginMethods.contains(methodWireName);
 
   /// Whether the server publishes `magic_link` for this client — the
@@ -116,6 +131,7 @@ class ClientLoginOptions {
   bool get isFirstFactorPasskeyOffered =>
       hasPasskey && passkeyMode == PasskeyMode.passwordless;
 
+  /// A copy of this [ClientLoginOptions] with the given fields replaced.
   ClientLoginOptions copyWith({
     String? clientId,
     List<String>? loginMethods,
@@ -141,6 +157,7 @@ class ClientLoginOptions {
     tosUri: tosUri ?? this.tosUri,
   );
 
+  /// The JSON form of this [ClientLoginOptions], read back by [ClientLoginOptions.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'client_id': clientId,
     'login_methods': loginMethods,

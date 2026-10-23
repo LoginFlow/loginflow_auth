@@ -9,6 +9,7 @@ import 'package:result_controller/result_controller.dart';
 /// claims are omitted from `identityToken` and arrive out of band —
 /// `upstream_user_name`).
 class ObtainedUpstreamToken {
+  /// Creates an [ObtainedUpstreamToken].
   const ObtainedUpstreamToken({
     required this.token,
     required this.tokenType,
@@ -16,11 +17,19 @@ class ObtainedUpstreamToken {
     this.familyName,
   });
 
+  /// The provider token.
   final String token;
+
+  /// Whether [token] is an ID token or an access token.
   final UpstreamTokenType tokenType;
+
+  /// Apple's given name, on the first authorization only.
   final String? givenName;
+
+  /// Apple's family name, on the first authorization only.
   final String? familyName;
 
+  /// A copy of this [ObtainedUpstreamToken] with the given fields replaced.
   ObtainedUpstreamToken copyWith({
     String? token,
     UpstreamTokenType? tokenType,
@@ -64,6 +73,8 @@ abstract interface class UpstreamTokenSource {
   /// (`doc/decisions.md`).
   bool get isAvailable;
 
+  /// Runs the provider's native ceremony for [prompt] and returns its token.
+  /// Failures are `UpstreamFailed`, never exceptions.
   Future<Result<ObtainedUpstreamToken, LoginFlowError>> obtainToken(
     UpstreamPrompt prompt,
   );

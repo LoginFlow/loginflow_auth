@@ -108,8 +108,7 @@ final class LoginFlowStringsEn implements LoginFlowStrings {
   @override
   String get feedbackSsoUnavailable => _l10n.feedbackSsoUnavailable;
   @override
-  String get feedbackProviderUnavailable =>
-      _l10n.feedbackProviderUnavailable;
+  String get feedbackProviderUnavailable => _l10n.feedbackProviderUnavailable;
   @override
   String get feedbackUnexpected => _l10n.feedbackUnexpected;
   @override

@@ -459,6 +459,15 @@ class FakeLoginFlowServer {
   /// Forgets every `auth_session`, as if they expired.
   void expireChallengeSessions() => _sessions.clear();
 
+  /// Ends every device session, as a "sign out everywhere" from another
+  /// device or an administrator does: every access token of them is
+  /// refused from then on.
+  void endEveryDeviceSession() {
+    for (final session in _deviceSessions.values) {
+      session.isActive = false;
+    }
+  }
+
   bool isDeviceSessionActive(String sid) =>
       _deviceSessions[sid]?.isActive ?? false;
 
@@ -510,6 +519,17 @@ class FakeLoginFlowServer {
     userProfilePath,
   };
 
+  /// The protected resources among [_dpopProtectedPaths]: authenticated
+  /// by `jwt_middleware::authenticate_oauth_resource`, which answers every
+  /// refusal as `401` + `WWW-Authenticate` and no body (RFC 6750 §3,
+  /// RFC 9449 §7.1) — the two logout endpoints included.
+  static const Set<String> _resourcePaths = <String>{
+    '/oauth2/device-logout',
+    '/oauth2/logout-everywhere',
+    organizationsPath,
+    userProfilePath,
+  };
+
   /// `GET /oauth2/organizations` (`doc/server-contract.md` §17).
   static const String organizationsPath = '/oauth2/organizations';
 
@@ -553,9 +573,7 @@ class FakeLoginFlowServer {
     response.headers['cache-control'] = 'no-store';
     if (requiresDpop && _dpopProtectedPaths.contains(request.uri.path)) {
       final dpopError = _checkDpop(request, response);
-      final isResource =
-          request.uri.path == userProfilePath ||
-          request.uri.path == organizationsPath;
+      final isResource = _resourcePaths.contains(request.uri.path);
       if (dpopError != null && isResource) {
         // RFC 9449 §9: a resource answers 401 with the error in
         // `WWW-Authenticate`, not the token endpoint's 400 body.
@@ -668,18 +686,37 @@ class FakeLoginFlowServer {
       return _oauthError(response, 400, 'invalid_request');
     }
     final sessionKey = form['auth_session'];
+    final challenge = form['code_challenge'];
     final _ChallengeSession session;
     if (sessionKey == null) {
-      session = _ChallengeSession(key: _token32(), clientId: clientId);
-      _sessions[session.key] = session;
+      session = _openSession(clientId);
     } else {
       final existing = _sessions[sessionKey];
-      if (existing == null) {
+      final isStepUpOpening = challenge != null;
+      // A completed transaction keeps its `auth_session` only as a step-up
+      // handle (`ChallengeService::open_step_up`): a step-up opening on an
+      // open one, or a continuation of a completed one, names no live
+      // transaction (`challenge_service.rs::subject_behind_auth_session`).
+      if (existing == null || existing.isCompleted != isStepUpOpening) {
         return _oauthError(response, 400, 'invalid_session');
       }
-      session = existing;
+      // The step-up opens a NEW transaction for the completed one's subject,
+      // identifier locked, which answers the primary factor, never a code.
+      session = isStepUpOpening
+          ? (_openSession(clientId)
+              ..email = existing.email
+              ..isIdentifiedByHint = true)
+          : existing;
     }
-    final challenge = form['code_challenge'];
+    if (sessionKey != null && challenge == null && !_carriesStep(form)) {
+      // A continuation with no step field the server dispatches on
+      // (`challenge_handler.rs::continue_with_step` answers `None`):
+      // `method=password` or `method=totp` alone is not one.
+      return _json(response, 400, <String, Object?>{
+        'error': 'invalid_request',
+        'error_description': 'No recognized step parameter in the request',
+      });
+    }
     if (challenge != null) {
       if (form['code_challenge_method'] != 'S256' ||
           !_isKnownOrganization(form['organization'])) {
@@ -909,19 +946,7 @@ class FakeLoginFlowServer {
       session.isPrimaryAuthenticated = true;
       session.isSecondFactorDone = true;
     }
-    const stepFields = <String>[
-      'password',
-      'method',
-      'email_otp',
-      'magic_link_token',
-      'resend',
-      'totp',
-      'recovery_code',
-      'upstream_provider',
-      'webauthn_assertion',
-      'temporary_access_pass',
-    ];
-    final hasStepInput = stepFields.any(form.containsKey);
+    final hasStepInput = _carriesStep(form);
     if (!session.isPrimaryAuthenticated &&
         !hasStepInput &&
         !session.isIdentifiedByHint) {
@@ -951,6 +976,42 @@ class FakeLoginFlowServer {
     _json(response, 200, <String, Object?>{'authorization_code': code});
   }
 
+  /// A new transaction under a fresh `auth_session`.
+  _ChallengeSession _openSession(String clientId) {
+    final session = _ChallengeSession(key: _token32(), clientId: clientId);
+    _sessions[session.key] = session;
+    return session;
+  }
+
+  /// Whether [form] carries a step the real server dispatches on, by field
+  /// presence (`challenge_handler.rs::continue_with_step`): `method` only
+  /// counts for the methods that act on the server (`email_otp` sends the
+  /// code, `magic_link` the link, `webauthn_identify` starts a ceremony).
+  /// A value the user types (`password`, `totp`, ...) is its own field, so
+  /// `method=password` or `method=totp` is no step at all.
+  static bool _carriesStep(Map<String, String> form) =>
+      _stepFields.any(form.containsKey) ||
+      _serverMethods.contains(form['method']) ||
+      form['intent'] == 'password_reset';
+
+  static const List<String> _stepFields = <String>[
+    'password',
+    'totp',
+    'recovery_code',
+    'email_otp',
+    'magic_link_token',
+    'temporary_access_pass',
+    'webauthn_assertion',
+    'upstream_provider',
+    'resend',
+  ];
+
+  static const Set<String> _serverMethods = <String>{
+    'email_otp',
+    'magic_link',
+    'webauthn_identify',
+  };
+
   /// One leg: an authorization code, or a generic error that never tells an
   /// unknown code from an expired or used one (`doc/server-contract.md`
   /// §16).
@@ -969,7 +1030,16 @@ class FakeLoginFlowServer {
     if (subject == null) {
       return _accessCodeError(response, 'invalid_grant');
     }
-    final issued = _issueChallengeCode(session, subject);
+    // Redeemed outside the login transaction: the code carries no
+    // `redirect_uri` and no organization
+    // (`access_code_redemption_service.rs`, `IssueCodeParams`).
+    final issued = _issueCode(
+      session,
+      subject,
+      redirectUri: null,
+      organization: null,
+    );
+    session.isCompleted = true;
     _json(response, 200, <String, Object?>{'authorization_code': issued});
   }
 
@@ -998,7 +1068,12 @@ class FakeLoginFlowServer {
       final user = users[session.email] ?? users['ana@example.com']!;
       session.email = user.email;
       hasBrowserSession = true;
-      final code = _issueCode(session, user, redirectUri: redirect);
+      final code = _issueCode(
+        session,
+        user,
+        redirectUri: redirect,
+        organization: session.organization,
+      );
       return _redirect(
         response,
         Uri.parse(redirect).replace(
@@ -1048,6 +1123,7 @@ class FakeLoginFlowServer {
       session,
       users['ana@example.com']!,
       redirectUri: redirect,
+      organization: session.organization,
     );
     _redirect(
       response,
@@ -1123,7 +1199,7 @@ class FakeLoginFlowServer {
       sid: sid,
       nonce: issued.nonce,
       familyId: familyId,
-      authSession: issued.authSession,
+      isRefresh: false,
       isDeviceSecretNeeded: true,
       organization: organization.active,
       resource: form['resource'],
@@ -1184,7 +1260,7 @@ class FakeLoginFlowServer {
       sid: record.sid,
       nonce: null,
       familyId: record.familyId,
-      authSession: null,
+      isRefresh: true,
       isDeviceSecretNeeded: !_deviceSecrets.containsKey(form['device_secret']),
       organization: organization.active,
       resource: form['resource'],
@@ -1229,7 +1305,7 @@ class FakeLoginFlowServer {
       sid: sid,
       nonce: null,
       familyId: familyId,
-      authSession: null,
+      isRefresh: false,
       isDeviceSecretNeeded: false,
       issuedTokenType: 'urn:ietf:params:oauth:token-type:access_token',
       organization: organization.active,
@@ -1245,7 +1321,7 @@ class FakeLoginFlowServer {
     required String sid,
     required String? nonce,
     required String familyId,
-    required String? authSession,
+    required bool isRefresh,
     required bool isDeviceSecretNeeded,
     required FakeOrganization? organization,
     required String? resource,
@@ -1294,13 +1370,9 @@ class FakeLoginFlowServer {
       'token_type': requiresDpop ? 'DPoP' : 'Bearer',
       'expires_in': 900,
       'refresh_token': refreshToken,
-      'id_token':
-          ?(omitsIdTokenOnRefresh && nonce == null && authSession == null
-          ? null
-          : idToken),
+      'id_token': ?(omitsIdTokenOnRefresh && isRefresh ? null : idToken),
       'scope': scope,
       'device_secret': ?deviceSecret,
-      'auth_session': ?authSession,
       'issued_token_type': ?issuedTokenType,
     });
   }
@@ -1463,9 +1535,9 @@ class FakeLoginFlowServer {
       final value when value.startsWith('DPoP ') => value.substring(5),
       _ => '',
     };
-    final access = _accessTokens[token];
+    final access = _liveAccess(token);
     if (access == null) {
-      return _oauthError(response, 401, 'invalid_token');
+      return _refuseToken(response, header);
     }
     if (everywhere) {
       globalLogoutTokens.add(token);
@@ -1481,18 +1553,30 @@ class FakeLoginFlowServer {
     response.statusCode = 204;
   }
 
+  /// The record of an access token the resource middleware still accepts:
+  /// known, and its device session (`sid`) not ended.
+  _AccessRecord? _liveAccess(String token) {
+    final access = _accessTokens[token];
+    return access != null && isDeviceSessionActive(access.sid) ? access : null;
+  }
+
+  /// `401` + `WWW-Authenticate: <scheme> error="invalid_token"`, no body
+  /// (`jwt_middleware::token_challenge_response`).
+  void _refuseToken(FakeHttpResponse response, String authorization) {
+    final scheme = authorization.startsWith('DPoP ') ? 'DPoP' : 'Bearer';
+    response
+      ..statusCode = 401
+      ..headers['www-authenticate'] = '$scheme error="invalid_token"';
+  }
+
   void _userProfile(FakeHttpRequest request, FakeHttpResponse response) {
     final header = request.headers['authorization'] ?? '';
     final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
     final access = header.startsWith(scheme)
-        ? _accessTokens[header.substring(scheme.length)]
+        ? _liveAccess(header.substring(scheme.length))
         : null;
     if (access == null) {
-      response
-        ..statusCode = 401
-        ..headers['www-authenticate'] =
-            '${scheme.trim()} error="invalid_token"';
-      return;
+      return _refuseToken(response, header);
     }
     _json(response, 200, <String, Object?>{'sub': access.subject});
   }
@@ -1503,14 +1587,10 @@ class FakeLoginFlowServer {
     final header = request.headers['authorization'] ?? '';
     final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
     final access = header.startsWith(scheme)
-        ? _accessTokens[header.substring(scheme.length)]
+        ? _liveAccess(header.substring(scheme.length))
         : null;
     if (access == null) {
-      response
-        ..statusCode = 401
-        ..headers['www-authenticate'] =
-            '${scheme.trim()} error="invalid_token"';
-      return;
+      return _refuseToken(response, header);
     }
     final organizations =
         organizationsBySubject[access.subject] ?? const <FakeOrganization>[];
@@ -1659,7 +1739,7 @@ class FakeLoginFlowServer {
     membersRequests.add(request);
     final header = request.headers['authorization'] ?? '';
     final access = header.startsWith('DPoP ')
-        ? _accessTokens[header.substring(5)]
+        ? _liveAccess(header.substring(5))
         : null;
     if (access == null || _checkDpop(request, response) != null) {
       response
@@ -1875,7 +1955,7 @@ class FakeLoginFlowServer {
     emailChangeRequests.add(request);
     final header = request.headers['authorization'] ?? '';
     final access = header.startsWith('DPoP ')
-        ? _accessTokens[header.substring(5)]
+        ? _liveAccess(header.substring(5))
         : null;
     if (access == null || _checkDpop(request, response) != null) {
       response
@@ -2090,7 +2170,7 @@ class FakeLoginFlowServer {
     final header = request.headers['authorization'] ?? '';
     final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
     final access = header.startsWith(scheme)
-        ? _accessTokens[header.substring(scheme.length)]
+        ? _liveAccess(header.substring(scheme.length))
         : null;
     if (access == null) {
       response
@@ -2231,7 +2311,16 @@ class FakeLoginFlowServer {
     );
   }
 
+  /// Every `403` rotates the `auth_session` (FIPA §5.3.1,
+  /// `ChallengeService` `advance`): the value presented stops working.
+  void _rotate(_ChallengeSession session) {
+    _sessions.remove(session.key);
+    session.key = _token32();
+    _sessions[session.key] = session;
+  }
+
   void _redirectToWeb(FakeHttpResponse response, _ChallengeSession session) {
+    _rotate(session);
     final requestUri = 'urn:ietf:params:oauth:request_uri:${_token32()}';
     _pushedRequests[requestUri] = session.key;
     _json(response, 403, <String, Object?>{
@@ -2250,6 +2339,7 @@ class FakeLoginFlowServer {
     Map<String, Object?>? upstream,
     Map<String, Object?>? options,
   }) {
+    _rotate(session);
     final methods = _stepMethods(next, users[session.email]);
     _json(response, 403, <String, Object?>{
       'error': 'insufficient_authorization',
@@ -2304,20 +2394,24 @@ class FakeLoginFlowServer {
   }
 
   /// Like the real API, a challenge code keeps the `redirect_uri` the opening
-  /// request carried, and redeeming it must present that same value.
-  String _issueChallengeCode(_ChallengeSession session, FakeUser user) =>
-      _issueCode(
-        session,
-        user,
-        redirectUri: session.redirectUri,
-        isChallenge: true,
-      );
+  /// request carried, and redeeming it must present that same value. The
+  /// transaction is closed and keeps the `auth_session` just presented as
+  /// its step-up handle; the `200` never carries a new one.
+  String _issueChallengeCode(_ChallengeSession session, FakeUser user) {
+    session.isCompleted = true;
+    return _issueCode(
+      session,
+      user,
+      redirectUri: session.redirectUri,
+      organization: session.organization,
+    );
+  }
 
   String _issueCode(
     _ChallengeSession session,
     FakeUser user, {
     required String? redirectUri,
-    bool isChallenge = false,
+    required String? organization,
   }) {
     final code = 'code_${_token32()}';
     _codes[code] = _IssuedCode(
@@ -2327,8 +2421,7 @@ class FakeLoginFlowServer {
       scope: session.scope,
       user: user,
       redirectUri: redirectUri,
-      authSession: isChallenge ? session.key : null,
-      organization: session.organization,
+      organization: organization,
       isStrong: session.isSecondFactorDone,
     );
     return code;
@@ -2376,8 +2469,12 @@ class FakeLoginFlowServer {
 class _ChallengeSession {
   _ChallengeSession({required this.key, required this.clientId});
 
-  final String key;
+  /// The current `auth_session`; rotated by every `403`.
+  String key;
   final String clientId;
+
+  /// An authorization code was issued: the transaction is closed.
+  bool isCompleted = false;
   String? codeChallenge;
   String? nonce;
   String scope = '';
@@ -2419,7 +2516,6 @@ class _IssuedCode {
     required this.scope,
     required this.user,
     required this.redirectUri,
-    required this.authSession,
     required this.organization,
     required this.isStrong,
   });
@@ -2430,7 +2526,6 @@ class _IssuedCode {
   final String scope;
   final FakeUser user;
   final String? redirectUri;
-  final String? authSession;
   final String? organization;
 
   /// A second factor (TOTP, a recovery code, a passkey) was done: the

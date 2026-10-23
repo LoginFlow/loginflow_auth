@@ -4,8 +4,8 @@ Flutter client library for **LoginFlow**, the OAuth 2.0 / OpenID Connect
 provider. It gives first-party apps:
 
 - **Native sign-in** (password, email one-time code, magic link, TOTP and
-  recovery codes, passkeys, a Temporary Access Pass, Google, Microsoft and
-  Apple) through the OAuth 2.0 *Authorization Challenge Endpoint*
+  recovery codes, passkeys, a Temporary Access Pass, access codes, Google,
+  Microsoft, Apple and Facebook) through the OAuth 2.0 *Authorization Challenge Endpoint*
   (draft-ietf-oauth-first-party-apps-04), ending in an authorization code
   redeemed with PKCE S256 — the same flow on Android, iOS, macOS, Linux and
   the web (from origins the client registered, see [Web](#web)).
@@ -31,6 +31,12 @@ provider. It gives first-party apps:
 - **Four logout levels**: this app, the device session, the browser session
   (RP-initiated logout) and everywhere.
 - An optional **ready-to-use sign-in UI** driven by a typed configuration.
+
+**Integrating an app?** Follow
+[`doc/integration-guide.md`](doc/integration-guide.md): registration on
+the server, configuration per platform (Android, iOS, macOS, web, Linux)
+and the everyday calls (per-API tokens, organizations, step-up, members,
+email change), with the RutaFácil apps as worked examples.
 
 The exact HTTP contract the library expects from the server is in
 [`doc/server-contract.md`](doc/server-contract.md).
@@ -233,9 +239,10 @@ API's permissions in the active organization.
   not issue tokens for that API to this client (`invalid_target`); the
   session and the other APIs keep working.
 - The organization is the product's unit of scope (a client company, a
-  school). Every sign-in method takes `organization:` (an `Organization.id`)
-  to start the session in it; without it the server activates the user's
-  only organization, or none when there are several.
+  school). Every sign-in method but `signInWithAccessCode` takes
+  `organization:` (an `Organization.id`) to start the session in it;
+  without it the server activates the user's only organization, or none
+  when there are several.
 - `listOrganizations()` → `Future<Result<OrganizationList, LoginFlowError>>`:
   the organizations where the user has an active assignment
   (`id`, `name`, `kind` root/regular, `externalId`) and
@@ -693,7 +700,7 @@ authorization-code redirect) remains available.
 **Server configuration** (once per app):
 
 1. The OAuth client is **first-party** and lists the app's exact origins:
-   `PATCH /v1/master/oauth-clients/{client_id}/web-origins` with
+   `PATCH /v1/control/oauth-clients/{client_id}/web-origins` with
    `{"allowed_web_origins": ["https://app.acme.com"]}` (`https://host[:port]`;
    `http://localhost` only in a development `APP_ENV`). This opens CORS on
    `POST /oauth2/authorize-challenge` for those origins only, makes DPoP
@@ -882,7 +889,7 @@ the platform association below is what makes the OS trust that host for
   `https://<slug>.id.loginflow.dev/.well-known/apple-app-site-association`,
   §15) that must list your app's Team ID + bundle identifier — ask the
   company admin to register it via the master API
-  (`PATCH /v1/master/companies/{company_id}/oauth-clients/{client_id}/passkey-app-registration`,
+  (`PATCH /v1/control/companies/{company_id}/oauth-clients/{client_id}/passkey-app-registration`,
   `doc/server-contract.md` §15), the same way an Associated Domain is
   verified for a universal link, except the file lives on LoginFlow's host,
   not the app's own.
@@ -1163,8 +1170,20 @@ a stolen refresh token is useless elsewhere. Wire details:
 
 ## Limitations
 
-- Windows: no secure storage or system browser implementation; the session
-  lives in memory and browser steps fail as unavailable.
+- Windows: no secure storage, system browser or DPoP key implementation; the
+  session lives in memory and browser steps fail as unavailable. Without a
+  DPoP key, a native first-party client (which the server requires to use
+  DPoP) cannot sign in on Windows, and `signInWithAccessCode` fails with
+  `ConfigurationInvalid`.
+- Apple and Facebook in the browser: `signInWithApple` /
+  `signInWithFacebook` without an available native source (Apple on
+  Android, either on the web) need the server's `redirect_to_web` hand-off,
+  which `loginflow_api` does not answer yet for those two providers
+  (`400 unsupported_client`, `doc/server-contract.md` §5.5). Google and
+  Microsoft work in the browser.
+- Legal links: the built-in UI shows the privacy-policy and terms links of
+  the login options (`policy_uri`/`tos_uri`), which `loginflow_api` does not
+  serve yet (§4), so no legal footer appears.
 - Linux: no passkeys; the DPoP key is a software key in the keyring (see
   [Linux](#linux)); the loopback redirect needs a fixed, registered port.
 - Web, magic link: the emailed link opens `https://<company host>/login/magic/<client_id>`

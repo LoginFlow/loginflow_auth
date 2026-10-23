@@ -19,6 +19,7 @@ import 'package:loginflow_auth/src/core/access_code/access_code_format.dart';
 /// Send the field's text through `LoginFlowAuth.signInWithAccessCode`; it
 /// normalizes it again, so the dash never reaches the server.
 class AccessCodeInputFormatter extends TextInputFormatter {
+  /// Creates an [AccessCodeInputFormatter].
   const AccessCodeInputFormatter();
 
   @override

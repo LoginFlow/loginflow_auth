@@ -12,8 +12,7 @@ import 'package:result_controller/result_controller.dart';
 /// Keystore (StrongBox-backed when the device has one). The private key
 /// never crosses the method channel: only the public JWK and signatures do.
 final class NativeDpopKeyStore implements DpopKeyStore {
-  NativeDpopKeyStore({required String clientId})
-    : _alias = 'dpop|$clientId';
+  NativeDpopKeyStore({required String clientId}) : _alias = 'dpop|$clientId';
 
   final String _alias;
 

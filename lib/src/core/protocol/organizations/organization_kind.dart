@@ -11,6 +11,7 @@ enum OrganizationKind {
 
   const OrganizationKind(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
   /// Throws a [FormatException] for any other value: the server only sends

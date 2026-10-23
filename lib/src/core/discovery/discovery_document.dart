@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/json/list_equality.dart';
 /// uses (OpenID Connect Discovery 1.0 §3, RFC 8414 §2, plus the extensions
 /// listed in `doc/server-contract.md`).
 class DiscoveryDocument {
+  /// Creates a [DiscoveryDocument].
   const DiscoveryDocument({
     required this.issuer,
     required this.authorizationEndpoint,
@@ -24,6 +25,7 @@ class DiscoveryDocument {
     this.organizationsEndpoint,
   });
 
+  /// Reads a [DiscoveryDocument] from its JSON form ([toJson]).
   factory DiscoveryDocument.fromJson(Map<String, Object?> json) =>
       DiscoveryDocument(
         issuer: json.requireString('issuer'),
@@ -70,11 +72,22 @@ class DiscoveryDocument {
   static const String tokenExchangeGrant =
       'urn:ietf:params:oauth:grant-type:token-exchange';
 
+  /// The issuer identifier; must equal the configured one byte for byte.
   final String issuer;
+
+  /// RFC 6749 §3.1, used by the browser steps.
   final Uri authorizationEndpoint;
+
+  /// RFC 6749 §3.2.
   final Uri tokenEndpoint;
+
+  /// The key set that verifies ID tokens (RFC 7517).
   final Uri jwksUri;
+
+  /// The `alg` values ID tokens may be signed with.
   final List<String> idTokenSigningAlgorithms;
+
+  /// The PKCE methods the server accepts (RFC 8414 §2).
   final List<String> codeChallengeMethods;
 
   /// draft-ietf-oauth-first-party-apps-04 §8.
@@ -85,6 +98,8 @@ class DiscoveryDocument {
 
   /// OpenID Connect RP-Initiated Logout 1.0 §2.1.
   final Uri? endSessionEndpoint;
+
+  /// The grant types the token endpoint accepts.
   final List<String> grantTypes;
 
   /// OpenID Connect Native SSO for Mobile Apps 1.0 §5.
@@ -106,8 +121,10 @@ class DiscoveryDocument {
   /// (`doc/server-contract.md` §17).
   final Uri? organizationsEndpoint;
 
+  /// Whether the server accepts PKCE `S256`; the library refuses a document without it.
   bool get supportsS256 => codeChallengeMethods.contains('S256');
 
+  /// Whether the token endpoint accepts the Native SSO token exchange.
   bool get supportsTokenExchange => grantTypes.contains(tokenExchangeGrant);
 
   static Uri _uri(Map<String, Object?> json, String field) =>
@@ -118,6 +135,7 @@ class DiscoveryDocument {
     return value == null ? null : Uri.parse(value);
   }
 
+  /// A copy of this [DiscoveryDocument] with the given fields replaced.
   DiscoveryDocument copyWith({
     String? issuer,
     Uri? authorizationEndpoint,
@@ -157,6 +175,7 @@ class DiscoveryDocument {
     organizationsEndpoint: organizationsEndpoint ?? this.organizationsEndpoint,
   );
 
+  /// The JSON form of this [DiscoveryDocument], read back by [DiscoveryDocument.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'issuer': issuer,
     'authorization_endpoint': authorizationEndpoint.toString(),

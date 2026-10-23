@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/session/user_identity.dart';
 /// The signed-in session as the app sees it. Tokens are not part of it: ask
 /// `LoginFlowAuth.accessTokenFor(api)` for a valid access token.
 class LoginFlowSession {
+  /// Creates a [LoginFlowSession].
   const LoginFlowSession({
     required this.identity,
     required this.scope,
@@ -12,6 +13,7 @@ class LoginFlowSession {
     this.accessClaims = const <String, AccessTokenClaims>{},
   });
 
+  /// Reads a [LoginFlowSession] from its JSON form ([toJson]).
   factory LoginFlowSession.fromJson(Map<String, Object?> json) {
     final identity = json.optionalObject('identity');
     if (identity == null) {
@@ -37,6 +39,7 @@ class LoginFlowSession {
     );
   }
 
+  /// Who is signed in, from the validated ID token.
   final UserIdentity identity;
 
   /// Space-separated granted scopes.
@@ -54,6 +57,7 @@ class LoginFlowSession {
   /// decision belongs to the API that verifies the token.
   final Map<String, AccessTokenClaims> accessClaims;
 
+  /// A copy of this [LoginFlowSession] with the given fields replaced.
   LoginFlowSession copyWith({
     UserIdentity? identity,
     String? scope,
@@ -66,6 +70,7 @@ class LoginFlowSession {
     accessClaims: accessClaims ?? this.accessClaims,
   );
 
+  /// The JSON form of this [LoginFlowSession], read back by [LoginFlowSession.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'identity': identity.toJson(),
     'scope': scope,

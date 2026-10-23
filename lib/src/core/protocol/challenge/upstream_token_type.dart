@@ -10,8 +10,10 @@ enum UpstreamTokenType {
 
   const UpstreamTokenType(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
+  /// The value whose [wireName] is the given name, or `null` for an unknown one.
   static UpstreamTokenType? fromWireName(String value) {
     for (final type in values) {
       if (type.wireName == value) {

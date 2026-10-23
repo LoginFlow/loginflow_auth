@@ -48,26 +48,23 @@ void main() {
     dpopKeyStore: enableDpop ? TestDpopKeyStore() : null,
   );
 
-  test(
-    'a DPoP-requiring server accepts a password sign-in with a valid proof, '
-    'the same key signing both the challenge and token requests',
-    () async {
-      final auth = authFor(enableDpop: true);
+  test('a DPoP-requiring server accepts a password sign-in with a valid proof, '
+      'the same key signing both the challenge and token requests', () async {
+    final auth = authFor(enableDpop: true);
 
-      final state = await auth.signInWithPassword(
-        loginHint: 'ana@example.com',
-        password: 'correct-horse',
-      );
+    final state = await auth.signInWithPassword(
+      loginHint: 'ana@example.com',
+      password: 'correct-horse',
+    );
 
-      expect(state.data, isA<SignedIn>());
-      expect(server.acceptedDpopThumbprints, hasLength(2));
-      expect(
-        server.acceptedDpopThumbprints.toSet(),
-        hasLength(1),
-        reason: 'the challenge and token requests must use the same key',
-      );
-    },
-  );
+    expect(state.data, isA<SignedIn>());
+    expect(server.acceptedDpopThumbprints, hasLength(2));
+    expect(
+      server.acceptedDpopThumbprints.toSet(),
+      hasLength(1),
+      reason: 'the challenge and token requests must use the same key',
+    );
+  });
 
   test(
     'a client without a DPoP proof is refused by a server that requires one',

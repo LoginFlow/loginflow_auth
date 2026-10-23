@@ -11,8 +11,10 @@ enum PasskeyMode {
 
   const PasskeyMode(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
+  /// The value whose [wireName] is the given name, or `null` for an unknown one.
   static PasskeyMode? fromWireName(String value) {
     for (final mode in values) {
       if (mode.wireName == value) {

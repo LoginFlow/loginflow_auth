@@ -142,7 +142,9 @@ final class WebDpopKeyStore implements DpopKeyStore {
     required web.CryptoKey privateKey,
     required web.CryptoKey publicKey,
   }) async {
-    final jwkAny = await web.window.crypto.subtle.exportKey('jwk', publicKey).toDart;
+    final jwkAny = await web.window.crypto.subtle
+        .exportKey('jwk', publicKey)
+        .toDart;
     final jwk = jwkAny as web.JsonWebKey;
     return _WebDpopKeyPair(
       privateKey: privateKey,

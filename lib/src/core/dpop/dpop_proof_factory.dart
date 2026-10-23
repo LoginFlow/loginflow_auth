@@ -53,8 +53,7 @@ class DpopProofFactory {
       'nonce': ?nonce,
       'ath': ?accessToken?.toAccessTokenHash(),
     };
-    final signingInput =
-        '${_encodeSegment(header)}.${_encodeSegment(payload)}';
+    final signingInput = '${_encodeSegment(header)}.${_encodeSegment(payload)}';
     final signatureResult = await keyStore.sign(
       ascii.encode(signingInput),
       keyId: key.keyId,
@@ -78,5 +77,6 @@ class DpopProofFactory {
 
 /// RFC 9449 §4.2: `ath` is `BASE64URL(SHA256(ASCII(access_token)))`.
 extension AccessTokenHash on String {
-  String toAccessTokenHash() => ascii.encode(this).toSha256().toBase64UrlNoPadding();
+  String toAccessTokenHash() =>
+      ascii.encode(this).toSha256().toBase64UrlNoPadding();
 }

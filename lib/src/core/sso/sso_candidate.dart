@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// Native SSO does not prove the same human is holding the device (OpenID
 /// Connect Native SSO §6.4, `doc/decisions.md` D13).
 class SsoCandidate {
+  /// Creates a [SsoCandidate].
   const SsoCandidate({
     required this.subject,
     this.name,
@@ -12,6 +13,7 @@ class SsoCandidate {
     this.companyId,
   });
 
+  /// Reads a [SsoCandidate] from its JSON form ([toJson]).
   factory SsoCandidate.fromJson(Map<String, Object?> json) => SsoCandidate(
     subject: json.requireString('sub'),
     name: json.optionalString('name'),
@@ -19,11 +21,19 @@ class SsoCandidate {
     companyId: json.optionalString('company_id'),
   );
 
+  /// `sub` of the shared session's user.
   final String subject;
+
+  /// The user's name, for "Continue as …".
   final String? name;
+
+  /// The user's email, for "Continue as …".
   final String? email;
+
+  /// The company of the user.
   final String? companyId;
 
+  /// A copy of this [SsoCandidate] with the given fields replaced.
   SsoCandidate copyWith({
     String? subject,
     String? name,
@@ -36,6 +46,7 @@ class SsoCandidate {
     companyId: companyId ?? this.companyId,
   );
 
+  /// The JSON form of this [SsoCandidate], read back by [SsoCandidate.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'sub': subject,
     'name': ?name,

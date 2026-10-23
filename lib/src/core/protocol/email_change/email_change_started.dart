@@ -6,11 +6,13 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// current address. The answer is the same whether or not the new address
 /// can be used: when no code reaches it, it cannot.
 class EmailChangeStarted {
+  /// Creates an [EmailChangeStarted].
   const EmailChangeStarted({
     required this.expiresAt,
     required this.confirmCurrent,
   });
 
+  /// Reads an [EmailChangeStarted] from its JSON form ([toJson]).
   factory EmailChangeStarted.fromJson(Map<String, Object?> json) =>
       EmailChangeStarted(
         expiresAt: json.requireUtcDateTime('expires_at'),
@@ -25,12 +27,14 @@ class EmailChangeStarted {
   /// `LoginFlowAuth.confirmEmailChange`).
   final bool confirmCurrent;
 
+  /// A copy of this [EmailChangeStarted] with the given fields replaced.
   EmailChangeStarted copyWith({DateTime? expiresAt, bool? confirmCurrent}) =>
       EmailChangeStarted(
         expiresAt: expiresAt ?? this.expiresAt,
         confirmCurrent: confirmCurrent ?? this.confirmCurrent,
       );
 
+  /// The JSON form of this [EmailChangeStarted], read back by [EmailChangeStarted.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'expires_at': expiresAt.toUtc().toIso8601String(),
     'confirm_current': confirmCurrent,

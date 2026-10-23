@@ -11,6 +11,7 @@ enum AccessSubjectKind {
 
   const AccessSubjectKind(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
   /// `null` for an absent or unknown value, so a server that adds a kind

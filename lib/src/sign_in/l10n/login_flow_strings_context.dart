@@ -11,11 +11,12 @@ import 'package:loginflow_auth/src/sign_in/l10n/login_flow_strings_es.dart';
 /// `LoginFlowLocaleService.setLocale(...)` to force it regardless of the
 /// ambient tree.
 extension LoginFlowStringsContext on BuildContext {
+  /// The texts of the built-in UI in the effective locale.
   LoginFlowStrings get loginFlowStrings => switch (languageCode) {
     'es' => const LoginFlowStringsEs(),
     _ => const LoginFlowStringsEn(),
   };
 
-  String get languageCode =>
-      LoginFlowLocaleService.resolve(this).languageCode;
+  /// The effective language code ([LoginFlowLocaleService.resolve]).
+  String get languageCode => LoginFlowLocaleService.resolve(this).languageCode;
 }

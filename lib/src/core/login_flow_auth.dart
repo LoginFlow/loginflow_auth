@@ -98,6 +98,10 @@ import 'package:result_controller/result_controller.dart';
 /// [switchOrganization]. The server refuses an organization of another
 /// application.
 class LoginFlowAuth {
+  /// Creates the client. Apps use `LoginFlowPlatform.createAuth`, which wires
+  /// the platform stores, browser and passkeys; this constructor is for tests
+  /// and custom platforms. [dpopKeyStore] is only used with
+  /// [LoginFlowConfig.enableDpop].
   LoginFlowAuth({
     required this.config,
     required http.Client httpClient,
@@ -163,6 +167,7 @@ class LoginFlowAuth {
     );
   }
 
+  /// How this app identifies itself to LoginFlow.
   final LoginFlowConfig config;
   final SessionStore _sessionStore;
   final PendingAuthorizationStore _pendingStore;
@@ -333,9 +338,11 @@ class LoginFlowAuth {
     ),
   );
 
+  /// Answers `next: email_otp` with the emailed [code].
   Future<Result<AuthState, LoginFlowError>> submitEmailOtp(String code) =>
       _continueAttempt(EmailOtpInput(code: code));
 
+  /// Asks the server for a new email code on the current step.
   Future<Result<AuthState, LoginFlowError>> resendEmailOtp() =>
       _continueAttempt(const ResendEmailOtpInput());
 
@@ -380,19 +387,63 @@ class LoginFlowAuth {
     return token == null || token.isEmpty ? null : token;
   }
 
+  /// Answers `next: password` (or a password step chosen with [selectMethod]).
   Future<Result<AuthState, LoginFlowError>> submitPassword(String password) =>
       _continueAttempt(PasswordInput(password: password));
 
+  /// Answers `next: totp` with the authenticator app's 6-digit [code].
   Future<Result<AuthState, LoginFlowError>> submitTotp(String code) =>
       _continueAttempt(TotpInput(code: code));
 
+  /// Answers the second-factor step with a single-use TOTP recovery [code].
   Future<Result<AuthState, LoginFlowError>> submitRecoveryCode(String code) =>
       _continueAttempt(RecoveryCodeInput(code: code));
 
-  /// Chooses one of the alternatives of the current prompt.
+  /// Chooses one of the alternatives of the current prompt
+  /// ([ChallengePrompt.alternatives]).
+  ///
+  /// A step the user answers with a typed value ([ChallengeStep.password],
+  /// [ChallengeStep.totp], [ChallengeStep.recoveryCode],
+  /// [ChallengeStep.temporaryAccessPass]) has no `method` on the server,
+  /// which takes that value on any step: choosing one only changes the
+  /// prompt, with no request; then call [submitPassword], [submitTotp],
+  /// [submitRecoveryCode] or [submitTemporaryAccessPass]. The others act
+  /// on the server and are sent as `method`: [ChallengeStep.emailOtp]
+  /// emails a code, [ChallengeStep.magicLink] a sign-in link, and
+  /// [ChallengeStep.webauthnIdentify] runs the passkey ceremony.
   Future<Result<AuthState, LoginFlowError>> selectMethod(
     ChallengeStep method,
-  ) => _continueAttempt(MethodSelectionInput(method: method));
+  ) => switch (method) {
+    ChallengeStep.password ||
+    ChallengeStep.totp ||
+    ChallengeStep.recoveryCode ||
+    ChallengeStep.temporaryAccessPass => _promptFor(method),
+    _ => _continueAttempt(MethodSelectionInput(method: method)),
+  };
+
+  /// Re-emits the current challenge asking for [step], on the same
+  /// `auth_session`, without a request.
+  Future<Result<AuthState, LoginFlowError>> _promptFor(
+    ChallengeStep step,
+  ) async {
+    final attempt = _attempt;
+    final current = _state;
+    if (attempt == null || current is! ChallengeRequired) {
+      return Err(const NoChallengeInProgress());
+    }
+    return Ok(
+      _emit(
+        ChallengeRequired(
+          prompt: ChallengePrompt(
+            step: step,
+            alternatives: current.prompt.alternatives,
+            loginHint: attempt.loginHint,
+          ),
+          purpose: current.purpose,
+        ),
+      ),
+    );
+  }
 
   /// Passkey (WebAuthn L3) sign-in: targeted when [loginHint] is given,
   /// discoverable/conditional otherwise. The platform ceremony
@@ -466,10 +517,14 @@ class LoginFlowAuth {
   /// The signed-in identity carries `externalSubject`, `subjectKind` and
   /// `subjectProfile` (the `ext_sub`, `subject_kind` and `ext_profile`
   /// claims).
+  ///
+  /// Unlike the other sign-in methods this takes no `organization`: the
+  /// server issues an access code's authorization code without one, so the
+  /// session starts in the subject's only organization, or in none — then
+  /// [switchOrganization].
   Future<Result<AuthState, LoginFlowError>> signInWithAccessCode(
-    String code, {
-    String? organization,
-  }) async {
+    String code,
+  ) async {
     if (_dpop == null) {
       return Err(
         const ConfigurationInvalid(
@@ -485,7 +540,6 @@ class LoginFlowAuth {
     }
     return _startAttempt(
       purpose: ChallengePurpose.signIn,
-      organization: organization,
       input: AccessCodeInput(code: normalized),
     );
   }
@@ -1200,6 +1254,10 @@ class LoginFlowAuth {
     ),
   );
 
+  /// Signs out at [scope]: this app (revokes its refresh token), the device
+  /// session (every app sharing it), the browser session (RP-initiated
+  /// logout) or everywhere. The local session always ends; see
+  /// `doc/server-contract.md` §9–§12.
   Future<Result<AuthState, LoginFlowError>> signOut(SignOutScope scope) =>
       switch (scope) {
         SignOutScope.app => _signOutApp(),
@@ -1214,6 +1272,7 @@ class LoginFlowAuth {
         SignOutScope.browser => _signOutBrowser(),
       };
 
+  /// Closes [states]. The instance is unusable afterwards.
   Future<void> dispose() => _states.close();
 
   Future<void> _restore(StoredSession stored) async {
@@ -1398,9 +1457,11 @@ class LoginFlowAuth {
         code: issued.authorizationCode,
         codeVerifier: attempt.pkce.codeVerifier,
         nonce: attempt.nonce,
-        // The server binds the code to the `redirect_uri` of the opening
-        // request (sent above), so the redemption must present that same one.
-        redirectUri: config.redirectUri,
+        // The server binds a challenge code to the `redirect_uri` of the
+        // opening request (sent above), so the redemption presents that same
+        // one. An access code is redeemed outside the login transaction and
+        // its code carries none (`doc/server-contract.md` §16).
+        redirectUri: input is AccessCodeInput ? null : config.redirectUri,
         isBrowserUsed: false,
         origin: origin.withAttempt(sent),
       ),
@@ -2129,6 +2190,16 @@ class LoginFlowAuth {
       return Err(error);
     }
     final ended = await _sessionLogout.endSessions(endpoint, token.data);
+    if (ended case Err(error: OAuthProtocolError(code: 'invalid_token'))) {
+      // The server no longer accepts this session's token: it already
+      // ended (another app's device logout, a global logout, an
+      // administrator). Nothing is left to end with it, and keeping the
+      // local session would only fail at the next refresh.
+      Log.w('The session already ended on the server; clearing it locally.');
+      await _deleteSsoEntry();
+      await _endLocalSession(SignOutReason.sessionRevoked);
+      return Ok(_state);
+    }
     if (ended case Err(:final error)) {
       return Err(error);
     }

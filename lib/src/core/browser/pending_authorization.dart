@@ -5,6 +5,7 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// the full-page redirect, so it is serialized to `sessionStorage`, which is
 /// scoped to the tab and cleared when the tab closes.
 class PendingAuthorization {
+  /// Creates a [PendingAuthorization].
   const PendingAuthorization({
     required this.purpose,
     required this.state,
@@ -14,6 +15,7 @@ class PendingAuthorization {
     this.nonce,
   });
 
+  /// Reads a [PendingAuthorization] from its JSON form ([toJson]).
   factory PendingAuthorization.fromJson(Map<String, Object?> json) {
     final purposeName = json.requireString('purpose');
     final purpose = PendingPurpose.fromWireName(purposeName);
@@ -33,15 +35,25 @@ class PendingAuthorization {
     );
   }
 
+  /// What the round-trip completes: a sign-in, a step-up or a sign-out.
   final PendingPurpose purpose;
+
+  /// The `state` sent with the request; a callback with another one is ignored.
   final String state;
+
+  /// The redirect URI the callback must target.
   final Uri redirectUri;
+
+  /// When the round-trip started; it expires after `LoginFlowAuth.pendingLifetime`.
   final DateTime createdAt;
 
   /// Absent for logout round-trips.
   final String? codeVerifier;
+
+  /// The `nonce` the ID token must echo; absent for logout round-trips.
   final String? nonce;
 
+  /// A copy of this [PendingAuthorization] with the given fields replaced.
   PendingAuthorization copyWith({
     PendingPurpose? purpose,
     String? state,
@@ -58,6 +70,7 @@ class PendingAuthorization {
     nonce: nonce ?? this.nonce,
   );
 
+  /// The JSON form of this [PendingAuthorization], read back by [PendingAuthorization.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'purpose': purpose.wireName,
     'state': state,

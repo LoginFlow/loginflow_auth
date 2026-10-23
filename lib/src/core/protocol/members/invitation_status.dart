@@ -16,6 +16,7 @@ enum InvitationStatus {
 
   const InvitationStatus(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
   /// Throws a [FormatException] for any other value.

@@ -30,10 +30,13 @@ sealed class UserAgentOutcome {
 
 /// The browser came back to the callback URI with [uri].
 final class UserAgentCallback extends UserAgentOutcome {
+  /// Creates an [UserAgentCallback].
   const UserAgentCallback({required this.uri});
 
+  /// The callback URI, with its response parameters (`code`, `state`, `iss`, or `error`).
   final Uri uri;
 
+  /// A copy of this [UserAgentCallback] with the given fields replaced.
   UserAgentCallback copyWith({Uri? uri}) =>
       UserAgentCallback(uri: uri ?? this.uri);
 
@@ -48,6 +51,7 @@ final class UserAgentCallback extends UserAgentOutcome {
 /// The page navigated away (web full-page redirect); the app completes the
 /// flow with `completeBrowserRedirect` after it reloads.
 final class UserAgentNavigatedAway extends UserAgentOutcome {
+  /// Creates an [UserAgentNavigatedAway].
   const UserAgentNavigatedAway();
 
   @override

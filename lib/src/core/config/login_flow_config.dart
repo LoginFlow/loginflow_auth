@@ -6,6 +6,7 @@ import 'package:result_controller/result_controller.dart';
 
 /// How an app identifies itself to LoginFlow.
 class LoginFlowConfig {
+  /// Creates a [LoginFlowConfig].
   const LoginFlowConfig({
     required this.issuer,
     required this.clientId,
@@ -19,6 +20,7 @@ class LoginFlowConfig {
     this.enableDpop = false,
   });
 
+  /// Reads a [LoginFlowConfig] from its JSON form ([toJson]).
   factory LoginFlowConfig.fromJson(Map<String, Object?> json) {
     final redirect = json.optionalString('redirect_uri');
     final postLogout = json.optionalString('post_logout_redirect_uri');
@@ -115,6 +117,7 @@ class LoginFlowConfig {
     return Ok(this);
   }
 
+  /// A copy of this [LoginFlowConfig] with the given fields replaced.
   LoginFlowConfig copyWith({
     Uri? issuer,
     String? clientId,
@@ -139,6 +142,7 @@ class LoginFlowConfig {
     enableDpop: enableDpop ?? this.enableDpop,
   );
 
+  /// The JSON form of this [LoginFlowConfig], read back by [LoginFlowConfig.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'issuer': issuer.toString(),
     'client_id': clientId,

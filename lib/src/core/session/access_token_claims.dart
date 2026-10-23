@@ -11,6 +11,7 @@ import 'package:loginflow_auth/src/core/json/list_equality.dart';
 /// that receives the token verifies it and is the only authority on what
 /// the user may do.
 class AccessTokenClaims {
+  /// Creates an [AccessTokenClaims].
   const AccessTokenClaims({
     this.organizationId,
     this.organizationExternalId,
@@ -18,6 +19,7 @@ class AccessTokenClaims {
     this.isPermissionsOverage = false,
   });
 
+  /// Reads an [AccessTokenClaims] from its JSON form ([toJson]).
   factory AccessTokenClaims.fromJson(Map<String, Object?> json) =>
       AccessTokenClaims(
         organizationId: json.optionalString('org_id'),
@@ -60,6 +62,7 @@ class AccessTokenClaims {
   /// them (through introspection). [permissions] is empty then.
   final bool isPermissionsOverage;
 
+  /// A copy of this [AccessTokenClaims] with the given fields replaced.
   AccessTokenClaims copyWith({
     String? organizationId,
     String? organizationExternalId,
@@ -73,6 +76,7 @@ class AccessTokenClaims {
     isPermissionsOverage: isPermissionsOverage ?? this.isPermissionsOverage,
   );
 
+  /// The JSON form of this [AccessTokenClaims], read back by [AccessTokenClaims.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'org_id': ?organizationId,
     'org_ext': ?organizationExternalId,

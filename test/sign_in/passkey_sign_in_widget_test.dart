@@ -51,29 +51,28 @@ void main() {
   setUp(() => server = FakeLoginFlowServer.inMemory(keys));
 
   group('Passkey button', () {
-    testWidgets(
-      'appears on a single-method screen and signs in on tap',
-      (tester) async {
-        final passkey = FakePasskeyAuthenticator();
-        final harness = SignInHarness.install(
-          server,
-          const SignInConfiguration(
-            methods: <AuthMethod>[PasswordMethod()],
-            isPasskeySignInOffered: true,
-          ),
-          passkey: passkey,
-        );
+    testWidgets('appears on a single-method screen and signs in on tap', (
+      tester,
+    ) async {
+      final passkey = FakePasskeyAuthenticator();
+      final harness = SignInHarness.install(
+        server,
+        const SignInConfiguration(
+          methods: <AuthMethod>[PasswordMethod()],
+          isPasskeySignInOffered: true,
+        ),
+        passkey: passkey,
+      );
 
-        await harness.pump(tester);
-        expect(find.byKey(SignInKeys.passwordField), findsOneWidget);
-        expect(find.byKey(SignInKeys.passkeyButton), findsOneWidget);
+      await harness.pump(tester);
+      expect(find.byKey(SignInKeys.passwordField), findsOneWidget);
+      expect(find.byKey(SignInKeys.passkeyButton), findsOneWidget);
 
-        await tester.tap(find.byKey(SignInKeys.passkeyButton));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(SignInKeys.passkeyButton));
+      await tester.pumpAndSettle();
 
-        expect(harness.signedIn.single.identity.subject, 'cu_ana');
-      },
-    );
+      expect(harness.signedIn.single.identity.subject, 'cu_ana');
+    });
 
     testWidgets('is absent when the app hides it locally', (tester) async {
       final harness = SignInHarness.install(
@@ -89,9 +88,7 @@ void main() {
       expect(find.byKey(SignInKeys.passkeyButton), findsNothing);
     });
 
-    testWidgets('an unrecognized credential does not sign in', (
-      tester,
-    ) async {
+    testWidgets('an unrecognized credential does not sign in', (tester) async {
       final passkey = FakePasskeyAuthenticator(credentialId: 'not-enrolled');
       final harness = SignInHarness.install(
         server,

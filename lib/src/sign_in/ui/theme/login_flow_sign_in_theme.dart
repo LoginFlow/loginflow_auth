@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 /// used.
 @immutable
 class LoginFlowSignInTheme extends ThemeExtension<LoginFlowSignInTheme> {
+  /// Creates a [LoginFlowSignInTheme].
   const LoginFlowSignInTheme({
     this.cardMaxWidth = 440,
     this.spacingSmall = 8,
@@ -20,17 +21,28 @@ class LoginFlowSignInTheme extends ThemeExtension<LoginFlowSignInTheme> {
     this.cardColor,
   });
 
+  /// The tokens used when the theme has no [LoginFlowSignInTheme].
   static const LoginFlowSignInTheme standard = LoginFlowSignInTheme();
 
   /// Card width on tablet and desktop.
   final double cardMaxWidth;
+
+  /// Gap between related elements.
   final double spacingSmall;
+
+  /// Gap between groups of elements.
   final double spacingMedium;
+
+  /// Gap between sections and around the card.
   final double spacingLarge;
+
+  /// Corner radius of the card and fields.
   final double cornerRadius;
 
   /// Height of the thin loading bar (1–1.5 px).
   final double progressThickness;
+
+  /// Height of the brand mark above the title.
   final double logoHeight;
 
   /// Minimum height of buttons (touch target ≥ 48 dp).
@@ -118,6 +130,7 @@ class LoginFlowSignInTheme extends ThemeExtension<LoginFlowSignInTheme> {
 
 /// The sign-in tokens of the ambient theme.
 extension LoginFlowSignInThemeContext on BuildContext {
+  /// The ambient [LoginFlowSignInTheme], or [LoginFlowSignInTheme.standard].
   LoginFlowSignInTheme get signInTheme =>
       Theme.of(this).extension<LoginFlowSignInTheme>() ??
       LoginFlowSignInTheme.standard;

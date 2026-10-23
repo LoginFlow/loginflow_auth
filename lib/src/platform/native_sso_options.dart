@@ -6,11 +6,13 @@ import 'package:loginflow_auth/src/core/json/list_equality.dart';
 /// See the README "Native SSO" section for the entitlement and manifest
 /// changes each app needs.
 class NativeSsoOptions {
+  /// Creates a [NativeSsoOptions].
   const NativeSsoOptions({
     this.appleAccessGroup,
     this.androidSiblingAuthorities = const <String>[],
   });
 
+  /// Reads a [NativeSsoOptions] from its JSON form ([toJson]).
   factory NativeSsoOptions.fromJson(Map<String, Object?> json) =>
       NativeSsoOptions(
         appleAccessGroup: json.optionalString('apple_access_group'),
@@ -27,6 +29,7 @@ class NativeSsoOptions {
   /// `com.acme.orders.loginflow.sso`. Each must be declared in `<queries>`.
   final List<String> androidSiblingAuthorities;
 
+  /// A copy of this [NativeSsoOptions] with the given fields replaced.
   NativeSsoOptions copyWith({
     String? appleAccessGroup,
     List<String>? androidSiblingAuthorities,
@@ -36,6 +39,7 @@ class NativeSsoOptions {
         androidSiblingAuthorities ?? this.androidSiblingAuthorities,
   );
 
+  /// The JSON form of this [NativeSsoOptions], read back by [NativeSsoOptions.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'apple_access_group': ?appleAccessGroup,
     'android_sibling_authorities': androidSiblingAuthorities,

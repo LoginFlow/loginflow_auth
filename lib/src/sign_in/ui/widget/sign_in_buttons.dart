@@ -29,7 +29,11 @@ class SignInPrimaryButton extends StatelessWidget {
 /// single-method entry screen (password, email code) so an app configured
 /// with one primary method still offers passkeys.
 class PasskeyButton extends StatelessWidget {
-  const PasskeyButton({required this.label, required this.onPressed, super.key});
+  const PasskeyButton({
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
 
   final String label;
   final VoidCallback? onPressed;

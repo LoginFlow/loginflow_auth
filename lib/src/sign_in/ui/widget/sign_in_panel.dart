@@ -27,35 +27,36 @@ class SignInPanel extends StatelessWidget {
     final theme = context.signInTheme;
     return ReactiveBuilder<Locale?>(
       notifier: LoginFlowLocaleService.instance,
-      build: (_, _, _) => ReactiveViewModelBuilder<SignInViewModel, SignInState>(
-        viewmodel: SignInService.flow.notifier,
-        build: (state, viewModel, keep) => FocusTraversalGroup(
-          child: Column(
-            mainAxisSize: .min,
-            crossAxisAlignment: .stretch,
-            children: [
-              SignInProgressBar(isBusy: state.isBusy),
-              Padding(
-                padding: EdgeInsets.all(theme.spacingLarge),
-                child: Column(
-                  crossAxisAlignment: .stretch,
-                  spacing: theme.spacingLarge,
-                  children: [
-                    SignInHeader(copy: state.copy, logo: logo),
-                    SignInFeedbackBanner(feedback: state.feedback),
-                    SignInStepView(state: state, viewModel: viewModel),
-                    if (state.policyUri != null || state.tosUri != null)
-                      SignInLegalFooter(
-                        policyUri: state.policyUri,
-                        tosUri: state.tosUri,
-                      ),
-                  ],
-                ),
+      build: (_, _, _) =>
+          ReactiveViewModelBuilder<SignInViewModel, SignInState>(
+            viewmodel: SignInService.flow.notifier,
+            build: (state, viewModel, keep) => FocusTraversalGroup(
+              child: Column(
+                mainAxisSize: .min,
+                crossAxisAlignment: .stretch,
+                children: [
+                  SignInProgressBar(isBusy: state.isBusy),
+                  Padding(
+                    padding: EdgeInsets.all(theme.spacingLarge),
+                    child: Column(
+                      crossAxisAlignment: .stretch,
+                      spacing: theme.spacingLarge,
+                      children: [
+                        SignInHeader(copy: state.copy, logo: logo),
+                        SignInFeedbackBanner(feedback: state.feedback),
+                        SignInStepView(state: state, viewModel: viewModel),
+                        if (state.policyUri != null || state.tosUri != null)
+                          SignInLegalFooter(
+                            policyUri: state.policyUri,
+                            tosUri: state.tosUri,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

@@ -12,8 +12,10 @@ enum StepError {
 
   const StepError(this.wireName);
 
+  /// The name of this value on the wire.
   final String wireName;
 
+  /// The value whose [wireName] is the given name, or `null` for an unknown one.
   static StepError? fromWireName(String? value) {
     for (final error in values) {
       if (error.wireName == value) {

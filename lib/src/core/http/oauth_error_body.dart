@@ -54,6 +54,10 @@ extension FailedReplyMapping on TransportReply {
     if (statusCode == 429) {
       return RateLimited(retryAfter: retryAfter);
     }
+    final challengeError = _challengeError;
+    if (body.trim().isEmpty && challengeError != null) {
+      return challengeError;
+    }
     return jsonObject().when(
       ok: (json) {
         try {
@@ -73,4 +77,27 @@ extension FailedReplyMapping on TransportReply {
       err: (error) => error,
     );
   }
+
+  /// A protected resource refuses a token with no body, only its
+  /// `WWW-Authenticate` challenge (RFC 6750 §3, RFC 9449 §7.1): e.g.
+  /// `Bearer error="invalid_token"`. `null` when there is no `error`
+  /// parameter to read.
+  OAuthProtocolError? get _challengeError {
+    final challenge = wwwAuthenticate;
+    if (challenge == null) {
+      return null;
+    }
+    final error = _challengeParameter(challenge, 'error');
+    if (error == null) {
+      return null;
+    }
+    return OAuthProtocolError(
+      statusCode: statusCode,
+      code: error,
+      description: _challengeParameter(challenge, 'error_description'),
+    );
+  }
+
+  static String? _challengeParameter(String challenge, String name) =>
+      RegExp('(?:^|[\\s,])$name="([^"]*)"').firstMatch(challenge)?.group(1);
 }

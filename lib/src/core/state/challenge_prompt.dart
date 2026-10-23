@@ -7,6 +7,7 @@ import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
 /// What the UI must ask for next. The opaque `auth_session` stays inside the
 /// library and is never exposed.
 class ChallengePrompt {
+  /// Creates a [ChallengePrompt].
   const ChallengePrompt({
     required this.step,
     this.alternatives = const <ChallengeStep>[],
@@ -14,6 +15,7 @@ class ChallengePrompt {
     this.loginHint,
   });
 
+  /// The prompt for a `403 insufficient_authorization` [response].
   factory ChallengePrompt.fromResponse(
     ChallengeStepRequired response, {
     String? loginHint,
@@ -24,6 +26,7 @@ class ChallengePrompt {
     loginHint: loginHint,
   );
 
+  /// Reads a [ChallengePrompt] from its JSON form ([toJson]).
   factory ChallengePrompt.fromJson(Map<String, Object?> json) {
     final stepName = json.requireString('step');
     final step = ChallengeStep.fromWireName(stepName);
@@ -43,6 +46,7 @@ class ChallengePrompt {
     );
   }
 
+  /// The step to answer.
   final ChallengeStep step;
 
   /// Other steps the user may switch to (method list, recovery code).
@@ -54,6 +58,7 @@ class ChallengePrompt {
   /// The identifier typed by the user, for display ("code sent to …").
   final String? loginHint;
 
+  /// A copy of this [ChallengePrompt] with the given fields replaced.
   ChallengePrompt copyWith({
     ChallengeStep? step,
     List<ChallengeStep>? alternatives,
@@ -66,6 +71,7 @@ class ChallengePrompt {
     loginHint: loginHint ?? this.loginHint,
   );
 
+  /// The JSON form of this [ChallengePrompt], read back by [ChallengePrompt.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'step': step.wireName,
     'alternatives': alternatives.map((step) => step.wireName).toList(),

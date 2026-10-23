@@ -5,8 +5,10 @@ import 'package:loginflow_auth/src/core/json/list_equality.dart';
 /// `insufficient_user_authentication` error of a `Bearer` challenge in
 /// `WWW-Authenticate`, with its `acr_values` and/or `max_age`.
 class StepUpRequirement {
+  /// Creates a [StepUpRequirement].
   const StepUpRequirement({this.acrValues = const <String>[], this.maxAge});
 
+  /// Reads a [StepUpRequirement] from its JSON form ([toJson]).
   factory StepUpRequirement.fromJson(Map<String, Object?> json) {
     final maxAge = json.optionalInt('max_age');
     return StepUpRequirement(
@@ -15,9 +17,13 @@ class StepUpRequirement {
     );
   }
 
+  /// The `error` of the RFC 9470 challenge.
   static const String errorCode = 'insufficient_user_authentication';
 
+  /// The `acr` values that would satisfy the server; empty: any recent sign-in.
   final List<String> acrValues;
+
+  /// How recent the sign-in must be.
   final Duration? maxAge;
 
   /// The server asks for a STRONG sign-in (a second factor or a passkey:
@@ -54,12 +60,14 @@ class StepUpRequirement {
     );
   }
 
+  /// A copy of this [StepUpRequirement] with the given fields replaced.
   StepUpRequirement copyWith({List<String>? acrValues, Duration? maxAge}) =>
       StepUpRequirement(
         acrValues: acrValues ?? this.acrValues,
         maxAge: maxAge ?? this.maxAge,
       );
 
+  /// The JSON form of this [StepUpRequirement], read back by [StepUpRequirement.fromJson].
   Map<String, Object?> toJson() => <String, Object?>{
     'acr_values': acrValues,
     'max_age': ?maxAge?.inSeconds,

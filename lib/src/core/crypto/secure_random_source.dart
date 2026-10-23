@@ -4,11 +4,13 @@ import 'package:loginflow_auth/src/core/crypto/base64_url_encoding.dart';
 
 /// Source of cryptographically secure random bytes.
 abstract interface class SecureRandomSource {
+  /// [length] bytes from a cryptographically secure generator.
   List<int> nextBytes(int length);
 }
 
 /// [SecureRandomSource] backed by the platform CSPRNG ([Random.secure]).
 final class PlatformSecureRandomSource implements SecureRandomSource {
+  /// Creates a [PlatformSecureRandomSource].
   const PlatformSecureRandomSource();
 
   @override

@@ -6,6 +6,8 @@ import 'package:loginflow_auth/src/sign_in/service/sign_in_service.dart';
 /// Composition root of the sign-in UI: call [install] once at start-up,
 /// after creating the [LoginFlowAuth].
 abstract final class LoginFlowSignInSetup {
+  /// Installs the sign-in UI over [auth] with [configuration]: call it once
+  /// at start-up, before showing `LoginFlowSignIn` or `LoginFlowPasskeys`.
   static void install({
     required LoginFlowAuth auth,
     required SignInConfiguration configuration,
