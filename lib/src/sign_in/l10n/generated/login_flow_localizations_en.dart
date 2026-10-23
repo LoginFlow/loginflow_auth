@@ -252,10 +252,6 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
   String get passkeysSignedOut => 'Sign in to manage your passkeys.';
 
   @override
-  String get passkeysSharedDevice =>
-      'This account belongs to a shared device, so it cannot have passkeys.';
-
-  @override
   String get addPasskey => 'Add a passkey';
 
   @override
@@ -339,6 +335,10 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
 
   @override
   String get feedbackPasskeyNotFound => 'That passkey no longer exists.';
+
+  @override
+  String get feedbackPasskeysUnavailable =>
+      'Passkeys are not available for this account.';
 
   @override
   String get feedbackReauthenticationRequired =>

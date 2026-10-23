@@ -13,6 +13,11 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
   final String credentialId;
   final List<Map<String, Object?>> assertionOptionsSeen =
       <Map<String, Object?>>[];
+
+  /// The creation options of every enrollment, as the platform's passkey
+  /// sheet receives them (`user.name`, `user.displayName`).
+  final List<Map<String, Object?>> creationOptionsSeen =
+      <Map<String, Object?>>[];
   bool shouldCancel = false;
 
   /// Makes [createCredential] fail the way the platform reports it
@@ -37,6 +42,7 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
   Future<Result<Map<String, Object?>, LoginFlowError>> createCredential({
     required Map<String, Object?> options,
   }) async {
+    creationOptionsSeen.add(options);
     final failure = enrollmentFailure;
     if (failure != null) {
       return Err(PasskeyFailed(reason: failure));

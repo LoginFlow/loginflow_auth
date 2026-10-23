@@ -44,25 +44,22 @@ class PasskeyListStep extends StatelessWidget {
             viewModel: viewModel,
           ),
         ),
-        if (state.isEnrollmentOffered)
-          FilledButton.icon(
-            key: SignInKeys.passkeysAddButton,
-            style: FilledButton.styleFrom(
-              minimumSize: Size.fromHeight(theme.actionHeight),
-            ),
-            onPressed: state.isBusy
-                ? null
-                : () => unawaited(
-                    viewModel.addPasskey(
-                      username: username,
-                      displayName: displayName,
-                    ),
+        FilledButton.icon(
+          key: SignInKeys.passkeysAddButton,
+          style: FilledButton.styleFrom(
+            minimumSize: Size.fromHeight(theme.actionHeight),
+          ),
+          onPressed: state.isBusy
+              ? null
+              : () => unawaited(
+                  viewModel.addPasskey(
+                    username: username,
+                    displayName: displayName,
                   ),
-            icon: const Icon(Icons.add),
-            label: Text(strings.addPasskey),
-          )
-        else
-          Text(strings.passkeysSharedDevice),
+                ),
+          icon: const Icon(Icons.add),
+          label: Text(strings.addPasskey),
+        ),
       ],
     );
   }

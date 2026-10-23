@@ -237,10 +237,6 @@ abstract interface class LoginFlowStrings {
   /// English: "Sign in to manage your passkeys."
   String get passkeysSignedOut;
 
-  /// An access-code device subject cannot enroll a passkey.
-  /// English: "This account belongs to a shared device, so it cannot have passkeys."
-  String get passkeysSharedDevice;
-
   /// Action that enrolls a new passkey.
   /// English: "Add a passkey".
   String get addPasskey;
@@ -336,6 +332,11 @@ abstract interface class LoginFlowStrings {
   /// Rename or delete of a passkey the server no longer has.
   /// English: "That passkey no longer exists."
   String get feedbackPasskeyNotFound;
+
+  /// The passkey account API refused the call with a coded 403
+  /// (PasskeyAccountRefused).
+  /// English: "Passkeys are not available for this account."
+  String get feedbackPasskeysUnavailable;
 
   /// The server still asks for a recent sign-in after one step-up.
   /// English: "Sign in again to add a passkey."

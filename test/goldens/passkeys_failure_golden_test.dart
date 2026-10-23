@@ -19,7 +19,6 @@ void main() {
         tester,
         state: PasskeysState(
           phase: PasskeysListed(passkeys: goldenPasskeys),
-          isEnrollmentOffered: true,
           feedback: PasskeysFeedback.passkeyAlreadyRegistered,
         ),
         size: variant.size,

@@ -524,6 +524,51 @@ final class StepUpRequired extends LoginFlowError {
   int get hashCode => Object.hash(StepUpRequired, requirement);
 }
 
+/// The server did not accept a passkey sign-in: it answered the assertion
+/// with the `webauthn_assertion` step and a `step_error`
+/// (`doc/server-contract.md` §5.7) — a credential it no longer knows (deleted
+/// after a new access code, a revocation or by the user), or a company
+/// policy, client or sign-in gate that refuses it. The attempt is over and
+/// the ceremony is not run again; offer another way in (a code, a password).
+final class PasskeyRejected extends LoginFlowError {
+  /// Creates a [PasskeyRejected].
+  const PasskeyRejected();
+
+  @override
+  String get message => 'The server did not accept the passkey.';
+
+  @override
+  bool operator ==(Object other) => other is PasskeyRejected;
+
+  @override
+  int get hashCode => (PasskeyRejected).hashCode;
+}
+
+/// The passkey account API (`/v1/user/passkeys*`, `doc/server-contract.md`
+/// §15) refused the call with a coded `403`: passkeys are off for the
+/// company, the client does not list `passkey`, or the signed-in principal
+/// cannot hold a passkey on this server. Retrying does not help; offer
+/// the other ways in instead.
+final class PasskeyAccountRefused extends LoginFlowError {
+  /// Creates a [PasskeyAccountRefused].
+  const PasskeyAccountRefused({required this.code});
+
+  /// The server's `error.code`, verbatim, for logs and for telling the
+  /// refusals apart.
+  final String code;
+
+  @override
+  String get message => 'Passkey account call refused (403): $code';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PasskeyAccountRefused && code == other.code;
+
+  @override
+  int get hashCode => Object.hash(PasskeyAccountRefused, code);
+}
+
 /// The server does not issue tokens for [api] to this client
 /// (`invalid_target`, RFC 8707 §2): the API is not linked to the client, or
 /// no longer exists. The session is untouched; tokens for the other APIs

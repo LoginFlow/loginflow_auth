@@ -66,7 +66,6 @@ void main() {
 
   test('adds, renames and deletes the signed-in user\'s passkeys', () async {
     expect((await idleOn<PasskeysListed>()).passkeys, isEmpty);
-    expect(manager().data.isEnrollmentOffered, isTrue);
 
     await manager().addPasskey();
 

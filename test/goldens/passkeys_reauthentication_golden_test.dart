@@ -22,7 +22,6 @@ void main() {
         tester,
         state: PasskeysState(
           phase: PasskeysReauthenticating(passkeys: goldenPasskeys),
-          isEnrollmentOffered: true,
         ),
         size: variant.size,
         brightness: variant.brightness,

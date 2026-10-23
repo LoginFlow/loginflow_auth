@@ -1,12 +1,12 @@
 /// What signed in with an access code (`subject_kind` claim,
 /// `doc/server-contract.md` §16): the tenant backend that issued the code
-/// decides it, and it never changes for the subject.
+/// decides it, and it never changes for the subject. Either kind may enroll
+/// a passkey after redeeming its code (`LoginFlowAuth.enrollPasskey`).
 enum AccessSubjectKind {
   /// A person the tenant backend knows (a driver, a student, a referee).
-  /// May enroll a passkey after redeeming the code.
   person('person'),
 
-  /// A shared device (a kiosk, a recorder). Never enrolls a passkey.
+  /// A device the tenant backend knows (a kiosk, a recorder).
   device('device');
 
   const AccessSubjectKind(this.wireName);

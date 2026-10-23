@@ -533,12 +533,6 @@ abstract class LoginFlowLocalizations {
   /// **'Inicia sesión para administrar tus llaves de acceso.'**
   String get passkeysSignedOut;
 
-  /// An access-code device subject cannot enroll a passkey.
-  ///
-  /// In es, this message translates to:
-  /// **'Esta cuenta pertenece a un dispositivo compartido, así que no puede tener llaves de acceso.'**
-  String get passkeysSharedDevice;
-
   /// Action that enrolls a new passkey.
   ///
   /// In es, this message translates to:
@@ -682,6 +676,12 @@ abstract class LoginFlowLocalizations {
   /// In es, this message translates to:
   /// **'Esa llave de acceso ya no existe.'**
   String get feedbackPasskeyNotFound;
+
+  /// The passkey account API refused the call with a coded 403 (PasskeyAccountRefused).
+  ///
+  /// In es, this message translates to:
+  /// **'Las llaves de acceso no están disponibles para esta cuenta.'**
+  String get feedbackPasskeysUnavailable;
 
   /// The server still asks for a recent sign-in after one step-up.
   ///

@@ -48,7 +48,6 @@ mega-file.
 | Passkey manager: list | `passkeys_list_golden_test.dart` |
 | Passkey manager: empty | `passkeys_empty_golden_test.dart` |
 | Passkey manager: ceremony failure (real reason) | `passkeys_failure_golden_test.dart` |
-| Passkey manager: shared device (no "Add") | `passkeys_shared_device_golden_test.dart` |
 | Passkey manager: re-authentication (step-up) | `passkeys_reauthentication_golden_test.dart` |
 | Passkey manager: rename dialog | `passkeys_rename_dialog_golden_test.dart` |
 | Passkey manager: delete confirmation | `passkeys_delete_dialog_golden_test.dart` |

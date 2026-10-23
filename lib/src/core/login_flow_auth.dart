@@ -446,7 +446,9 @@ class LoginFlowAuth {
   }
 
   /// Passkey (WebAuthn L3) sign-in: targeted when [loginHint] is given,
-  /// discoverable/conditional otherwise. The platform ceremony
+  /// discoverable/conditional otherwise — with no arguments it also signs in
+  /// an access-code subject that enrolled a passkey ([enrollPasskey]),
+  /// into the same subject session a code gives. The platform ceremony
   /// ([PasskeyAuthenticator.getAssertion]) runs automatically once the
   /// server answers with its options — same shape as [signInWithGoogle],
   /// never surfaced as a [ChallengeRequired] state.
@@ -510,9 +512,11 @@ class LoginFlowAuth {
   /// - [UnsupportedByServer] (`feature: 'authorization_challenge_endpoint'`):
   ///   the discovery document has no `authorization_challenge_endpoint`, so
   ///   there is nowhere to redeem the code.
-  /// - Any other refusal (`invalid_dpop_proof`, `unauthorized_client`,
-  ///   `invalid_scope`, `invalid_request`, `temporarily_unavailable`) comes
-  ///   back as [OAuthProtocolError] with the server's `error` code.
+  /// - Any other refusal comes back as [OAuthProtocolError] with the
+  ///   server's `error` code: `unauthorized_client` (this client's login
+  ///   methods lack `access_code`, or it may not redeem codes at all),
+  ///   `invalid_dpop_proof`, `invalid_scope`, `invalid_request`,
+  ///   `temporarily_unavailable`.
   ///
   /// The signed-in identity carries `externalSubject`, `subjectKind` and
   /// `subjectProfile` (the `ext_sub`, `subject_kind` and `ext_profile`
@@ -989,6 +993,14 @@ class LoginFlowAuth {
   /// The server requires a recently authenticated access token (RFC 9470):
   /// past that window this fails with [StepUpRequired] — call
   /// [stepUp] with its `requirement`, then call this again.
+  ///
+  /// Works on an access-code session too ([signInWithAccessCode]), `person`
+  /// or `device`, within 300 s of redeeming the code; the next sign-in is
+  /// then [signInWithPasskey] with no arguments. The server answers a
+  /// passkey path it cannot serve (passkeys off for the company, `passkey`
+  /// not among the client's login methods) with a coded `403`:
+  /// [PasskeyAccountRefused], here and on [listPasskeys], [renamePasskey]
+  /// and [deletePasskey].
   Future<Result<PasskeyCredential, LoginFlowError>> enrollPasskey({
     required String username,
     required String displayName,
@@ -1553,6 +1565,12 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> _answerWebauthnAssertion(
     ChallengeStepRequired step,
   ) async {
+    if (step.stepError != null) {
+      // The server refused the assertion just sent (`doc/server-contract.md`
+      // §5.7): a WebAuthn challenge is single-use, so the ceremony is never
+      // run again on this step.
+      return _abandon(const PasskeyRejected());
+    }
     final authenticator = _passkeyAuthenticator;
     final options = step.options;
     if (authenticator == null) {

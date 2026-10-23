@@ -89,11 +89,12 @@ class SignInConfiguration {
 
   /// Shows "I have an access code" on the entry screen: a single-use code
   /// the tenant's own backend issued (`doc/server-contract.md` §16,
-  /// `LoginFlowAuth.signInWithAccessCode`). Opt-in per app: the server's
-  /// login options never advertise access codes, it only refuses them
-  /// (`access_codes_disabled`) when the application has them turned off.
-  /// With no other method allowed, the access-code step is the entry
-  /// screen itself. Needs `LoginFlowConfig.enableDpop`.
+  /// `LoginFlowAuth.signInWithAccessCode`). Opt-in per app, and shown only
+  /// while the server lists `access_code` among the client's login methods
+  /// (`ClientLoginOptions.isAccessCodeOffered`) — the server refuses a
+  /// redemption from any other client. With no other method allowed, the
+  /// access-code step is the entry screen itself. Needs
+  /// `LoginFlowConfig.enableDpop`.
   final bool isAccessCodeOffered;
 
   /// The title and subtitle of the entry screen.

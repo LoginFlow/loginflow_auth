@@ -15,10 +15,7 @@ void main() {
     testWidgets('$screen renders — ${variant.name}', (tester) async {
       await pumpPasskeysGolden(
         tester,
-        state: PasskeysState(
-          phase: PasskeysListed(passkeys: goldenPasskeys),
-          isEnrollmentOffered: true,
-        ),
+        state: PasskeysState(phase: PasskeysListed(passkeys: goldenPasskeys)),
         size: variant.size,
         brightness: variant.brightness,
       );

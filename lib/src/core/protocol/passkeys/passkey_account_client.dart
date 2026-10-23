@@ -2,6 +2,7 @@ import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_envelope.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
+import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:result_controller/result_controller.dart';
 
@@ -38,9 +39,7 @@ class PasskeyAccountClient {
       bearerToken: bearerToken,
     );
     return reply.flatMap(
-      (reply) => reply.isSuccess
-          ? reply.envelopeObject()
-          : Err(reply.toAccountApiError()),
+      (reply) => reply.isSuccess ? reply.envelopeObject() : Err(_error(reply)),
     );
   }
 
@@ -69,7 +68,7 @@ class PasskeyAccountClient {
     );
     return reply.flatMap((reply) {
       if (!reply.isSuccess) {
-        return Err(reply.toAccountApiError());
+        return Err(_error(reply));
       }
       return reply.envelopeList().flatMap((items) {
         try {
@@ -108,15 +107,32 @@ class PasskeyAccountClient {
       bearerToken: bearerToken,
     );
     return reply.flatMap(
-      (reply) => reply.isSuccess ? Ok(null) : Err(reply.toAccountApiError()),
+      (reply) => reply.isSuccess ? Ok(null) : Err(_error(reply)),
     );
+  }
+
+  /// A coded `403` is the server's refusal of a passkey path that cannot
+  /// serve this caller ([PasskeyAccountRefused] with its code); anything
+  /// else (step-up, rate limit, a missing passkey) is the account API's
+  /// usual error.
+  LoginFlowError _error(TransportReply reply) {
+    if (reply.statusCode != 403) {
+      return reply.toAccountApiError();
+    }
+    final code = reply.jsonObject().when(
+      ok: (json) => json.optionalObject('error')?.optionalString('code'),
+      err: (_) => null,
+    );
+    return code == null
+        ? reply.toAccountApiError()
+        : PasskeyAccountRefused(code: code);
   }
 
   Result<PasskeyCredential, LoginFlowError> _toCredential(
     TransportReply reply,
   ) {
     if (!reply.isSuccess) {
-      return Err(reply.toAccountApiError());
+      return Err(_error(reply));
     }
     return reply.envelopeObject().flatMap((json) {
       try {

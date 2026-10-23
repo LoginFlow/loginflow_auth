@@ -17,11 +17,11 @@ enum DelegationDenialCode {
   /// None of the user's roles reaches the organization.
   organizationOutOfReach('organization_out_of_reach'),
 
-  /// The role is not one the user's roles may grant there.
+  /// No role of the user lists this role in its "Can grant" list for that
+  /// organization.
   roleNotGrantable('role_not_grantable'),
 
-  /// The role holds a permission the user does not, or the expiry is later
-  /// than the user's own.
+  /// The expiry asked for is later than the user's own assignment there.
   privilegeExceedsGrantor('privilege_exceeds_grantor'),
 
   /// A person never grants, invites or revokes their own roles.

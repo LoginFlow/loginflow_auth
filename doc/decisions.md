@@ -316,12 +316,13 @@ revocation correctly, etc.); the findings are all on the server side of
 the line.
 
 **D27 — Access codes in the bundled UI are an app opt-in, and the
-passkey manager reuses the sign-in steps for its step-up.** The server's
-login options never advertise `access_code` (it is not a client login
-method; `loginflow_api/docs/api/oauth2/login-options.md`), so unlike D19
-there is nothing to intersect with: `SignInConfiguration.isAccessCodeOffered`
-decides whether the entry appears, and the server stays the authority by
-refusing (`access_codes_disabled` → `AccessCodesUnavailable`). With no
+passkey manager reuses the sign-in steps for its step-up.** (The
+"nothing to intersect with" part is superseded by D28.) The server's
+login options never advertised `access_code` then (it was not a client
+login method), so unlike D19 there was nothing to intersect with:
+`SignInConfiguration.isAccessCodeOffered` decided whether the entry
+appears, and the server stays the authority by refusing
+(`access_codes_disabled` → `AccessCodesUnavailable`). With no
 other method, the access-code step is the entry screen, so a kiosk or
 driver app needs no picker. The code's shape is checked locally before
 the request, so a typo never counts against the server's per-key and
@@ -338,3 +339,22 @@ completed step-up yields a new one (new ID token: new `sid`, later
 `auth_time`). Only the latter retries, and only once; a second
 `StepUpRequired` is shown as a message, never looped. Our design.
 
+**D28 — `access_code` is a client login method; every principal may hold
+a passkey.** `loginflow_api` now lists `access_code` among a client's
+`login_methods` and refuses a redemption from a client without it
+(`unauthorized_client`). The bundled UI therefore intersects like D19:
+"I have an access code" needs the app's opt-in **and**
+`ClientLoginOptions.isAccessCodeOffered`, and it stays an entry of its
+own, never an `AuthMethod` button (a code is redeemed, not chosen). The
+server also lets access-code subjects own passkeys, `person` and
+`device` alike, so the passkey manager no longer refuses a `device`
+(`PasskeysState.isEnrollmentOffered` is gone) and its default account
+name for a subject is the server's: display name, else external id. A
+coded `403` from the passkey account API is `PasskeyAccountRefused(code)`
+— the code is kept verbatim, not an enum, because it names a server-side
+policy the app only needs to log and route around. A passkey sign-in the
+server refuses after the ceremony (`webauthn_assertion` with a
+`step_error`) is `PasskeyRejected` and ends the attempt: the WebAuthn
+challenge is single-use, so running the ceremony again on that step could
+never succeed, and an app with a fallback (an access code) needs a
+terminal, typed answer to switch to it.

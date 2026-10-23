@@ -11,7 +11,6 @@ class PasskeysState {
     required this.phase,
     this.isBusy = false,
     this.feedback = PasskeysFeedback.none,
-    this.isEnrollmentOffered = false,
   });
 
   final PasskeysPhase phase;
@@ -21,20 +20,14 @@ class PasskeysState {
   final bool isBusy;
   final PasskeysFeedback feedback;
 
-  /// "Add a passkey" is shown. `false` for an access-code `device` subject:
-  /// a shared device has no single owner to bind a passkey to.
-  final bool isEnrollmentOffered;
-
   PasskeysState copyWith({
     PasskeysPhase? phase,
     bool? isBusy,
     PasskeysFeedback? feedback,
-    bool? isEnrollmentOffered,
   }) => PasskeysState(
     phase: phase ?? this.phase,
     isBusy: isBusy ?? this.isBusy,
     feedback: feedback ?? this.feedback,
-    isEnrollmentOffered: isEnrollmentOffered ?? this.isEnrollmentOffered,
   );
 
   /// The same screen with no message.
@@ -46,9 +39,8 @@ class PasskeysState {
       other is PasskeysState &&
           phase == other.phase &&
           isBusy == other.isBusy &&
-          feedback == other.feedback &&
-          isEnrollmentOffered == other.isEnrollmentOffered;
+          feedback == other.feedback;
 
   @override
-  int get hashCode => Object.hash(phase, isBusy, feedback, isEnrollmentOffered);
+  int get hashCode => Object.hash(phase, isBusy, feedback);
 }

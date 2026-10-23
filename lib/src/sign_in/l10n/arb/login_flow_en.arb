@@ -72,7 +72,6 @@
   "passkeysEmpty": "You have no passkeys yet.",
   "passkeysLoadFailed": "Your passkeys could not be loaded.",
   "passkeysSignedOut": "Sign in to manage your passkeys.",
-  "passkeysSharedDevice": "This account belongs to a shared device, so it cannot have passkeys.",
   "addPasskey": "Add a passkey",
   "passkeyUnnamed": "Passkey",
   "passkeyAddedOn": "Added {date}",
@@ -97,6 +96,7 @@
   "feedbackPasskeyInvalidResponse": "The device returned an invalid response. Try again.",
   "feedbackPasskeyFailed": "The passkey could not be created.",
   "feedbackPasskeyNotFound": "That passkey no longer exists.",
+  "feedbackPasskeysUnavailable": "Passkeys are not available for this account.",
   "feedbackReauthenticationRequired": "Sign in again to add a passkey.",
   "feedbackRateLimited": "Too many attempts. Wait a moment and try again."
 }

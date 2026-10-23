@@ -53,8 +53,10 @@ class SignInState {
   /// ([SignInConfiguration.isTemporaryAccessPassOffered]).
   final bool isTemporaryAccessPassOffered;
 
-  /// Shows "I have an access code"
-  /// ([SignInConfiguration.isAccessCodeOffered]).
+  /// Shows "I have an access code": the app opts in
+  /// ([SignInConfiguration.isAccessCodeOffered]) **and** the server lists
+  /// `access_code` for this client (`ClientLoginOptions.isAccessCodeOffered`).
+  /// `false` until the login options arrive.
   final bool isAccessCodeOffered;
 
   /// Shows "Email me a sign-in link instead" on the email-OTP step

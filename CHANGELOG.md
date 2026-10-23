@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.14.0
+
+Access codes once, then passkeys: a subject signed in with an access code
+(`person` or `device`) enrolls a passkey, and its next sign-in is
+`signInWithPasskey()` with no code.
+
+- Added: `ClientLoginOptions.isAccessCodeOffered`. `access_code` is now a
+  client login method the server lists in the login options; it is
+  redeemed with `signInWithAccessCode`, never shown as a sign-in button.
+- Changed: the bundled UI offers "I have an access code" only when the app
+  opts in (`SignInConfiguration.isAccessCodeOffered`) **and** the client's
+  login methods list `access_code`; the server refuses a redemption from
+  any other client (`unauthorized_client`). An access-code-only app whose
+  client lacks it now shows "no sign-in method" instead of a code step the
+  server refuses.
+- Changed: `LoginFlowPasskeys` offers "Add a passkey" to every signed-in
+  principal, an access-code `device` subject included. On an access-code
+  session the platform's passkey sheet shows the subject's display name,
+  else its external id — the server's own default.
+- Added: `PasskeyAccountRefused(code)`. A coded `403` from the passkey
+  account API (`/v1/user/passkeys*`) — passkeys off for the company,
+  `passkey` not among the client's login methods — is this typed error,
+  instead of `ServerResponseInvalid`; the passkey manager shows "Passkeys
+  are not available for this account."
+- Added: `PasskeyRejected`. A passkey sign-in the server refuses after the
+  ceremony (`webauthn_assertion` with a `step_error`: a credential deleted
+  after a new access code or a revocation, a policy, client or gate that
+  refuses it) ends with this typed error, instead of
+  `ServerResponseInvalid` ("step without options"), and never runs the
+  ceremony again on that attempt. The bundled UI shows the invalid
+  credentials message.
+- Breaking: `PasskeysState.isEnrollmentOffered` and
+  `LoginFlowStrings.passkeysSharedDevice` are removed (no principal is
+  refused a passkey anymore); `LoginFlowStrings` gains
+  `feedbackPasskeysUnavailable`, so a custom implementation must add it.
+- Docs: `doc/integration-guide.md` has the "code once, then passkey" recipe
+  for device and person apps; `doc/server-contract.md` lists `access_code`
+  among the login methods, passkeys for access-code subjects and the
+  `unauthorized_client` refusal of a client without `access_code`.
+- Tests: the fake server refuses a redemption from a client without
+  `access_code`, lets an access-code subject enroll a passkey and signs it
+  in again from that credential, can delete a subject's passkeys, and can
+  answer the passkey account API with a coded `403`.
+
 ## 0.13.0
 
 Contract audit against `loginflow_api` `main`: every flow checked field by

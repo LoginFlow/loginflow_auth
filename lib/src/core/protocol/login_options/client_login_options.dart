@@ -75,7 +75,8 @@ class ClientLoginOptions {
 
   /// The primary methods the server allows for this client, by wire name:
   /// `password`, `email_otp`, `magic_link`, `google`, `microsoft`, `apple`,
-  /// `facebook`, and `passkey` when a passkey may be the first factor (see
+  /// `facebook`, `access_code` (see [isAccessCodeOffered]), and `passkey`
+  /// when a passkey may be the first factor (see
   /// [isFirstFactorPasskeyOffered]). Unknown names are kept so newer server
   /// methods are simply not matched.
   final List<String> loginMethods;
@@ -122,6 +123,12 @@ class ClientLoginOptions {
   /// Whether the server publishes `magic_link` for this client — the
   /// "email me a sign-in link" action on the identifier/email-OTP step.
   bool get isMagicLinkOffered => allows('magic_link');
+
+  /// Whether this client may redeem access codes (`access_code`,
+  /// `doc/server-contract.md` §16) — `LoginFlowAuth.signInWithAccessCode`,
+  /// never a sign-in button of its own: the server refuses a redemption
+  /// from a client without it (`unauthorized_client`).
+  bool get isAccessCodeOffered => allows('access_code');
 
   /// Whether a passkey may be offered as its own first-factor button
   /// (`PasskeyMode.passwordless`). `false` when passkeys are disabled or

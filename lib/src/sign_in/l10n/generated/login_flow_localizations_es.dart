@@ -260,10 +260,6 @@ class LoginFlowLocalizationsEs extends LoginFlowLocalizations {
       'Inicia sesión para administrar tus llaves de acceso.';
 
   @override
-  String get passkeysSharedDevice =>
-      'Esta cuenta pertenece a un dispositivo compartido, así que no puede tener llaves de acceso.';
-
-  @override
   String get addPasskey => 'Agregar una llave de acceso';
 
   @override
@@ -349,6 +345,10 @@ class LoginFlowLocalizationsEs extends LoginFlowLocalizations {
 
   @override
   String get feedbackPasskeyNotFound => 'Esa llave de acceso ya no existe.';
+
+  @override
+  String get feedbackPasskeysUnavailable =>
+      'Las llaves de acceso no están disponibles para esta cuenta.';
 
   @override
   String get feedbackReauthenticationRequired =>

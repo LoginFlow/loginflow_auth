@@ -23,7 +23,9 @@ void main() {
 
   testWidgets('an access-code-only app opens on the code step, formats the '
       'typed code and signs the subject in', (tester) async {
-    server.requiresDpop = true;
+    server
+      ..requiresDpop = true
+      ..loginMethods.add('access_code');
     final harness = SignInHarness.install(
       server,
       const SignInConfiguration(

@@ -2,7 +2,7 @@
 
 A step-by-step guide, from registering the app on LoginFlow to calling your
 own API with the user's token. Everything here matches `loginflow_auth`
-0.13.0 and `loginflow_api` `main`; where the server does not do something
+0.14.0 and `loginflow_api` `main`; where the server does not do something
 yet, the guide says so. The worked examples come from the RutaFácil apps,
 which use the library in production:
 
@@ -10,7 +10,7 @@ which use the library in production:
 |---|---|---|
 | `Rutafacil/apps/panel` | web, Android, macOS | email + password, passkeys, step-up; members and email change |
 | `Rutafacil/apps/consola` | web, Android | the same as the panel |
-| `Rutafacil/apps/driver`, `Rutafacil/apps/recorder` | Android, web | an access code (no email, no password) |
+| `Rutafacil/apps/driver`, `Rutafacil/apps/recorder` | Android, web | an access code once, then a passkey (no email, no password) |
 
 The wire contract behind every call is
 [`server-contract.md`](server-contract.md); the API reference is the
@@ -35,9 +35,12 @@ one web).
      section 3); `post_logout_redirect_uris` only if the app uses
      `SignOutScope.browser`;
    - `login_methods`: any of `password`, `email_otp`, `magic_link`,
-     `passkey`, `google`, `microsoft`, `apple`, `facebook` (the default is
-     `password`, `email_otp`, `passkey`). The built-in UI and the server
-     both enforce this list.
+     `passkey`, `access_code`, `google`, `microsoft`, `apple`, `facebook`
+     (the default is `password`, `email_otp`, `passkey`). The built-in UI
+     and the server both enforce this list. An app whose people or devices
+     come from your backend lists `access_code` (plus enable access codes
+     on the application) and, for "code once, then passkey", `passkey` —
+     and no human method it never uses.
 3. **First party** — `PATCH /v1/control/oauth-clients/{client_id}/first-party`
    `{"first_party": true}`, for an app the company owns. It skips the
    hosted consent page and is required for browser origins (section 3.4),
@@ -61,7 +64,7 @@ dependencies:
   loginflow_auth:
     git:
       url: https://github.com/LoginFlow/loginflow_auth.git
-      ref: v0.13.0
+      ref: v0.14.0
 ```
 
 Create ONE `LoginFlowAuth` for the app's lifetime, with
@@ -279,8 +282,7 @@ unregistered certificate fails (`securityError` / `domainNotAssociated`).
 On iOS add the Associated Domains entry `webcredentials:<passkey domain>`.
 
 Passkeys then work from `LoginFlowPlatform.createAuth` with no code; pass
-`enablePasskeys: false` for an app that does not offer them, as the driver
-app does.
+`enablePasskeys: false` for an app that does not offer them.
 
 ## 4. Sign in
 
@@ -312,6 +314,66 @@ if (redeemed case Err(:final error)) {
 
 Every sign-in method but `signInWithAccessCode` takes `organization:` to
 start the session in one organization (section 6).
+
+### 4.1 Code once, then passkey (device and person apps)
+
+For an app whose subjects live in your backend (a driver, a recorder, a
+kiosk): the first sign-in on a phone uses the access code, every later one
+a passkey (fingerprint or screen lock). Requirements: the client lists
+`access_code` and `passkey` (section 1), the app is registered for the
+passkey domain (section 3.5), `enableDpop: true`, and passkeys are not
+disabled (`enablePasskeys` left at its default).
+
+1. **Redeem the code.** `signInWithAccessCode(code)` → `SignedIn`, the
+   identity carries `externalSubject` / `subjectKind` / `subjectProfile`.
+   Bind the phone to the subject in your backend as usual.
+2. **Enroll a passkey within 300 s.** Right after the redemption the
+   session is recent enough for the server's gate; offer it once ("Protect
+   your access with your fingerprint") and call:
+
+   ```dart
+   final identity = (_auth.state as SignedIn).session.identity;
+   final name = identity.name ?? identity.externalSubject ?? identity.subject;
+   final enrolled = await _auth.enrollPasskey(
+     username: name,
+     displayName: name,
+   );
+   ```
+
+   `username`/`displayName` are what the platform sheet shows; the
+   subject's display name, else its external id, is the server's own
+   default. If it fails, the phone simply keeps the code session:
+   `PasskeyFailed(notSupported | notConfigured)` (no passkeys on this
+   phone or build), `PasskeyFailed(userCancelled)` (the user said no),
+   `PasskeyAccountRefused(code)` (the client does not list `passkey`, or
+   passkeys are off for the company), `StepUpRequired` (more than 300 s
+   went by — do not loop; offer it again after the next code sign-in).
+3. **When the session has ended**, on start (`SignedOut`, or a refresh
+   that failed with `SessionRevoked`): try the passkey first, with no
+   arguments — the credential names the subject:
+
+   ```dart
+   final signedIn = await _auth.signInWithPasskey();
+   ```
+
+   On `SignedIn` the session is the same subject, DPoP-bound to this
+   phone's key, exactly as a code gives it; load the subject's data from
+   `externalSubject`. Only offer this step while the login options list
+   `passkey` (`fetchLoginOptions()` → `allows('passkey')`): a client
+   without it answers `OAuthProtocolError(code: 'unsupported_client')`.
+4. **Fall back to the code.** Any failure of step 3 — no passkey on this
+   phone (`PasskeyFailed(noCredentialsAvailable)`), the user dismissed the
+   sheet, or the server refused the passkey (`PasskeyRejected`: deleted on
+   the server, or the subject no longer passes the client's gate) — shows
+   the code entry
+   ("Use a code"). Your backend deletes a subject's passkeys whenever it
+   issues a new code with `revoke_existing_sessions: true`, revokes or
+   deletes the subject, so an old phone's passkey stops working with no
+   extra call.
+
+A synced passkey used on another phone signs in with that phone's DPoP
+key (`cnf.jkt`), so a backend that binds a subject to one device refuses
+it there; keep that check.
 
 ## 5. Call your API with the user's token
 
@@ -561,6 +623,8 @@ by the compiler. The ones an app usually handles:
 | `DelegationDenied(code, statusCode)` | section 8 |
 | `InvalidEmailAddress` / `InvalidEmailChangeCode` | section 9 |
 | `InvalidAccessCode` / `AccessCodeThrottled` / `AccessCodesUnavailable` | access codes |
+| `PasskeyAccountRefused(code)` | the passkey account API refused with a coded `403` (section 4.1) |
+| `PasskeyRejected` | the server did not accept a passkey sign-in: deleted credential, policy, client or gate (section 4.1) |
 | `PasskeyFailed(reason)` / `UpstreamFailed(provider, reason)` / `BrowserFailed(reason)` | a platform ceremony failed or was cancelled |
 | `OAuthProtocolError(statusCode, code)` | any other OAuth refusal, with the server's `error` code |
 | `ConfigurationInvalid` / `UnsupportedByServer(feature)` | the app's configuration or the server's discovery cannot do it |

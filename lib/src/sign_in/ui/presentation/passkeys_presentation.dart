@@ -13,6 +13,7 @@ extension PasskeysFeedbackPresentation on PasskeysFeedback {
     PasskeysFeedback.sessionEnded => strings.feedbackSessionRevoked,
     PasskeysFeedback.rateLimited => strings.feedbackRateLimited,
     PasskeysFeedback.notFound => strings.feedbackPasskeyNotFound,
+    PasskeysFeedback.passkeysUnavailable => strings.feedbackPasskeysUnavailable,
     PasskeysFeedback.reauthenticationRequired =>
       strings.feedbackReauthenticationRequired,
     PasskeysFeedback.unexpected => strings.feedbackUnexpected,

@@ -162,8 +162,6 @@ final class LoginFlowStringsEs implements LoginFlowStrings {
   @override
   String get passkeysSignedOut => _l10n.passkeysSignedOut;
   @override
-  String get passkeysSharedDevice => _l10n.passkeysSharedDevice;
-  @override
   String get addPasskey => _l10n.addPasskey;
   @override
   String get passkeyUnnamed => _l10n.passkeyUnnamed;
@@ -214,6 +212,8 @@ final class LoginFlowStringsEs implements LoginFlowStrings {
   String get feedbackPasskeyFailed => _l10n.feedbackPasskeyFailed;
   @override
   String get feedbackPasskeyNotFound => _l10n.feedbackPasskeyNotFound;
+  @override
+  String get feedbackPasskeysUnavailable => _l10n.feedbackPasskeysUnavailable;
   @override
   String get feedbackReauthenticationRequired =>
       _l10n.feedbackReauthenticationRequired;

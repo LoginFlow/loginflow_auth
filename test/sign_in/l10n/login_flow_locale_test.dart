@@ -74,7 +74,6 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.passkeysEmpty,
   (l) => l.passkeysLoadFailed,
   (l) => l.passkeysSignedOut,
-  (l) => l.passkeysSharedDevice,
   (l) => l.addPasskey,
   (l) => l.passkeyUnnamed,
   (l) => l.renamePasskey,
@@ -96,6 +95,7 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.feedbackPasskeyInvalidResponse,
   (l) => l.feedbackPasskeyFailed,
   (l) => l.feedbackPasskeyNotFound,
+  (l) => l.feedbackPasskeysUnavailable,
   (l) => l.feedbackReauthenticationRequired,
   (l) => l.feedbackRateLimited,
 ];

@@ -7,6 +7,7 @@ enum PasskeysFeedback {
   sessionEnded,
   rateLimited,
   notFound,
+  passkeysUnavailable,
   reauthenticationRequired,
   unexpected,
   passkeyNotConfigured,

@@ -5,7 +5,6 @@ import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
 import 'package:loginflow_auth/src/core/login_flow_auth.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
-import 'package:loginflow_auth/src/core/session/access_subject_kind.dart';
 import 'package:loginflow_auth/src/core/session/login_flow_session.dart';
 import 'package:loginflow_auth/src/core/state/auth_state.dart';
 import 'package:loginflow_auth/src/sign_in/model/field_error.dart';
@@ -95,18 +94,15 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
     await _load();
   }
 
-  /// Enrolls a passkey for the signed-in user. [username] and
+  /// Enrolls a passkey for the signed-in user — a person or an
+  /// access-code subject, `person` or `device`. [username] and
   /// [displayName] are what the platform's passkey sheet shows; without
-  /// them they come from the session identity (email, else the tenant's
-  /// external subject, else the subject; the name, else the username).
+  /// them they come from the session identity (see [_enrollmentFor]).
   Future<void> addPasskey({String? username, String? displayName}) async {
     final auth = _environment.auth;
     final session = _session;
     final passkeys = _listedPasskeys;
-    if (auth == null ||
-        session == null ||
-        passkeys == null ||
-        !data.isEnrollmentOffered) {
+    if (auth == null || session == null || passkeys == null) {
       return;
     }
     final enrollment = _enrollmentFor(
@@ -215,17 +211,8 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
     if (session == null) {
       return const PasskeysState(phase: PasskeysSignedOut());
     }
-    return PasskeysState(
-      phase: const PasskeysLoading(),
-      isBusy: true,
-      isEnrollmentOffered: _isEnrollmentOffered(session),
-    );
+    return const PasskeysState(phase: PasskeysLoading(), isBusy: true);
   }
-
-  /// A shared device (an access-code `device` subject) has no single owner
-  /// to bind a passkey to.
-  bool _isEnrollmentOffered(LoginFlowSession session) =>
-      session.identity.subjectKind != AccessSubjectKind.device;
 
   void _bind(SignInEnvironment environment) {
     _environment = environment;
@@ -366,8 +353,10 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
   }
 
   /// What the platform's passkey sheet shows: [username] and
-  /// [displayName] when given, else the session identity — the email, else
-  /// the tenant's external subject, else the subject; the name, else the
+  /// [displayName] when given, else the session identity. An access-code
+  /// subject shows its display name, else the tenant's external subject —
+  /// the server's own default (`doc/server-contract.md` §15); a person
+  /// shows the email, else the subject. The display name falls back to the
   /// username.
   _Enrollment _enrollmentFor(
     LoginFlowSession session, {
@@ -377,9 +366,10 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
     final identity = session.identity;
     final resolvedUsername =
         username ??
-        identity.email ??
-        identity.externalSubject ??
-        identity.subject;
+        switch (identity.externalSubject) {
+          final externalSubject? => identity.name ?? externalSubject,
+          null => identity.email ?? identity.subject,
+        };
     return (
       username: resolvedUsername,
       displayName: displayName ?? identity.name ?? resolvedUsername,

@@ -442,8 +442,10 @@ class AcmeApp extends StatelessWidget {
   server allows, never show what it does not.
 - **Access code** → "I have an access code" on the method picker, the
   password and the email steps only if `isAccessCodeOffered` (default
-  `false`). The server's login options never advertise access codes, so
-  this is the app's own opt-in; the server still refuses them when the
+  `false`) **and** the server lists `access_code` among the client's
+  login methods (`ClientLoginOptions.isAccessCodeOffered`). It is never a
+  method button of its own: the code is redeemed with
+  `signInWithAccessCode`. The server still refuses codes when the
   application has them off (`AccessCodesUnavailable`). With no other
   method allowed, the access-code step is the entry screen itself. See
   [Access codes](#access-codes).
@@ -949,6 +951,13 @@ The bundled sign-in UI shows no message for `userCancelled`, the
 the generic error for the rest — and its busy state always ends, whatever
 the ceremony does.
 
+A ceremony that succeeded can still be refused by the server: a
+credential it no longer knows (deleted after a new access code, a
+revocation or by the user), or a company policy, client or sign-in gate
+that refuses it. That ends the sign-in with `PasskeyRejected` — the
+ceremony is never run again on that attempt — and the bundled UI shows the
+"invalid credentials" message.
+
 #### Managing enrolled passkeys: `LoginFlowPasskeys`
 
 `LoginFlowPasskeys` is the ready-to-use manager for the signed-in user: it
@@ -965,9 +974,10 @@ Navigator.of(context).push(
 ```
 
 The platform's passkey sheet shows the account as `username` and
-`displayName`; by default they come from the session identity (email, else
-the access-code subject's external id, else the subject; the name, else
-the username). Pass them to override:
+`displayName`; by default they come from the session identity: for a
+person, the email (else the subject); for an access-code subject, its
+display name (else its external id), the server's own default; the
+display name falls back to the username. Pass them to override:
 
 ```dart
 const LoginFlowPasskeys(username: 'ana@example.com', displayName: 'Ana Ruiz')
@@ -983,8 +993,12 @@ that only signs in with email codes is never stuck on a password. Once
 the user signs in again, the passkey is added — retried once, never in a
 loop. "Cancel" (or the step's "Back") abandons it. A failed ceremony
 shows its real `PasskeyFailed` reason (see the table above), a dismissed
-sheet shows nothing, and the manager is never left busy. An access-code
-`device` subject gets no "Add a passkey".
+sheet shows nothing, and the manager is never left busy. Every signed-in
+principal gets "Add a passkey", an access-code `person` or `device`
+subject included. A passkey path the server cannot serve (passkeys off
+for the company, `passkey` not among the client's login methods) answers
+a coded `403`: `PasskeyAccountRefused(code)` from the API, "Passkeys are
+not available for this account" in the manager.
 
 #### Managing enrolled passkeys: the API
 
@@ -1088,11 +1102,16 @@ any request. The other failures are typed:
 | `AccessCodeThrottled(retryAfter)` | `429 slow_down` + `Retry-After` (seconds): too many failures from this device or address, or for the whole application |
 | `AccessCodesUnavailable` | `400 access_codes_disabled` for the application, or a server that answers the method with a step |
 | `UnsupportedByServer` | the discovery document has no `authorization_challenge_endpoint` |
-| `OAuthProtocolError` | any other refusal (`invalid_dpop_proof`, `unauthorized_client`, `invalid_scope`, `invalid_request`, `temporarily_unavailable`) |
+| `OAuthProtocolError` | any other refusal: `unauthorized_client` (the client's login methods lack `access_code`), `invalid_dpop_proof`, `invalid_scope`, `invalid_request`, `temporarily_unavailable` |
+
+`access_code` is a login method of the OAuth client, like `password` or
+`passkey`: turn it on for the app's client (panel: client → Login methods →
+Access code) **and** enable access codes on the application (TTL, subject
+kinds). The login options then list it (`ClientLoginOptions.isAccessCodeOffered`).
 
 **With the bundled UI** there is nothing to write: set
 `SignInConfiguration.isAccessCodeOffered: true` (and `enableDpop`).
-`LoginFlowSignIn` then offers "I have an access code" (or opens on the
+While the client lists `access_code`, `LoginFlowSignIn` offers "I have an access code" (or opens on the
 code step when the app has no other method), formats the field, refuses
 an incomplete code locally — no request, no failed attempt counted —,
 redeems it, and maps every failure to its own message:
@@ -1139,10 +1158,25 @@ TextField(
 
 Enable the submit button with `AccessCodeFormat.isComplete(text)`.
 
-After redeeming, a **person** may enroll a passkey so the next sign-in
-needs no code (`enrollPasskey`, see Passkeys; check
-`identity.subjectKind == AccessSubjectKind.person`). Never enroll one for
-a `device`: a shared kiosk has no single owner to bind it to.
+**Code once, then passkey.** After redeeming, the subject — a `person` or
+a `device` — may enroll a passkey, so its next sign-in needs no code. The
+client lists both `access_code` and `passkey`:
+
+1. Right after `signInWithAccessCode`, within the server's 300 s
+   recent-authentication window, call `enrollPasskey` (or show
+   `LoginFlowPasskeys`). A phone that cannot do passkeys
+   (`PasskeyFailed(notSupported)`, the user dismissed the sheet) keeps
+   working on the code session.
+2. When the session has ended (`SignedOut`, `SessionRevoked`), call
+   `signInWithPasskey()` with no arguments: the credential itself names the
+   subject, and the session is the same subject (`externalSubject`,
+   `subjectKind`, `subjectProfile`), DPoP-bound, as the code gave.
+3. If that fails — no passkey on the phone
+   (`PasskeyFailed(noCredentialsAvailable)`), or `PasskeyRejected` because
+   the backend issued a new code, revoked or deleted the subject, which
+   deletes its passkeys — fall back to asking for a code.
+
+The full recipe is in [`doc/integration-guide.md`](doc/integration-guide.md#41-code-once-then-passkey-device-and-person-apps).
 
 Why it is safe to hand out (OWASP ASVS V2/V3, NIST SP 800-63B look-up and
 out-of-band secrets): codes are random (CSPRNG) from an alphabet without
@@ -1193,6 +1227,15 @@ a stolen refresh token is useless elsewhere. Wire details:
   full, visible, modal one (see [Ceremony behaviour and
   failures](#ceremony-behaviour-and-failures)). True autofill needs a
   platform-specific hook this library does not expose.
+- Access-code subjects and passkeys: the server deletes every passkey of
+  a subject when its backend issues a new code with
+  `revoke_existing_sessions`, revokes or deletes the subject. The phone's
+  credential then stays on the device but no longer signs in
+  (`signInWithPasskey` fails with `PasskeyRejected`), so an app must keep
+  the code as the way
+  back in. A synced passkey used on another phone signs in with that
+  phone's DPoP key: a backend that binds a subject to one device sees a
+  different key.
 - The bundled passkey manager (`LoginFlowPasskeys`) and the
   re-authentication it asks for need the sign-in UI installed
   (`LoginFlowSignInSetup.install`). A `LoginFlowSignIn` still mounted under

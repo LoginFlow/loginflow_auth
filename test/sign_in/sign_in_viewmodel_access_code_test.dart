@@ -1,6 +1,6 @@
 // Core test (tdd-light) of the access-code entry of the bundled sign-in UI.
-// Requirement: with `SignInConfiguration.isAccessCodeOffered`, the UI
-// redeems a typed code through `LoginFlowAuth.signInWithAccessCode` and
+// Requirement: with `SignInConfiguration.isAccessCodeOffered` and
+// `access_code` among the client's login methods, the UI redeems a typed code through `LoginFlowAuth.signInWithAccessCode` and
 // turns every outcome into what the user sees: a completed sign-in, a
 // field error for a malformed code (no request), a specific message for
 // each refusal, a lockout countdown when throttled — and never stays busy.
@@ -29,7 +29,9 @@ void main() {
   setUpAll(() => keys = TestSigningKeys.generate());
 
   setUp(() {
-    server = FakeLoginFlowServer.inMemory(keys)..requiresDpop = true;
+    server = FakeLoginFlowServer.inMemory(keys)
+      ..requiresDpop = true
+      ..loginMethods.add('access_code');
   });
 
   SignInViewModel viewModel() => SignInService.flow.notifier;
@@ -142,5 +144,25 @@ void main() {
     await viewModel().goBack();
 
     expect(viewModel().data.phase, isA<SignInChoosingMethod>());
+  });
+
+  test('a client whose login methods lack access_code never offers the code '
+      'entry, even when the app opts in', () async {
+    server.loginMethods.remove('access_code');
+    await installed(methods: const <AuthMethod>[PasswordMethod()]);
+    await idleOn<SignInPasswordEntry>();
+
+    expect(viewModel().data.isAccessCodeOffered, isFalse);
+    viewModel().useAccessCode();
+    expect(viewModel().data.phase, isA<SignInPasswordEntry>());
+  });
+
+  test('with no other method and no access_code on the client there is no '
+      'way in, instead of a code step the server refuses', () async {
+    server.loginMethods.remove('access_code');
+    await installed();
+
+    await idleOn<SignInNoMethods>();
+    expect(server.challengeRequests, isEmpty);
   });
 }

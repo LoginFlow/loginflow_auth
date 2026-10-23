@@ -43,6 +43,7 @@ extension LoginFlowErrorFeedback on LoginFlowError {
           PasskeyFailureReason.unknown,
     ) =>
       SignInFeedback.unexpected,
+    PasskeyRejected() => SignInFeedback.invalidCredential,
     InvalidAccessCode() => SignInFeedback.invalidAccessCode,
     AccessCodesUnavailable() => SignInFeedback.accessCodesUnavailable,
     ServerResponseInvalid() ||
@@ -61,6 +62,7 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     StorageFailure() ||
     UnsupportedByServer() ||
     StepUpRequired() ||
+    PasskeyAccountRefused() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
     DelegationDenied() ||
@@ -97,10 +99,12 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     StorageFailure() ||
     UpstreamFailed() ||
     PasskeyFailed() ||
+    PasskeyRejected() ||
     InvalidAccessCode() ||
     AccessCodeThrottled() ||
     AccessCodesUnavailable() ||
     StepUpRequired() ||
+    PasskeyAccountRefused() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
     DelegationDenied() ||

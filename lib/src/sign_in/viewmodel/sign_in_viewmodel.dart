@@ -89,7 +89,6 @@ class SignInViewModel extends ViewModel<SignInState> {
               environment.configuration.isPasskeySignInOffered,
           isTemporaryAccessPassOffered:
               environment.configuration.isTemporaryAccessPassOffered,
-          isAccessCodeOffered: environment.configuration.isAccessCodeOffered,
           copy: environment.configuration.copy,
         );
 
@@ -402,7 +401,9 @@ class SignInViewModel extends ViewModel<SignInState> {
             isPasskeySignInOffered: isPasskeySignInOffered,
             isTemporaryAccessPassOffered:
                 configuration.isTemporaryAccessPassOffered,
-            isAccessCodeOffered: configuration.isAccessCodeOffered,
+            isAccessCodeOffered:
+                configuration.isAccessCodeOffered &&
+                options.isAccessCodeOffered,
             isMagicLinkOffered: options.isMagicLinkOffered,
             policyUri: options.policyUri,
             tosUri: options.tosUri,
@@ -685,7 +686,7 @@ class SignInViewModel extends ViewModel<SignInState> {
     final methods = _available;
     if (methods.isEmpty) {
       return base.copyWith(
-        phase: _environment.configuration.isAccessCodeOffered
+        phase: base.isAccessCodeOffered
             ? const SignInAccessCodeEntry()
             : const SignInNoMethods(),
         canGoBack: false,

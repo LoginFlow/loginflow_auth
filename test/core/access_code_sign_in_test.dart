@@ -34,7 +34,8 @@ void main() {
 
   setUp(() async {
     server = await FakeLoginFlowServer.start(keys)
-      ..requiresDpop = true;
+      ..requiresDpop = true
+      ..loginMethods.add('access_code');
   });
 
   tearDown(() => server.close());

@@ -15,6 +15,7 @@ extension PasskeysErrorFeedback on LoginFlowError {
     RateLimited() => PasskeysFeedback.rateLimited,
     ServerResponseInvalid(statusCode: 404) => PasskeysFeedback.notFound,
     StepUpRequired() => PasskeysFeedback.reauthenticationRequired,
+    PasskeyAccountRefused() => PasskeysFeedback.passkeysUnavailable,
     ServerResponseInvalid() ||
     OAuthProtocolError() ||
     DiscoveryInvalid() ||
@@ -28,6 +29,7 @@ extension PasskeysErrorFeedback on LoginFlowError {
     StorageFailure() ||
     UnsupportedByServer() ||
     UpstreamFailed() ||
+    PasskeyRejected() ||
     InvalidAccessCode() ||
     AccessCodeThrottled() ||
     AccessCodesUnavailable() ||

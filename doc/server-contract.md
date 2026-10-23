@@ -1,7 +1,7 @@
 # LoginFlow server contract for `loginflow_auth`
 
 This document is the HTTP contract the Flutter library relies on, checked
-field by field against `loginflow_api` `main` for `loginflow_auth` 0.13.0.
+field by field against `loginflow_api` `main` for `loginflow_auth` 0.14.0.
 Where a standard leaves a choice to the deployment, the choice made for
 LoginFlow is stated and marked **LoginFlow profile**. Anything marked
 **LoginFlow extension** is not defined by any standard.
@@ -163,7 +163,11 @@ the server does not allow is never shown.
 
 - `client_id` MUST echo the request (the library rejects a mismatch).
 - `login_methods` wire names: `password`, `email_otp`, `magic_link`,
-  `google`, `microsoft`, `apple`, `facebook`, `passkey`. A name only
+  `google`, `microsoft`, `apple`, `facebook`, `passkey`, `access_code`.
+  `access_code` lets the client redeem access codes (§16); it is never a
+  sign-in button of its own, so the built-in UI only uses it to decide
+  whether "I have an access code" may be offered
+  (`ClientLoginOptions.isAccessCodeOffered`). A name only
   appears when the client is configured for it **and** the
   company/application actually has it usable (for
   `google`/`microsoft`/`apple`/`facebook`, an enabled upstream provider
@@ -510,9 +514,13 @@ with what `upstream_provider` can actually produce (e.g. `apple` with
 platform equivalent, `PasskeyAuthenticator.getAssertion`); the result comes
 back as the `webauthn_assertion` form field above. A failed assertion
 answers the generic `insufficient_authorization`/`invalid_credential` shape
-**without** a fresh `options` member — a WebAuthn challenge is single-use,
-so the library does not retry the ceremony blindly; it ends the attempt and
-the caller starts over with a new `webauthn_identify` request.
+(`next: webauthn_assertion` with a `step_error`) **without** a fresh
+`options` member — a WebAuthn challenge is single-use, so the library does
+not retry the ceremony blindly; it ends the attempt with `PasskeyRejected`
+and the caller starts over with a new `webauthn_identify` request. The
+same answer covers a credential the server no longer knows (deleted, or
+an access-code subject's passkeys deleted on a new code or a revocation,
+§15) and a policy, client or sign-in gate that refuses it.
 
 `temporary_access_pass` answers the generic `insufficient_authorization`/
 `invalid_credential` shape on a wrong or already-used code — no extra data
@@ -965,6 +973,34 @@ related origins, LoginFlow profile): a first-party web app enrolls from its
 own origin. Any other origin is still held to the RP origin; a request
 without `Origin` (a native app) is unchanged.
 
+**Access-code subjects.** The same routes serve a session of an
+access-code subject (token `sub` = the subject id, §16), `person` or
+`device`, under the same 300 s recent-auth rule; the client must list
+`passkey` in its `login_methods`. The library's default `username` (and
+`display_name`) for such a session is the subject's display name (the
+`name` claim), else its `ext_sub` — the server's own default. The
+passkey belongs to the subject: a discoverable sign-in (§5.7,
+`method=webauthn_identify` with no `login_hint`) with it yields the same
+token shape as a code redemption (`sub`, `ext_sub`, `subject_kind`,
+`ext_profile`, DPoP-bound, no `device_sso`), with the passkey's `amr` and
+a phishing-resistant `acr`, as long as the subject still exists and
+passes the client's sign-in gate. Issuing a new code with
+`revoke_existing_sessions: true`, revoking the subject or deleting it
+deletes every passkey it owns.
+
+**Refusals.** A passkey path the server cannot serve for the caller —
+passkeys disabled for the company, `passkey` not among the client's
+`login_methods`, a principal that cannot own a passkey — answers `403`
+with a code in the error envelope (`{"error": {"code", "message"}}`),
+never a `500`: `passkey_not_allowed_for_client` (the client does not
+list `passkey`), `passkey_policy_not_passwordless` (a subject's passkey
+needs the company policy `passwordless`), `passkey_owner_unavailable` (the
+principal cannot own a passkey here, e.g. a subject no longer active). The
+library reports it as `PasskeyAccountRefused(code)`, with `code` verbatim.
+On the challenge endpoint, `method=webauthn_identify` from a client
+without `passkey` answers `400 {"error":"unsupported_client"}`
+(`OAuthProtocolError(code: 'unsupported_client')`).
+
 ## 16. Access codes (LoginFlow extension)
 
 A tenant backend (a driver app's server, a school system, a kiosk fleet)
@@ -985,9 +1021,10 @@ that is not 8 alphabet characters. The server stores only a keyed hash
 **Redemption.** Opening request of `POST {authorization_challenge_endpoint}`
 (§5.2/§5.3 authorization parameters as usual) with `method=access_code` and
 `access_code=<code>`, from a `first_party` client of the **same**
-application, with a DPoP proof (§13) — REQUIRED here, not only at the token
-endpoint: the session is bound to the device key. The claim is atomic and
-the code is deleted on redeem, so it works once.
+application whose `login_methods` list `access_code` (§4), with a DPoP
+proof (§13) — REQUIRED here, not only at the token endpoint: the session is
+bound to the device key. The claim is atomic and the code is deleted on
+redeem, so it works once.
 
 | Outcome | Response | Library |
 |---|---|---|
@@ -995,7 +1032,8 @@ the code is deleted on redeem, so it works once.
 | Unknown, expired, used or revoked code | `400 {"error":"invalid_grant","error_description":"the access code is invalid, expired or already used"}` — the same body for every case (no enumeration) | `InvalidAccessCode` |
 | Too many failures (per address/DPoP key, or the per-application threshold) | `429 {"error":"slow_down","error_description":"too many failed attempts"}` + `Retry-After: <seconds>` (e.g. `900`) | `AccessCodeThrottled(retryAfter)` |
 | Access codes disabled for the application | `400 {"error":"access_codes_disabled","error_description":"access codes are disabled for this application"}` | `AccessCodesUnavailable` |
-| `invalid_dpop_proof`, `unauthorized_client`, `invalid_scope`, `invalid_request`, `temporarily_unavailable` | RFC 6749 `{error, error_description}` | `OAuthProtocolError` with that `code` |
+| The client's `login_methods` lack `access_code` (or the client may not redeem codes at all) | `400 {"error":"unauthorized_client"}` | `OAuthProtocolError(code: 'unauthorized_client')` |
+| `invalid_dpop_proof`, `invalid_scope`, `invalid_request`, `temporarily_unavailable` | RFC 6749 `{error, error_description}` | `OAuthProtocolError` with that `code` |
 | A server without the method (answers a step or `redirect_to_web`) | — | `AccessCodesUnavailable` (the attempt is abandoned, no `ChallengeRequired`) |
 | No `authorization_challenge_endpoint` in discovery | — (no request) | `UnsupportedByServer(feature: 'authorization_challenge_endpoint')` |
 
@@ -1014,6 +1052,10 @@ standard OIDC `profile` claim, which is a profile-page URL). No `email`; `name` 
 issuer gave a display name. Refresh rotation (§7.2) is unchanged; revoking
 the subject on the server ends its sessions, and the next refresh fails with
 `invalid_grant` (`SessionRevoked`).
+
+**After the code: a passkey.** The subject may enroll a passkey on its
+code session (§15, within 300 s of the redemption) and sign in with it
+later instead of a new code; see §15 "Access-code subjects".
 
 ## 17. Organizations and per-API access tokens (LoginFlow extension)
 
@@ -1084,11 +1126,12 @@ when there are zero or several. With none, `org_id` is absent and
 A person of a product manages who holds which role in the organizations
 their own roles reach — the generic "Team" screen of any product. The server
 decides every grant and revocation with its delegation rules: a role is
-granted only if one of the person's live assignments lists it as grantable,
-in an organization that assignment reaches (the same one, or from the root
-into the company's regular organizations), only with permissions and an
-expiry the person holds there, and never to or from the person's own
-account. There is no route here that edits roles, catalogs or grantable
+granted only if one of the person's live assignments holds a role whose
+"Can grant" list (`grantable_roles`) names it, in an organization that
+assignment reaches (the same one, or from the root into the company's
+regular organizations) — the list alone is the grant power, whatever
+permissions the role carries —, with an expiry no later than the person's
+own there, and never to or from the person's own account. There is no route here that edits roles, catalogs or grantable
 lists: that is the application owner's, on the LoginFlow panel.
 
 **Token.** The person's OWN LoginFlow token: `aud` = the issuer, asked with
@@ -1120,8 +1163,8 @@ offset. Bodies and queries reject unknown fields (`400`).
 **Refusals** (`error.code`): `404` `organization_not_found`,
 `role_not_found`, `member_not_found`, `assignment_not_found`; `403`
 `organization_out_of_reach`, `role_not_grantable`,
-`privilege_exceeds_grantor` (`details.dimension`: `permissions` /
-`expiry`), `self_assignment_forbidden`, `wrong_audience`,
+`privilege_exceeds_grantor` (`details.dimension`: `expiry`),
+`self_assignment_forbidden`, `wrong_audience`,
 `permission_denied`; `409` `member_inactive`, `system_application`; `422`
 `role_not_assignable_here`, `expires_at_in_past`.
 

@@ -265,6 +265,10 @@ class FakeLoginFlowServer {
     ),
   };
 
+  /// The access-code subjects that redeemed a code, by subject id: a
+  /// passkey one of them enrolls signs that subject in again.
+  final Map<String, FakeUser> _accessSubjects = <String, FakeUser>{};
+
   /// `false` plays a server that predates access codes: the `access_code`
   /// method is ignored and the usual next step is answered.
   bool implementsAccessCodes = true;
@@ -558,6 +562,12 @@ class FakeLoginFlowServer {
   /// refresh keeps its session's `auth_time`, so it stays stale; only a new
   /// authentication (a new `sid`) is recent again.
   final Set<String> _staleAuthentications = <String>{};
+
+  /// When set, every `/v1/user/passkeys*` call answers `403` with this
+  /// `error.code` in the standard envelope: the server's clean refusal of a
+  /// passkey path that cannot serve the caller (`doc/server-contract.md`
+  /// §15).
+  String? passkeyAccountRefusal;
 
   /// Plays the 300 s recent-auth window passing for every authentication
   /// done so far; one done afterwards (a step-up) is recent.
@@ -906,7 +916,8 @@ class FakeLoginFlowServer {
     if (webauthnAssertion != null) {
       final decoded = jsonDecode(webauthnAssertion) as Map<String, Object?>;
       final owner = passkeyCredentialOwners[decoded['id']];
-      if (owner == null) {
+      final subjectOwner = _subjectOwning(decoded['id']);
+      if (owner == null && subjectOwner == null) {
         // No fresh `options` on a failed assertion: like a rejected
         // upstream token, a WebAuthn challenge is single-use, so the
         // client restarts with a new `signInWithPasskey` identify call
@@ -922,8 +933,15 @@ class FakeLoginFlowServer {
       // identifies the account, same as `find_credential_by_rp_and_
       // credential_id` on the real server. `user` was already read above
       // (before this leg resolved the account), so it is re-read here.
-      session.email ??= owner;
-      user = users[session.email];
+      // A credential an access-code subject enrolled yields that subject's
+      // session, the same token shape as a code redemption
+      // (`doc/server-contract.md` §16).
+      if (subjectOwner != null) {
+        user = subjectOwner;
+      } else {
+        session.email ??= owner;
+        user = users[session.email];
+      }
       // A valid assertion satisfies BOTH factors in the same step
       // (`doc/server-contract.md` passkeys section): a passkey is
       // phishing-resistant on its own.
@@ -1026,10 +1044,16 @@ class FakeLoginFlowServer {
     if (!areAccessCodesEnabled) {
       return _accessCodeError(response, 'access_codes_disabled');
     }
+    if (!_allowedLoginMethods.contains('access_code')) {
+      // A client whose login methods lack `access_code` never redeems one
+      // (`doc/server-contract.md` §16).
+      return _oauthError(response, 400, 'unauthorized_client');
+    }
     final subject = accessCodes.remove(code);
     if (subject == null) {
       return _accessCodeError(response, 'invalid_grant');
     }
+    _accessSubjects[subject.subject] = subject;
     // Redeemed outside the login transaction: the code carries no
     // `redirect_uri` and no organization
     // (`access_code_redemption_service.rs`, `IssueCodeParams`).
@@ -1041,6 +1065,19 @@ class FakeLoginFlowServer {
     );
     session.isCompleted = true;
     _json(response, 200, <String, Object?>{'authorization_code': issued});
+  }
+
+  /// Deletes every passkey [subject] enrolled, as the server does when its
+  /// backend issues a new code with `revoke_existing_sessions`, revokes or
+  /// deletes the subject.
+  void deletePasskeysOf(String subject) =>
+      _enrolledPasskeys.removeWhere((_, passkey) => passkey.owner == subject);
+
+  /// The access-code subject that enrolled the passkey [credentialId]
+  /// through the account API, if any.
+  FakeUser? _subjectOwning(Object? credentialId) {
+    final owner = _enrolledPasskeys[credentialId]?.owner;
+    return owner == null ? null : _accessSubjects[owner];
   }
 
   /// The exact reply of the real API for [error] ([accessCodeErrorReplies]).
@@ -2162,7 +2199,8 @@ class FakeLoginFlowServer {
   String _sixDigits() => _random.nextInt(1000000).toString().padLeft(6, '0');
 
   /// The caller of a `/v1/user/passkeys*` request, or `null` after writing a
-  /// `401` to [response] — same Bearer/DPoP check as [_userProfile].
+  /// `401` to [response] — same Bearer/DPoP check as [_userProfile] — or
+  /// the `403` of [passkeyAccountRefusal].
   _AccessRecord? _authenticatedPasskeyCaller(
     FakeHttpRequest request,
     FakeHttpResponse response,
@@ -2177,6 +2215,12 @@ class FakeLoginFlowServer {
         ..statusCode = 401
         ..headers['www-authenticate'] =
             '${scheme.trim()} error="invalid_token"';
+      return null;
+    }
+    final refusal = passkeyAccountRefusal;
+    if (refusal != null) {
+      _envelopeError(response, 403, refusal, 'Passkeys are not available.');
+      return null;
     }
     return access;
   }

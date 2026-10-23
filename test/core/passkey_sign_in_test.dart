@@ -95,14 +95,8 @@ void main() {
         loginHint: 'ana@example.com',
       );
 
-      expect(
-        result.errorOrNull,
-        isA<ServerResponseInvalid>().having(
-          (error) => error.statusCode,
-          'statusCode',
-          403,
-        ),
-      );
+      expect(result.errorOrNull, const PasskeyRejected());
+      expect(passkey.assertionOptionsSeen, hasLength(1));
       expect(server.tokenRequests, isEmpty);
     });
 
