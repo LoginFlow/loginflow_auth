@@ -33,7 +33,9 @@ extension PasskeysErrorFeedback on LoginFlowError {
     AccessCodesUnavailable() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
-    DelegationDenied() => PasskeysFeedback.unexpected,
+    DelegationDenied() ||
+    InvalidEmailChangeCode() ||
+    InvalidEmailAddress() => PasskeysFeedback.unexpected,
   };
 }
 

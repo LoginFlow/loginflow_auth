@@ -20,6 +20,11 @@ class StepUpRequirement {
   final List<String> acrValues;
   final Duration? maxAge;
 
+  /// The server asks for a STRONG sign-in (a second factor or a passkey:
+  /// `acr_values` present), not only a recent one (`max_age` alone): the
+  /// UI can say "confirm with your second factor" before the step-up.
+  bool get isStrongRequired => acrValues.isNotEmpty;
+
   /// Reads a `WWW-Authenticate` header value; `null` when it is not a
   /// `Bearer` challenge with `error="insufficient_user_authentication"`.
   static StepUpRequirement? fromWwwAuthenticate(String header) {

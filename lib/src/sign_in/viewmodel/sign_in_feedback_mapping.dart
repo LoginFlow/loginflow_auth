@@ -63,7 +63,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     StepUpRequired() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
-    DelegationDenied() => SignInFeedback.unexpected,
+    DelegationDenied() ||
+    InvalidEmailChangeCode() ||
+    InvalidEmailAddress() => SignInFeedback.unexpected,
   };
 }
 
@@ -101,7 +103,9 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     StepUpRequired() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
-    DelegationDenied() => toFeedback(),
+    DelegationDenied() ||
+    InvalidEmailChangeCode() ||
+    InvalidEmailAddress() => toFeedback(),
   };
 }
 

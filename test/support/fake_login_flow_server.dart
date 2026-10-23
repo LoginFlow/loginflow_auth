@@ -60,7 +60,22 @@ class FakeUser {
   final String? externalSubject;
   final String? subjectKind;
   final String? subjectProfile;
+
+  FakeUser copyWith({String? email}) => FakeUser(
+    subject: subject,
+    email: email ?? this.email,
+    password: password,
+    name: name,
+    isTotpEnabled: isTotpEnabled,
+    hasUnusedRecoveryCodes: hasUnusedRecoveryCodes,
+    externalSubject: externalSubject,
+    subjectKind: subjectKind,
+    subjectProfile: subjectProfile,
+  );
 }
+
+/// A code the fake LoginFlow emailed for an email change, and where.
+typedef FakeSentCode = ({String address, String code});
 
 /// An organization of the application where a [FakeUser] has an active
 /// assignment, with the permissions it gives per API audience
@@ -623,6 +638,14 @@ class FakeLoginFlowServer {
       case (final method, final path)
           when path == membersPath || path.startsWith('$membersPath/'):
         _members(request, response, method, path.substring(membersPath.length));
+      case (final method, final path)
+          when path == emailChangePath || path.startsWith('$emailChangePath/'):
+        _emailChange(
+          request,
+          response,
+          method,
+          path.substring(emailChangePath.length),
+        );
       case ('GET', '/oauth2/end-session'):
         endSessionRequests.add(request.uri);
         hasBrowserSession = false;
@@ -1086,7 +1109,10 @@ class FakeLoginFlowServer {
       return _oauthError(response, 400, 'invalid_grant');
     }
     final sid = 'sid_${_token32()}';
-    _deviceSessions[sid] = _DeviceSession(subject: issued.user.subject);
+    _deviceSessions[sid] = _DeviceSession(
+      subject: issued.user.subject,
+      isStrong: issued.isStrong,
+    );
     final familyId = _token32();
     _familyOrganizations[familyId] = organization.active?.id;
     _issueTokens(
@@ -1148,10 +1174,12 @@ class FakeLoginFlowServer {
         'next': 'email_otp',
       });
     }
+    // Like the real issuer, the ID token's profile claims are read from the
+    // profile at every rotation: a changed email shows on the next refresh.
     _issueTokens(
       response,
       clientId: clientId,
-      user: record.user,
+      user: _userBySubject(record.user.subject) ?? record.user,
       scope: record.scope,
       sid: record.sid,
       nonce: null,
@@ -1799,6 +1827,260 @@ class FakeLoginFlowServer {
   static bool _onlyKeys(Iterable<String> keys, Set<String> accepted) =>
       keys.every(accepted.contains);
 
+  /// LoginFlow's self-service email change for a person
+  /// (`loginflow_api/docs/api/v1/app/email-change/`).
+  static const String emailChangePath = '/v1/app/email-change';
+
+  /// The step-up a credential WITH a second factor needs to start a change:
+  /// a recent strong sign-in (`strong_recent_auth_required`).
+  static const String strongStepUpChallenge =
+      'Bearer error="insufficient_user_authentication", '
+      'acr_values="urn:loginflow:acr:phr urn:loginflow:acr:mfa", max_age=300';
+
+  /// The step-up a credential WITHOUT a second factor needs: a recent
+  /// sign-in, any `acr` (`recent_auth_required`).
+  static const String recentStepUpChallenge =
+      'Bearer error="insufficient_user_authentication", max_age=300';
+
+  /// `rate_limit::EMAIL_CHANGE`: starts per person and application per hour.
+  static const int emailChangeStartsPerHour = 3;
+
+  /// The `Retry-After` of a start past [emailChangeStartsPerHour].
+  static const Duration emailChangeRetryAfter = Duration(minutes: 42);
+
+  /// Every request that reached the email-change routes, in order.
+  final List<FakeHttpRequest> emailChangeRequests = <FakeHttpRequest>[];
+
+  /// Every code the email-change routes emailed, in order.
+  final List<FakeSentCode> sentEmailChangeCodes = <FakeSentCode>[];
+
+  final Map<String, int> _emailChangeStarts = <String, int>{};
+  final Map<String, _EmailChangeRequest> _openEmailChanges =
+      <String, _EmailChangeRequest>{};
+
+  /// The code emailed to [address] by the latest start, if any.
+  String? emailChangeCodeSentTo(String address) => sentEmailChangeCodes
+      .where((sent) => sent.address == address)
+      .lastOrNull
+      ?.code;
+
+  /// `require_dpop_bound_loginflow_token`, then the route — the shapes
+  /// `email_change_handler.rs` answers.
+  void _emailChange(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    emailChangeRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final access = header.startsWith('DPoP ')
+        ? _accessTokens[header.substring(5)]
+        : null;
+    if (access == null || _checkDpop(request, response) != null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] = 'DPoP error="invalid_token"';
+      return;
+    }
+    if (access.audience != issuerText) {
+      return _envelopeError(response, 403, 'wrong_audience', 'Wrong audience');
+    }
+    final user = _userBySubject(access.subject);
+    if (user == null || user.subjectKind != null) {
+      return _envelopeError(
+        response,
+        403,
+        'permission_denied',
+        'Permission denied',
+      );
+    }
+    final body = request.body.isEmpty
+        ? const <String, Object?>{}
+        : jsonDecode(request.body) as Map<String, Object?>;
+    switch ((method, route)) {
+      case ('POST', ''):
+        _startEmailChange(response, access, user, body);
+      case ('POST', '/confirm'):
+        _confirmEmailChange(response, access, user, body);
+      default:
+        _envelopeError(response, 404, 'NOT_FOUND', 'No such route');
+    }
+  }
+
+  /// `EmailChangeService::start`: the step-up the credential requires, the
+  /// address, the hourly limit, then a new request whose codes are emailed
+  /// — never to an address another identity holds (the same `202`).
+  void _startEmailChange(
+    FakeHttpResponse response,
+    _AccessRecord access,
+    FakeUser user,
+    Map<String, Object?> body,
+  ) {
+    final newEmail = body['new_email'];
+    if (newEmail is! String || !_onlyKeys(body.keys, const {'new_email'})) {
+      return _envelopeError(response, 400, 'BAD_REQUEST', 'Bad request');
+    }
+    final hasSecondFactor = _hasSecondFactor(user);
+    final isStale = _staleAuthentications.contains(access.sid);
+    final isStrong = _deviceSessions[access.sid]?.isStrong ?? false;
+    if (hasSecondFactor && (isStale || !isStrong)) {
+      return _authenticationRequired(response, strongStepUpChallenge);
+    }
+    if (isStale) {
+      return _authenticationRequired(response, recentStepUpChallenge);
+    }
+    final address = newEmail.trim();
+    final isValid =
+        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(address) &&
+        !address.toLowerCase().endsWith('@mailinator.com');
+    if (!isValid) {
+      return _validationError(
+        response,
+        'The submitted data contains invalid characters or does not have '
+        'the required format.',
+      );
+    }
+    final current = user.email ?? '';
+    if (address.toLowerCase() == current.toLowerCase()) {
+      return _validationError(response, 'The new email is the current email');
+    }
+    final starts = (_emailChangeStarts[user.subject] ?? 0) + 1;
+    _emailChangeStarts[user.subject] = starts;
+    if (starts > emailChangeStartsPerHour) {
+      response.headers['retry-after'] = '${emailChangeRetryAfter.inSeconds}';
+      return _envelopeError(
+        response,
+        429,
+        'RATE_LIMITED',
+        'Too many attempts. Try again later.',
+      );
+    }
+    final pending = _EmailChangeRequest(
+      newEmail: address,
+      code: _sixDigits(),
+      currentCode: hasSecondFactor ? null : _sixDigits(),
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 15)),
+    );
+    _openEmailChanges[user.subject] = pending;
+    if (!_isEmailTaken(address, bySubjectOtherThan: user.subject)) {
+      sentEmailChangeCodes.add((address: address, code: pending.code));
+    }
+    final currentCode = pending.currentCode;
+    if (currentCode != null) {
+      sentEmailChangeCodes.add((address: current, code: currentCode));
+    }
+    final expiresAt = pending.expiresAt.toIso8601String();
+    _envelopeSuccess(response, 202, <String, Object?>{
+      // A `NaiveDateTime`: UTC without an offset, whole seconds.
+      'expires_at': expiresAt.substring(0, expiresAt.indexOf('.')),
+      'confirm_current': currentCode != null,
+    });
+  }
+
+  /// `EmailChangeService::confirm`: each code claims one attempt of its own
+  /// counter; any refusal is the same `401 INVALID_CODE`. A confirmed change
+  /// sets the profile's email and ends every OTHER session of the person.
+  void _confirmEmailChange(
+    FakeHttpResponse response,
+    _AccessRecord access,
+    FakeUser user,
+    Map<String, Object?> body,
+  ) {
+    final code = body['code'];
+    final currentCode = body['current_code'];
+    if (code is! String ||
+        (currentCode != null && currentCode is! String) ||
+        !_onlyKeys(body.keys, const {'code', 'current_code'})) {
+      return _envelopeError(response, 400, 'BAD_REQUEST', 'Bad request');
+    }
+    final sixDigits = RegExp(r'^\d{6}$');
+    if (!sixDigits.hasMatch(code) ||
+        (currentCode is String && !sixDigits.hasMatch(currentCode))) {
+      return _validationError(response, 'The code must be 6 digits');
+    }
+    final pending = _openEmailChanges[user.subject];
+    if (pending == null ||
+        DateTime.now().toUtc().isAfter(pending.expiresAt) ||
+        pending.attempts >= 5) {
+      return _invalidCode(response);
+    }
+    pending.attempts++;
+    if (code != pending.code) {
+      return _invalidCode(response);
+    }
+    final expectedCurrent = pending.currentCode;
+    if (expectedCurrent != null) {
+      if (currentCode == null || pending.currentAttempts >= 5) {
+        return _invalidCode(response);
+      }
+      pending.currentAttempts++;
+      if (currentCode != expectedCurrent) {
+        return _invalidCode(response);
+      }
+    }
+    if (_isEmailTaken(pending.newEmail, bySubjectOtherThan: user.subject)) {
+      return _invalidCode(response);
+    }
+    _openEmailChanges.remove(user.subject);
+    users
+      ..remove(user.email)
+      ..[pending.newEmail] = user.copyWith(email: pending.newEmail);
+    for (final MapEntry(key: sid, value: session) in _deviceSessions.entries) {
+      if (session.subject == user.subject && sid != access.sid) {
+        session.isActive = false;
+      }
+    }
+    _envelopeSuccess(response, 200, <String, Object?>{
+      'email': pending.newEmail,
+      'email_verified': true,
+    });
+  }
+
+  /// TOTP enabled or at least one passkey.
+  bool _hasSecondFactor(FakeUser user) =>
+      user.isTotpEnabled ||
+      passkeyCredentialOwners.containsValue(user.email) ||
+      _enrolledPasskeys.values.any((passkey) => passkey.owner == user.subject);
+
+  bool _isEmailTaken(String email, {required String bySubjectOtherThan}) =>
+      users.values.any(
+        (other) =>
+            other.subject != bySubjectOtherThan &&
+            other.email?.toLowerCase() == email.toLowerCase(),
+      );
+
+  FakeUser? _userBySubject(String subject) =>
+      users.values.where((user) => user.subject == subject).firstOrNull;
+
+  void _authenticationRequired(FakeHttpResponse response, String challenge) {
+    response.headers['www-authenticate'] = challenge;
+    _envelopeError(
+      response,
+      401,
+      'UNAUTHORIZED',
+      'Authentication is required.',
+    );
+  }
+
+  void _validationError(FakeHttpResponse response, String details) =>
+      _envelopeError(
+        response,
+        422,
+        'VALIDATION_ERROR',
+        'Some fields are invalid.',
+        details: details,
+      );
+
+  void _invalidCode(FakeHttpResponse response) => _envelopeError(
+    response,
+    401,
+    'INVALID_CODE',
+    'The code is invalid or has expired',
+  );
+
+  String _sixDigits() => _random.nextInt(1000000).toString().padLeft(6, '0');
+
   /// The caller of a `/v1/user/passkeys*` request, or `null` after writing a
   /// `401` to [response] — same Bearer/DPoP check as [_userProfile].
   _AccessRecord? _authenticatedPasskeyCaller(
@@ -1834,10 +2116,15 @@ class FakeLoginFlowServer {
     FakeHttpResponse response,
     int status,
     String code,
-    String message,
-  ) {
+    String message, {
+    String? details,
+  }) {
     _json(response, status, <String, Object?>{
-      'error': <String, Object?>{'code': code, 'message': message},
+      'error': <String, Object?>{
+        'code': code,
+        'message': message,
+        'details': ?details,
+      },
       'meta': _envelopeMeta(status),
     });
   }
@@ -2042,6 +2329,7 @@ class FakeLoginFlowServer {
       redirectUri: redirectUri,
       authSession: isChallenge ? session.key : null,
       organization: session.organization,
+      isStrong: session.isSecondFactorDone,
     );
     return code;
   }
@@ -2133,6 +2421,7 @@ class _IssuedCode {
     required this.redirectUri,
     required this.authSession,
     required this.organization,
+    required this.isStrong,
   });
 
   final String clientId;
@@ -2143,6 +2432,10 @@ class _IssuedCode {
   final String? redirectUri;
   final String? authSession;
   final String? organization;
+
+  /// A second factor (TOTP, a recovery code, a passkey) was done: the
+  /// session's `acr` is multi-factor or phishing-resistant.
+  final bool isStrong;
 }
 
 class _RefreshRecord {
@@ -2163,10 +2456,36 @@ class _RefreshRecord {
 }
 
 class _DeviceSession {
-  _DeviceSession({required this.subject});
+  _DeviceSession({required this.subject, this.isStrong = false});
 
   final String subject;
+
+  /// Signed in with a second factor (`acr` `urn:loginflow:acr:mfa` or
+  /// `urn:loginflow:acr:phr`), what `recent_auth::is_strong_and_recent`
+  /// reads.
+  final bool isStrong;
   bool isActive = true;
+}
+
+/// A person's open email change (`email_change_requests`): the codes, the
+/// attempts each one has used, and when they expire.
+class _EmailChangeRequest {
+  _EmailChangeRequest({
+    required this.newEmail,
+    required this.code,
+    required this.currentCode,
+    required this.expiresAt,
+  });
+
+  final String newEmail;
+  final String code;
+
+  /// The code sent to the CURRENT address; `null` for a credential with a
+  /// second factor.
+  final String? currentCode;
+  final DateTime expiresAt;
+  int attempts = 0;
+  int currentAttempts = 0;
 }
 
 class _AccessRecord {

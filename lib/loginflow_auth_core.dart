@@ -34,6 +34,8 @@ export 'src/core/protocol/challenge/step_error.dart';
 export 'src/core/protocol/challenge/upstream_prompt.dart';
 export 'src/core/protocol/challenge/upstream_provider.dart';
 export 'src/core/protocol/challenge/upstream_token_type.dart';
+export 'src/core/protocol/email_change/email_change_confirmed.dart';
+export 'src/core/protocol/email_change/email_change_started.dart';
 export 'src/core/protocol/login_options/client_login_options.dart';
 export 'src/core/protocol/login_options/passkey_mode.dart';
 export 'src/core/protocol/members/grantable_role.dart';

@@ -545,3 +545,38 @@ final class DelegationDenied extends LoginFlowError {
   @override
   int get hashCode => Object.hash(DelegationDenied, code, statusCode);
 }
+
+/// An email-change confirmation was refused (`401 INVALID_CODE`,
+/// `doc/server-contract.md` §19): a wrong, expired, used or burned code —
+/// either of the two —, a missing code for the current address, no open
+/// change, or a new address taken since the start. The server answers the
+/// same for every case, so neither does this error; a code that is not
+/// 6 digits (`422`) is this error too.
+final class InvalidEmailChangeCode extends LoginFlowError {
+  const InvalidEmailChangeCode();
+
+  @override
+  String get message => 'The email-change code is invalid or has expired.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidEmailChangeCode;
+
+  @override
+  int get hashCode => (InvalidEmailChangeCode).hashCode;
+}
+
+/// The new address of an email change was refused (`422`,
+/// `doc/server-contract.md` §19): malformed, a disposable mailbox, or the
+/// account's current email.
+final class InvalidEmailAddress extends LoginFlowError {
+  const InvalidEmailAddress();
+
+  @override
+  String get message => 'The new email address is not valid for this account.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidEmailAddress;
+
+  @override
+  int get hashCode => (InvalidEmailAddress).hashCode;
+}

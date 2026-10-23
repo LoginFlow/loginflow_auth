@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.0
+
+Email change (`doc/server-contract.md` §19): a person changes their own
+email from any product, through LoginFlow's `/v1/app/email-change`.
+
+- New: `startEmailChange(newEmail)` → `EmailChangeStarted(expiresAt,
+  confirmCurrent)` and `confirmEmailChange(code, {currentCode})` →
+  `EmailChangeConfirmed(email, isEmailVerified)` on `LoginFlowAuth`, with
+  LoginFlow's own token like the members calls. A confirmed change refreshes
+  the session, so a new `SignedIn` carries the new email.
+- New: `StepUpRequirement.isStrongRequired` — the start's `StepUpRequired`
+  asks for a second factor (`acr_values`) or only a recent sign-in. Call
+  `stepUp(requirement)`, then start again.
+- Breaking: `LoginFlowError` gains `InvalidEmailChangeCode` (every refused
+  confirmation, generic) and `InvalidEmailAddress` (a refused new address);
+  an exhaustive `switch` over `LoginFlowError` needs their cases. A fourth
+  start within the hour is the existing `RateLimited(retryAfter)`.
+
 ## 0.11.0
 
 Members (`doc/server-contract.md` §18): any product's "Team" screen on

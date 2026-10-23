@@ -46,6 +46,9 @@ import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_token_type.dart';
+import 'package:loginflow_auth/src/core/protocol/email_change/email_change_client.dart';
+import 'package:loginflow_auth/src/core/protocol/email_change/email_change_confirmed.dart';
+import 'package:loginflow_auth/src/core/protocol/email_change/email_change_started.dart';
 import 'package:loginflow_auth/src/core/protocol/login_options/client_login_options.dart';
 import 'package:loginflow_auth/src/core/protocol/login_options/login_options_client.dart';
 import 'package:loginflow_auth/src/core/protocol/logout/revocation_client.dart';
@@ -154,6 +157,10 @@ class LoginFlowAuth {
     );
     _organizations = OrganizationsClient(transport: transport);
     _appMembers = AppMembersClient(transport: transport, issuer: config.issuer);
+    _emailChange = EmailChangeClient(
+      transport: transport,
+      issuer: config.issuer,
+    );
   }
 
   final LoginFlowConfig config;
@@ -206,6 +213,7 @@ class LoginFlowAuth {
   late final PasskeyAccountClient _passkeyAccount;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
+  late final EmailChangeClient _emailChange;
 
   final StreamController<AuthState> _states =
       StreamController<AuthState>.broadcast();
@@ -1006,7 +1014,7 @@ class LoginFlowAuth {
   /// `organizationNotFound`).
   Future<Result<GrantableRoles, LoginFlowError>> listGrantableRoles({
     required String organizationId,
-  }) => _withMembersToken(
+  }) => _withLoginFlowToken(
     (token) => _appMembers.grantableRoles(
       bearerToken: token,
       organizationId: organizationId,
@@ -1021,7 +1029,7 @@ class LoginFlowAuth {
     String? query,
     int limit = 50,
     int offset = 0,
-  }) => _withMembersToken(
+  }) => _withLoginFlowToken(
     (token) => _appMembers.list(
       bearerToken: token,
       organizationId: organizationId,
@@ -1043,7 +1051,7 @@ class LoginFlowAuth {
     String? firstName,
     String? lastName,
     DateTime? expiresAt,
-  }) => _withMembersToken(
+  }) => _withLoginFlowToken(
     (token) => _appMembers.invite(
       bearerToken: token,
       organizationId: organizationId,
@@ -1063,7 +1071,7 @@ class LoginFlowAuth {
     required String principalId,
     required String roleId,
     DateTime? expiresAt,
-  }) => _withMembersToken(
+  }) => _withLoginFlowToken(
     (token) => _appMembers.grant(
       bearerToken: token,
       organizationId: organizationId,
@@ -1078,14 +1086,67 @@ class LoginFlowAuth {
   /// when [MemberAssignment.manageable]. Same step-up and refusals as
   /// [inviteMember].
   Future<Result<void, LoginFlowError>> revokeAssignment(String assignmentId) =>
-      _withMembersToken(
+      _withLoginFlowToken(
         (token) =>
             _appMembers.revoke(bearerToken: token, assignmentId: assignmentId),
       );
 
+  /// Starts changing the signed-in person's email to [newEmail]
+  /// (`POST /v1/app/email-change`, `doc/server-contract.md` §19): a code goes
+  /// to [newEmail] and, when [EmailChangeStarted.confirmCurrent], another to
+  /// the current address. Fails with [StepUpRequired] when the sign-in is
+  /// not what the account needs ([StepUpRequirement.isStrongRequired]: a
+  /// second factor; otherwise only a recent sign-in) — call [stepUp], then
+  /// this again. Fails with [InvalidEmailAddress] and [RateLimited].
+  Future<Result<EmailChangeStarted, LoginFlowError>> startEmailChange(
+    String newEmail,
+  ) => _withLoginFlowToken(
+    (token) => _emailChange.start(bearerToken: token, newEmail: newEmail),
+  );
+
+  /// Confirms the change with the [code] sent to the new address and, when
+  /// the start said [EmailChangeStarted.confirmCurrent], the [currentCode]
+  /// sent to the current one (`POST /v1/app/email-change/confirm`). Fails
+  /// with [InvalidEmailChangeCode], the same for every refusal.
+  ///
+  /// On success the session is refreshed so its ID token carries the new
+  /// email: a new [SignedIn] is emitted with it. The server ended every
+  /// other session of the person; this one continues.
+  Future<Result<EmailChangeConfirmed, LoginFlowError>> confirmEmailChange(
+    String code, {
+    String? currentCode,
+  }) async {
+    final confirmed = await _withLoginFlowToken(
+      (token) => _emailChange.confirm(
+        bearerToken: token,
+        code: code,
+        currentCode: currentCode,
+      ),
+    );
+    if (confirmed case Ok()) {
+      await _refreshIdentity();
+    }
+    return confirmed;
+  }
+
+  /// A refresh of the session's own token queued behind every refresh in
+  /// flight — those started before the change and carry the old profile —
+  /// whose ID token re-reads the profile. The change is already done on the
+  /// server, so a failed refresh is only logged: the next one shows it.
+  Future<void> _refreshIdentity() async {
+    final generation = _generation;
+    final refreshed = await _queued(() => _refresh(generation));
+    if (refreshed case Err(:final error)) {
+      Log.w(
+        'The session was not refreshed after an email change: '
+        '${error.message}',
+      );
+    }
+  }
+
   /// Runs [call] with LoginFlow's own token ([_loginFlowAccessToken]), the
-  /// only one the members API accepts.
-  Future<Result<T, LoginFlowError>> _withMembersToken<T>(
+  /// only one the members and email-change APIs accept.
+  Future<Result<T, LoginFlowError>> _withLoginFlowToken<T>(
     Future<Result<T, LoginFlowError>> Function(String token) call,
   ) async {
     final tokenResult = await _loginFlowAccessToken();

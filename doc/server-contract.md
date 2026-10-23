@@ -1048,3 +1048,54 @@ refusal is `DelegationDenied(code, statusCode)` with a
 `DelegationDenialCode`; a write past the recent-sign-in window is
 `StepUpRequired` (call `stepUp`, then the call again); `429` is
 `RateLimited`.
+
+## 19. Email change (LoginFlow extension, authenticated)
+
+A person changes their OWN email, from any product. Same door as §18: the
+person's own DPoP-bound LoginFlow token (`aud` = the issuer); a product API's
+token is `403 wrong_audience`, a machine or access-code token `403
+permission_denied`. Who changes their email is the token's `sub`, never the
+body (bodies reject unknown fields, `400`). The machine door's former
+`/v1/service/users/{id}/email-change*` is gone (`404`).
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /v1/app/email-change` | `{new_email}` | `202 {expires_at, confirm_current}` |
+| `POST /v1/app/email-change/confirm` | `{code, current_code?}` | `200 {email, email_verified: true}` |
+
+**Step-up, decided from the credential on every start.** With a second
+factor (TOTP or a passkey): a recent STRONG sign-in, else `401` +
+`WWW-Authenticate: Bearer error="insufficient_user_authentication",
+acr_values="urn:loginflow:acr:phr urn:loginflow:acr:mfa", max_age=300`.
+Without one: a recent sign-in, else the same challenge without `acr_values`.
+The confirmation needs no step-up.
+
+**Codes.** 6 digits, 15 min, 5 attempts each; a new start replaces the open
+request. One code to the new address; without a second factor another one
+to the current address (`confirm_current: true`) and the confirmation needs
+both. When another identity holds the new address the start answers the
+same `202` but sends no code there.
+
+**Errors.** Start: `422 VALIDATION_ERROR` (malformed, disposable, or the
+current email — `details` says which), `429 RATE_LIMITED` + `Retry-After`
+(3 starts per hour). Confirm: `422 VALIDATION_ERROR` (a code that is not 6
+digits), `401 INVALID_CODE` for every refusal (wrong, expired, burned or used
+code, a missing `current_code`, an address taken since the start).
+
+**After a confirmation** every OTHER session of the person ends; this one
+continues, and its next refresh carries an ID token with the new `email`
+(`email_verified: true`).
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `startEmailChange(newEmail)` | `POST /v1/app/email-change` | `EmailChangeStarted(expiresAt, confirmCurrent)` |
+| `confirmEmailChange(code, currentCode:)` | `POST …/confirm` | `EmailChangeConfirmed(email, isEmailVerified)`, then a refresh of the session (a new `SignedIn`) |
+
+The start's challenge is `StepUpRequired`; `StepUpRequirement.isStrongRequired`
+tells the strong one (`acr_values`) from the recent one (`max_age` alone).
+Call `stepUp`, then start again: the step-up's tokens replace the cached
+LoginFlow token, so the retry presents the new sign-in. `422` on the start is
+`InvalidEmailAddress`; `422` and `401 INVALID_CODE` on the confirmation are
+`InvalidEmailChangeCode`; `429` is `RateLimited`.

@@ -119,6 +119,11 @@ extension JsonFieldReader on Map<String, Object?> {
     throw FormatException('Field "$field" must be an array of objects.');
   }
 
+  /// [optionalUtcDateTime] of a field that must be present.
+  DateTime requireUtcDateTime(String field) =>
+      optionalUtcDateTime(field) ??
+      (throw FormatException('Field "$field" must be an ISO 8601 date-time.'));
+
   /// A UTC instant. LoginFlow's REST API serializes its `NaiveDateTime`
   /// values without an offset (`2026-10-23T09:00:00`), always in UTC; one
   /// without an offset is read as UTC, never as the device's local time.

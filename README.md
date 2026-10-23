@@ -290,6 +290,39 @@ if (roles.data.canGrant) {
 }
 ```
 
+Changing the email (`doc/server-contract.md` §19): the signed-in person
+changes their OWN address, in two steps. Same LoginFlow token as the members
+calls; products keep no email-change route of their own.
+
+- `startEmailChange(newEmail)` → `EmailChangeStarted`: a 6-digit code went to
+  the new address and, when `confirmCurrent` (an account without a second
+  factor), another to the current address. Codes live until `expiresAt`. The
+  answer is the same when the new address cannot be used; then no code
+  arrives.
+- `confirmEmailChange(code, currentCode: …)` → `EmailChangeConfirmed`. The
+  session is then refreshed: a new `SignedIn` carries the new email. Every
+  other session of the person ends.
+- Refusals: `StepUpRequired` on the start — `requirement.isStrongRequired`
+  says whether a second factor is needed (an account with TOTP or a passkey)
+  or only a recent sign-in; call `stepUp(requirement)`, finish its steps,
+  then start again. `InvalidEmailAddress` (malformed, disposable, or the
+  current email), `RateLimited(retryAfter)` (3 starts per hour), and
+  `InvalidEmailChangeCode` for any refused confirmation — the server never
+  says which code was wrong.
+
+```dart
+var started = await auth.startEmailChange('ana.new@example.com');
+if (started case Err(error: StepUpRequired(:final requirement))) {
+  await auth.stepUp(requirement); // answer its steps until SignedIn…
+  started = await auth.startEmailChange('ana.new@example.com');
+}
+final confirmCurrent = started.data.confirmCurrent;
+await auth.confirmEmailChange(
+  newAddressCode,
+  currentCode: confirmCurrent ? currentAddressCode : null,
+);
+```
+
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
 `verifyDeviceSession()` when the app resumes so a device logout done by a
