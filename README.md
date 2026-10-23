@@ -1175,15 +1175,6 @@ a stolen refresh token is useless elsewhere. Wire details:
   DPoP key, a native first-party client (which the server requires to use
   DPoP) cannot sign in on Windows, and `signInWithAccessCode` fails with
   `ConfigurationInvalid`.
-- Apple and Facebook in the browser: `signInWithApple` /
-  `signInWithFacebook` without an available native source (Apple on
-  Android, either on the web) need the server's `redirect_to_web` hand-off,
-  which `loginflow_api` does not answer yet for those two providers
-  (`400 unsupported_client`, `doc/server-contract.md` §5.5). Google and
-  Microsoft work in the browser.
-- Legal links: the built-in UI shows the privacy-policy and terms links of
-  the login options (`policy_uri`/`tos_uri`), which `loginflow_api` does not
-  serve yet (§4), so no legal footer appears.
 - Linux: no passkeys; the DPoP key is a software key in the keyring (see
   [Linux](#linux)); the loopback redirect needs a fixed, registered port.
 - Web, magic link: the emailed link opens `https://<company host>/login/magic/<client_id>`

@@ -200,10 +200,7 @@ the server does not allow is never shown.
   optional and are omitted, not `null`, when not configured; the library's
   built-in UI shows a link only for the one(s) present, and nothing when
   neither is. A value that is present but not `https` is treated by the
-  library the same as absent. **Server today:** `loginflow_api` stores them
-  per client (`PATCH /v1/control/oauth-clients/{client_id}/legal-links`)
-  and shows them on its hosted pages, but does not serve them here yet, so
-  the built-in UI shows no legal footer.
+  library the same as absent.
 - Unknown `client_id`: `404 {"error":"invalid_client"}`.
 
 ## 5. Authorization Challenge Endpoint: `POST {authorization_challenge_endpoint}`
@@ -406,17 +403,8 @@ the server MUST NOT return a `request_uri` (FIPA §5.2.2.1.1).
 When `request_uri` is absent, the library builds a full authorization request
 itself (§6) with the same `state`, `nonce` and `code_challenge`.
 
-**Server today:** two deviations.
+**Server today:** one deviation.
 
-- `upstream_provider=apple|facebook` with `upstream_flow=browser` answers
-  `400 {"error":"unsupported_client"}` instead of `redirect_to_web`: only
-  Microsoft and Google have the browser hand-off in
-  `challenge_handler.rs::continue_with_step`. `signInWithApple` /
-  `signInWithFacebook` without an available native source (Apple on
-  Android, either one on the web) therefore fail with
-  `OAuthProtocolError(code: 'unsupported_client')` until the server adds
-  it. The fake server keeps the contract's `redirect_to_web` here on
-  purpose, so the tests pin the behaviour the server must reach.
 - A targeted passkey `webauthn_identify` for an account whose passkey is
   enrolled at a `session`-level federation member answers `redirect_to_web`
   with an extra `url` (that member's hosted-login origin) next to a valid
