@@ -677,3 +677,46 @@ final class InvalidEmailAddress extends LoginFlowError {
   @override
   int get hashCode => (InvalidEmailAddress).hashCode;
 }
+
+/// A TOTP code was refused by the account TOTP API (`401 INVALID_CODE`,
+/// `doc/server-contract.md` §20): a wrong code, or an account inside the
+/// lockout window that wrong codes and passwords share. The server checks
+/// the current 30-second step and one step on each side; ask for a fresh
+/// code from the authenticator app.
+final class InvalidTotpCode extends LoginFlowError {
+  /// Creates an [InvalidTotpCode].
+  const InvalidTotpCode();
+
+  @override
+  String get message => 'The authenticator code is not valid.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidTotpCode;
+
+  @override
+  int get hashCode => (InvalidTotpCode).hashCode;
+}
+
+/// The account TOTP API (`/v1/user/totp*`, `doc/server-contract.md` §20)
+/// refused the call with a coded `403`: the signed-in principal has no
+/// account to hold an authenticator app (an access-code subject:
+/// `not_available_for_access_subject`). Retrying does not help.
+final class TotpAccountRefused extends LoginFlowError {
+  /// Creates a [TotpAccountRefused].
+  const TotpAccountRefused({required this.code});
+
+  /// The server's `error.code`, verbatim, for logs and for telling the
+  /// refusals apart.
+  final String code;
+
+  @override
+  String get message => 'TOTP account call refused (403): $code';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TotpAccountRefused && code == other.code;
+
+  @override
+  int get hashCode => Object.hash(TotpAccountRefused, code);
+}

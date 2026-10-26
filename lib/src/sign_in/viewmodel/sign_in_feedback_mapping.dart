@@ -67,7 +67,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     OrganizationUnavailable() ||
     DelegationDenied() ||
     InvalidEmailChangeCode() ||
-    InvalidEmailAddress() => SignInFeedback.unexpected,
+    InvalidEmailAddress() ||
+    InvalidTotpCode() ||
+    TotpAccountRefused() => SignInFeedback.unexpected,
   };
 }
 
@@ -109,7 +111,9 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     OrganizationUnavailable() ||
     DelegationDenied() ||
     InvalidEmailChangeCode() ||
-    InvalidEmailAddress() => toFeedback(),
+    InvalidEmailAddress() ||
+    InvalidTotpCode() ||
+    TotpAccountRefused() => toFeedback(),
   };
 }
 

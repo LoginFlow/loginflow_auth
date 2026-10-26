@@ -2,7 +2,7 @@
 
 A step-by-step guide, from registering the app on LoginFlow to calling your
 own API with the user's token. Everything here matches `loginflow_auth`
-0.14.0 and `loginflow_api` `main`; where the server does not do something
+0.15.0 and `loginflow_api` `main`; where the server does not do something
 yet, the guide says so. The worked examples come from the RutaFácil apps,
 which use the library in production:
 
@@ -64,7 +64,7 @@ dependencies:
   loginflow_auth:
     git:
       url: https://github.com/LoginFlow/loginflow_auth.git
-      ref: v0.14.0
+      ref: v0.15.0
 ```
 
 Create ONE `LoginFlowAuth` for the app's lifetime, with
@@ -588,7 +588,43 @@ Future<Result<EmailChangeConfirmed, LoginFlowError>> confirmEmailChange(
   session of the person. The panel notices the new email in its
   `SignedIn` handler and re-reads its own session in place.
 
-## 10. Sign out
+## 10. Authenticator app (TOTP)
+
+A person turns an authenticator app on or off as their second factor, and
+gets recovery codes for it. The calls use the session's own token, like the
+passkey ones; an access-code session has no account to hold one
+(`TotpAccountRefused`). A repository:
+
+```dart
+Future<Result<TotpStatus, LoginFlowError>> status() => _auth.totpStatus();
+
+Future<Result<TotpEnrollment, LoginFlowError>> startEnrollment() =>
+    _auth.startTotpEnrollment(issuer: 'Acme Console');
+
+Future<Result<void, LoginFlowError>> confirmEnrollment(String code) =>
+    _auth.confirmTotpEnrollment(code);
+
+Future<Result<void, LoginFlowError>> disable(String code) =>
+    _auth.disableTotp(code);
+
+Future<Result<List<String>, LoginFlowError>> recoveryCodes() =>
+    _auth.regenerateRecoveryCodes();
+```
+
+- `TotpEnrollment.otpauthUri` is the QR code's content, verbatim;
+  `secret` is for typing it by hand. Nothing changes until
+  `confirmTotpEnrollment` succeeds with a code the app produced; a new
+  start replaces the pending secret. `issuer` names the entry in the app
+  (without it, the application's name).
+- `InvalidTotpCode`: a wrong code, or the account is locked after too many
+  wrong codes or passwords.
+- Turning it on issues no recovery codes: ask `regenerateRecoveryCodes()`
+  right after and show them once. It needs a recent sign-in: handle
+  `StepUpRequired` as in section 7.
+- With TOTP on, the next sign-in and every strong step-up ask for its code
+  (or a recovery code).
+
+## 11. Sign out
 
 ```dart
 final ended = await _auth.signOut(SignOutScope.app);
@@ -607,7 +643,7 @@ and `everywhere` clear it locally and report
 `SignedOut(reason: sessionRevoked)`. Clients that registered a back-channel
 logout URI are notified by the server; the library is not involved.
 
-## 11. Errors
+## 12. Errors
 
 Every operation returns `Result<T, LoginFlowError>`; expected failures
 never throw. `LoginFlowError` is sealed, so a `switch` over it is checked
@@ -622,6 +658,7 @@ by the compiler. The ones an app usually handles:
 | `InvalidTarget(api)` / `OrganizationUnavailable(id)` | sections 5 and 6 |
 | `DelegationDenied(code, statusCode)` | section 8 |
 | `InvalidEmailAddress` / `InvalidEmailChangeCode` | section 9 |
+| `InvalidTotpCode` / `TotpAccountRefused(code)` | section 10 |
 | `InvalidAccessCode` / `AccessCodeThrottled` / `AccessCodesUnavailable` | access codes |
 | `PasskeyAccountRefused(code)` | the passkey account API refused with a coded `403` (section 4.1) |
 | `PasskeyRejected` | the server did not accept a passkey sign-in: deleted credential, policy, client or gate (section 4.1) |
@@ -629,7 +666,7 @@ by the compiler. The ones an app usually handles:
 | `OAuthProtocolError(statusCode, code)` | any other OAuth refusal, with the server's `error` code |
 | `ConfigurationInvalid` / `UnsupportedByServer(feature)` | the app's configuration or the server's discovery cannot do it |
 
-## 12. Known gaps of the server
+## 13. Known gaps of the server
 
 As of `loginflow_api` `main`:
 

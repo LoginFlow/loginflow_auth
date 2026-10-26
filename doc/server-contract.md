@@ -1,7 +1,7 @@
 # LoginFlow server contract for `loginflow_auth`
 
 This document is the HTTP contract the Flutter library relies on, checked
-field by field against `loginflow_api` `main` for `loginflow_auth` 0.14.0.
+field by field against `loginflow_api` `main` for `loginflow_auth` 0.15.0.
 Where a standard leaves a choice to the deployment, the choice made for
 LoginFlow is stated and marked **LoginFlow profile**. Anything marked
 **LoginFlow extension** is not defined by any standard.
@@ -1236,3 +1236,59 @@ Call `stepUp`, then start again: the step-up's tokens replace the cached
 LoginFlow token, so the retry presents the new sign-in. `422` on the start is
 `InvalidEmailAddress`; `422` and `401 INVALID_CODE` on the confirmation are
 `InvalidEmailChangeCode`; `429` is `RateLimited`.
+
+## 20. TOTP account API (LoginFlow extension, authenticated)
+
+The signed-in person's authenticator app and recovery codes. Same scope,
+token and envelope as §15: fixed paths under `/v1/user/totp`, resolved from
+`issuer`; the session's own access token (`Authorization: Bearer` or
+`DPoP`, §13); bodies `application/json`; the `ApiResponse` envelope on
+success and on error. Every route works on an account
+(`company_users`): an access-code subject's token (§16) answers `403
+not_available_for_access_subject` (`refuse_access_subject`) before any
+handler runs.
+
+| Route | Body | Answer (the envelope's `data`) |
+|---|---|---|
+| `GET /v1/user/totp/status` | — | `200 {enabled, verified_at}`; `verified_at` a UTC `NaiveDateTime` without offset, `null` when off |
+| `POST /v1/user/totp/setup` | `{issuer?}` | `200 {secret, otpauth_uri, issuer}` |
+| `POST /v1/user/totp/verify-setup` | `{code}` | `200 {message}`: TOTP is on |
+| `POST /v1/user/totp/disable` | `{code}` | `200 {message}`: TOTP is off |
+| `POST /v1/user/totp/recovery-codes` | — | `200 {recovery_codes: [...]}`: a new set, every earlier code void |
+
+**Setup.** A new 160-bit secret, stored sealed and NOT active until
+`verify-setup`; a new setup replaces a pending one. `issuer` names the
+entry in the authenticator app; empty or absent, the server uses the
+application's name, then the company's, then none (the URI then has no
+issuer and `issuer` is `""`). LoginFlow's own name is never used. The
+secret is returned only here.
+
+**Codes.** 6 digits, SHA-1, 30 s; the current step and one on each side are
+accepted. Every check reserves an attempt on the account's progressive
+lockout (the counter wrong passwords use): a wrong code and a locked
+account both answer `401 INVALID_CODE` (`Invalid TOTP code` / `Too many
+failed attempts. Try again later.`). `verify-setup` answers `400
+BAD_REQUEST` when TOTP is already on or no setup is pending; `disable`
+when it is off.
+
+**Step-up.** Only `recovery-codes` has one: a recent sign-in (`auth_time`
+within 300 s), else `401` + `WWW-Authenticate: Bearer
+error="insufficient_user_authentication", max_age=300`. Setup, confirmation
+and disabling need none: the code itself is the proof. Enabling issues no
+recovery codes; ask for them right after.
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `totpStatus()` | `GET …/status` | `TotpStatus(isEnabled, verifiedAt)` |
+| `startTotpEnrollment(issuer:)` | `POST …/setup` | `TotpEnrollment(secret, otpauthUri, issuer)` |
+| `confirmTotpEnrollment(code)` | `POST …/verify-setup` | `void` |
+| `disableTotp(code)` | `POST …/disable` | `void` |
+| `regenerateRecoveryCodes()` | `POST …/recovery-codes` | the codes, `List<String>` |
+
+`401 INVALID_CODE` is `InvalidTotpCode`; a coded `403` is
+`TotpAccountRefused(code)`, the code verbatim; the recent-auth challenge is
+`StepUpRequired` (call `stepUp`, then ask again); `429` is `RateLimited`.
+A `400` (the state changed since it was read) is the account API's usual
+`ServerResponseInvalid`: read `totpStatus()` again.
