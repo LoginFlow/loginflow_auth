@@ -61,12 +61,12 @@ class FakeUser {
   final String? subjectKind;
   final String? subjectProfile;
 
-  FakeUser copyWith({String? email}) => FakeUser(
+  FakeUser copyWith({String? email, bool? isTotpEnabled}) => FakeUser(
     subject: subject,
     email: email ?? this.email,
     password: password,
     name: name,
-    isTotpEnabled: isTotpEnabled,
+    isTotpEnabled: isTotpEnabled ?? this.isTotpEnabled,
     hasUnusedRecoveryCodes: hasUnusedRecoveryCodes,
     externalSubject: externalSubject,
     subjectKind: subjectKind,
@@ -666,6 +666,8 @@ class FakeLoginFlowServer {
       case (final method, final path)
           when path == membersPath || path.startsWith('$membersPath/'):
         _members(request, response, method, path.substring(membersPath.length));
+      case (final method, final path) when path.startsWith('$totpPath/'):
+        _totp(request, response, method, path.substring(totpPath.length));
       case (final method, final path)
           when path == emailChangePath || path.startsWith('$emailChangePath/'):
         _emailChange(
@@ -2152,6 +2154,138 @@ class FakeLoginFlowServer {
       'email': pending.newEmail,
       'email_verified': true,
     });
+  }
+
+  /// LoginFlow's TOTP account API (`loginflow_api/docs/api/v1/user/totp/`).
+  static const String totpPath = '/v1/user/totp';
+
+  /// The secret every TOTP setup hands out; [totpCode] is its code.
+  static const String totpSecret = 'JBSWY3DPEHPK3PXP';
+
+  /// Every request that reached the TOTP routes, in order.
+  final List<FakeHttpRequest> totpRequests = <FakeHttpRequest>[];
+
+  /// Subjects with a secret set up and not confirmed yet.
+  final Set<String> _pendingTotp = <String>{};
+
+  /// When each subject's TOTP was confirmed.
+  final Map<String, DateTime> _totpVerifiedAt = <String, DateTime>{};
+
+  /// `authenticate_access` + `refuse_access_subject`, then the route — the
+  /// shapes `totp_handler.rs` and `recovery_code_handler.rs` answer.
+  void _totp(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    totpRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _liveAccess(header.substring(scheme.length))
+        : null;
+    if (access == null ||
+        (requiresDpop && _checkDpop(request, response) != null)) {
+      return _refuseToken(response, header);
+    }
+    final user = _userBySubject(access.subject);
+    if (user == null || user.subjectKind != null) {
+      return _envelopeError(
+        response,
+        403,
+        'not_available_for_access_subject',
+        'This account route is not available to an access-code subject',
+      );
+    }
+    final body = request.body.isEmpty
+        ? const <String, Object?>{}
+        : jsonDecode(request.body) as Map<String, Object?>;
+    switch ((method, route)) {
+      case ('GET', '/status'):
+        final verifiedAt = _totpVerifiedAt[user.subject]?.toIso8601String();
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'enabled': user.isTotpEnabled,
+          // A `NaiveDateTime` formatted `%Y-%m-%dT%H:%M:%S`: UTC, no offset.
+          'verified_at': verifiedAt?.substring(0, verifiedAt.indexOf('.')),
+        });
+      case ('POST', '/setup'):
+        _pendingTotp.add(user.subject);
+        final issuer = (body['issuer'] as String?)?.trim() ?? 'Fake App';
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'secret': totpSecret,
+          'otpauth_uri':
+              'otpauth://totp/${Uri.encodeComponent(issuer)}:'
+              '${Uri.encodeComponent(user.email ?? '')}?secret=$totpSecret'
+              '&issuer=${Uri.encodeComponent(issuer)}'
+              '&algorithm=SHA1&digits=6&period=30',
+          'issuer': issuer,
+        });
+      case ('POST', '/verify-setup'):
+        if (user.isTotpEnabled) {
+          return _envelopeError(
+            response,
+            400,
+            'BAD_REQUEST',
+            'TOTP is already enabled',
+          );
+        }
+        if (!_pendingTotp.contains(user.subject)) {
+          return _envelopeError(
+            response,
+            400,
+            'BAD_REQUEST',
+            'TOTP setup not initiated. Call setup first.',
+          );
+        }
+        if (body['code'] != totpCode) {
+          return _invalidTotpCode(response);
+        }
+        _pendingTotp.remove(user.subject);
+        _totpVerifiedAt[user.subject] = DateTime.now().toUtc();
+        _replaceUser(user, user.copyWith(isTotpEnabled: true));
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'message': 'TOTP 2FA enabled successfully',
+        });
+      case ('POST', '/disable'):
+        if (!user.isTotpEnabled) {
+          return _envelopeError(
+            response,
+            400,
+            'BAD_REQUEST',
+            'TOTP is not enabled',
+          );
+        }
+        if (body['code'] != totpCode) {
+          return _invalidTotpCode(response);
+        }
+        _totpVerifiedAt.remove(user.subject);
+        _replaceUser(user, user.copyWith(isTotpEnabled: false));
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'message': 'TOTP 2FA disabled successfully',
+        });
+      case ('POST', '/recovery-codes'):
+        if (_staleAuthentications.contains(access.sid)) {
+          return _authenticationRequired(response, recentStepUpChallenge);
+        }
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'recovery_codes': <String>[
+            for (var index = 0; index < 10; index++) _sixDigits(),
+          ],
+        });
+      default:
+        _envelopeError(response, 404, 'NOT_FOUND', 'No such route');
+    }
+  }
+
+  void _invalidTotpCode(FakeHttpResponse response) =>
+      _envelopeError(response, 401, 'INVALID_CODE', 'Invalid TOTP code');
+
+  void _replaceUser(FakeUser user, FakeUser replacement) {
+    final key = users.entries
+        .firstWhere((entry) => entry.value.subject == user.subject)
+        .key;
+    users[key] = replacement;
   }
 
   /// TOTP enabled or at least one passkey.

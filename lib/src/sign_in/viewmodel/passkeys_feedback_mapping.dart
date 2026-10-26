@@ -37,7 +37,9 @@ extension PasskeysErrorFeedback on LoginFlowError {
     OrganizationUnavailable() ||
     DelegationDenied() ||
     InvalidEmailChangeCode() ||
-    InvalidEmailAddress() => PasskeysFeedback.unexpected,
+    InvalidEmailAddress() ||
+    InvalidTotpCode() ||
+    TotpAccountRefused() => PasskeysFeedback.unexpected,
   };
 }
 

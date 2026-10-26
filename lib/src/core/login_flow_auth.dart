@@ -66,6 +66,9 @@ import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dar
 import 'package:loginflow_auth/src/core/protocol/token/token_client.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_grant.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_response.dart';
+import 'package:loginflow_auth/src/core/protocol/totp/totp_account_client.dart';
+import 'package:loginflow_auth/src/core/protocol/totp/totp_enrollment.dart';
+import 'package:loginflow_auth/src/core/protocol/totp/totp_status.dart';
 import 'package:loginflow_auth/src/core/session/user_identity.dart';
 import 'package:loginflow_auth/src/core/sso/sso_candidate.dart';
 import 'package:loginflow_auth/src/core/sso/sso_entry.dart';
@@ -159,6 +162,10 @@ class LoginFlowAuth {
       transport: transport,
       issuer: config.issuer,
     );
+    _totpAccount = TotpAccountClient(
+      transport: transport,
+      issuer: config.issuer,
+    );
     _organizations = OrganizationsClient(transport: transport);
     _appMembers = AppMembersClient(transport: transport, issuer: config.issuer);
     _emailChange = EmailChangeClient(
@@ -216,6 +223,7 @@ class LoginFlowAuth {
   late final SessionLogoutClient _sessionLogout;
   late final LoginOptionsClient _loginOptions;
   late final PasskeyAccountClient _passkeyAccount;
+  late final TotpAccountClient _totpAccount;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
   late final EmailChangeClient _emailChange;
@@ -1070,6 +1078,63 @@ class LoginFlowAuth {
       return Err(error);
     }
     return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
+  }
+
+  /// Whether the signed-in person has an authenticator app on
+  /// (`GET /v1/user/totp/status`, `doc/server-contract.md` §20).
+  ///
+  /// The TOTP calls use the session's own token, like the passkey ones. An
+  /// access-code session has no account to hold one: every TOTP call
+  /// answers [TotpAccountRefused] there.
+  Future<Result<TotpStatus, LoginFlowError>> totpStatus() =>
+      _withSessionToken((token) => _totpAccount.status(bearerToken: token));
+
+  /// Starts enrolling an authenticator app (`POST /v1/user/totp/setup`): a
+  /// new secret and its `otpauth://` URI (show it as a QR code, and the
+  /// secret for typing it by hand). Nothing changes for the account until
+  /// [confirmTotpEnrollment]; a new start replaces the pending secret.
+  /// [issuer] names the entry in the app (`Acme Console`); without it the
+  /// server uses the application's name, then the company's.
+  Future<Result<TotpEnrollment, LoginFlowError>> startTotpEnrollment({
+    String? issuer,
+  }) => _withSessionToken(
+    (token) => _totpAccount.setup(bearerToken: token, issuer: issuer),
+  );
+
+  /// Turns the authenticator app on with a [code] it produced from the
+  /// pending secret (`POST /v1/user/totp/verify-setup`). Fails with
+  /// [InvalidTotpCode] for a wrong code or a locked account. The server
+  /// issues no recovery codes here: call [regenerateRecoveryCodes] next.
+  Future<Result<void, LoginFlowError>> confirmTotpEnrollment(String code) =>
+      _withSessionToken(
+        (token) => _totpAccount.verifySetup(bearerToken: token, code: code),
+      );
+
+  /// Turns the authenticator app off, confirmed with a current [code] from
+  /// it (`POST /v1/user/totp/disable`). Fails with [InvalidTotpCode].
+  Future<Result<void, LoginFlowError>> disableTotp(String code) =>
+      _withSessionToken(
+        (token) => _totpAccount.disable(bearerToken: token, code: code),
+      );
+
+  /// A new set of recovery codes, every earlier one void
+  /// (`POST /v1/user/totp/recovery-codes`). Show them once; the library
+  /// keeps none. Needs a recent sign-in: fails with [StepUpRequired] past
+  /// 300 s — call [stepUp], then this again.
+  Future<Result<List<String>, LoginFlowError>> regenerateRecoveryCodes() =>
+      _withSessionToken(
+        (token) => _totpAccount.regenerateRecoveryCodes(bearerToken: token),
+      );
+
+  /// Runs [call] with the session's own token ([_sessionAccessToken]).
+  Future<Result<T, LoginFlowError>> _withSessionToken<T>(
+    Future<Result<T, LoginFlowError>> Function(String token) call,
+  ) async {
+    final tokenResult = await _sessionAccessToken();
+    if (tokenResult case Err(:final error)) {
+      return Err(error);
+    }
+    return call(tokenResult.data);
   }
 
   /// The roles the signed-in user may grant in [organizationId]

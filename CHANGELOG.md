@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.0
+
+Authenticator app management (`doc/server-contract.md` §20): the signed-in
+person turns TOTP on and off and gets recovery codes, through LoginFlow's
+`/v1/user/totp/*`, with the session's own token like the passkey calls.
+
+- New: on `LoginFlowAuth`, `totpStatus()` → `TotpStatus(isEnabled,
+  verifiedAt)`, `startTotpEnrollment({issuer})` → `TotpEnrollment(secret,
+  otpauthUri, issuer)`, `confirmTotpEnrollment(code)`, `disableTotp(code)`
+  and `regenerateRecoveryCodes()` → `List<String>`. Recovery codes need a
+  recent sign-in: `StepUpRequired`, then `stepUp` and ask again.
+- Breaking: `LoginFlowError` gains `InvalidTotpCode` (`401 INVALID_CODE`: a
+  wrong code or a locked account) and `TotpAccountRefused(code)` (a coded
+  `403`, e.g. `not_available_for_access_subject`); an exhaustive `switch`
+  over `LoginFlowError` needs their cases.
+- Docs: `doc/server-contract.md` §20, `doc/integration-guide.md` section
+  10, README.
+- Tests: the fake server answers the TOTP routes like `totp_handler.rs` and
+  `recovery_code_handler.rs` (DPoP, `INVALID_CODE`, the recent-auth gate).
+
 ## 0.14.0
 
 Access codes once, then passkeys: a subject signed in with an access code

@@ -52,6 +52,8 @@ export 'src/core/protocol/organizations/organization_kind.dart';
 export 'src/core/protocol/organizations/organization_list.dart';
 export 'src/core/protocol/passkeys/passkey_credential.dart';
 export 'src/core/protocol/step_up/step_up_requirement.dart';
+export 'src/core/protocol/totp/totp_enrollment.dart';
+export 'src/core/protocol/totp/totp_status.dart';
 export 'src/core/session/access_subject_kind.dart';
 export 'src/core/session/access_token_claims.dart';
 export 'src/core/session/login_flow_session.dart';

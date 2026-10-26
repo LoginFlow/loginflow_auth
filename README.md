@@ -330,6 +330,31 @@ await auth.confirmEmailChange(
 );
 ```
 
+Authenticator app (`doc/server-contract.md` §20): the signed-in person
+turns TOTP on or off and gets recovery codes, with the session's own token.
+
+- `totpStatus()` → `TotpStatus(isEnabled, verifiedAt)`.
+- `startTotpEnrollment(issuer: …)` → `TotpEnrollment(secret, otpauthUri,
+  issuer)`: show `otpauthUri` as a QR code and `secret` for typing it by
+  hand. Nothing is on until `confirmTotpEnrollment(code)` succeeds.
+- `disableTotp(code)` turns it off with a current code.
+- `regenerateRecoveryCodes()` → a new set (every earlier code void); it
+  needs a recent sign-in (`StepUpRequired`, then `stepUp` and ask again).
+  Enabling issues none: ask right after.
+- Refusals: `InvalidTotpCode` (a wrong code, or a locked account),
+  `TotpAccountRefused(code)` (an access-code session).
+
+```dart
+final enrollment = await auth.startTotpEnrollment(issuer: 'Acme Console');
+// show enrollment.data.otpauthUri as a QR code, then:
+final confirmed = await auth.confirmTotpEnrollment(codeFromTheApp);
+var codes = await auth.regenerateRecoveryCodes();
+if (codes case Err(error: StepUpRequired(:final requirement))) {
+  await auth.stepUp(requirement); // answer its steps until SignedIn…
+  codes = await auth.regenerateRecoveryCodes();
+}
+```
+
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
 `verifyDeviceSession()` when the app resumes so a device logout done by a
