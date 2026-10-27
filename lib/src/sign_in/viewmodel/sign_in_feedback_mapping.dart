@@ -69,7 +69,8 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     InvalidEmailChangeCode() ||
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
-    TotpAccountRefused() => SignInFeedback.unexpected,
+    TotpAccountRefused() ||
+    PasswordRejected() => SignInFeedback.unexpected,
   };
 }
 
@@ -113,7 +114,8 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     InvalidEmailChangeCode() ||
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
-    TotpAccountRefused() => toFeedback(),
+    TotpAccountRefused() ||
+    PasswordRejected() => toFeedback(),
   };
 }
 

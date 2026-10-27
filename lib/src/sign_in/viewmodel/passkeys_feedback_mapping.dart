@@ -39,7 +39,8 @@ extension PasskeysErrorFeedback on LoginFlowError {
     InvalidEmailChangeCode() ||
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
-    TotpAccountRefused() => PasskeysFeedback.unexpected,
+    TotpAccountRefused() ||
+    PasswordRejected() => PasskeysFeedback.unexpected,
   };
 }
 

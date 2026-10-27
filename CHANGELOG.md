@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.16.0
+
+In-app password change: the signed-in person sets or changes their own
+password through LoginFlow's `POST /v1/user/change-password`, with the
+session's own token like the passkey and TOTP calls — no browser.
+
+- New: `LoginFlowAuth.changePassword(newPassword)` →
+  `Result<void, LoginFlowError>`. It needs a recent sign-in (strong when the
+  account has TOTP or a passkey): `StepUpRequired`, then `stepUp` and ask
+  again. `NotSignedIn` without a session.
+- Breaking: `LoginFlowError` gains `PasswordRejected(reason)` (`422
+  VALIDATION_ERROR`: a weak, breached or unchanged password; `reason` is the
+  server's `error.details`); an exhaustive `switch` over `LoginFlowError`
+  needs its case.
+- Tests: the fake server answers the route like
+  `auth_handler.rs::change_password` (DPoP, the recent-auth gate, `422`).
+
 ## 0.15.0
 
 Authenticator app management (`doc/server-contract.md` §20): the signed-in
