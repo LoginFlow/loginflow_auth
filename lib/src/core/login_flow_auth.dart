@@ -62,6 +62,7 @@ import 'package:loginflow_auth/src/core/protocol/organizations/organization_list
 import 'package:loginflow_auth/src/core/protocol/organizations/organizations_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
+import 'package:loginflow_auth/src/core/protocol/password_change/password_change_client.dart';
 import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_client.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_grant.dart';
@@ -166,6 +167,10 @@ class LoginFlowAuth {
       transport: transport,
       issuer: config.issuer,
     );
+    _passwordChange = PasswordChangeClient(
+      transport: transport,
+      issuer: config.issuer,
+    );
     _organizations = OrganizationsClient(transport: transport);
     _appMembers = AppMembersClient(transport: transport, issuer: config.issuer);
     _emailChange = EmailChangeClient(
@@ -224,6 +229,7 @@ class LoginFlowAuth {
   late final LoginOptionsClient _loginOptions;
   late final PasskeyAccountClient _passkeyAccount;
   late final TotpAccountClient _totpAccount;
+  late final PasswordChangeClient _passwordChange;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
   late final EmailChangeClient _emailChange;
@@ -1124,6 +1130,24 @@ class LoginFlowAuth {
   Future<Result<List<String>, LoginFlowError>> regenerateRecoveryCodes() =>
       _withSessionToken(
         (token) => _totpAccount.regenerateRecoveryCodes(bearerToken: token),
+      );
+
+  /// Sets or changes the signed-in person's password to [newPassword], in
+  /// the app (`POST /v1/user/change-password`): no current password, no
+  /// browser. An account signed in with a provider or a code gets its first
+  /// password. Matching a confirmation field is the app's job.
+  ///
+  /// Needs a recent sign-in, strong (`mfa`/`phr`) when the account has a
+  /// second factor: fails with [StepUpRequired] otherwise — call [stepUp],
+  /// then this again. Fails with [PasswordRejected] for a weak, breached or
+  /// unchanged password, and [NotSignedIn] without a session. The server
+  /// ends every other session of the person; this one continues.
+  Future<Result<void, LoginFlowError>> changePassword(String newPassword) =>
+      _withSessionToken(
+        (token) => _passwordChange.change(
+          bearerToken: token,
+          newPassword: newPassword,
+        ),
       );
 
   /// Runs [call] with the session's own token ([_sessionAccessToken]).

@@ -61,17 +61,18 @@ class FakeUser {
   final String? subjectKind;
   final String? subjectProfile;
 
-  FakeUser copyWith({String? email, bool? isTotpEnabled}) => FakeUser(
-    subject: subject,
-    email: email ?? this.email,
-    password: password,
-    name: name,
-    isTotpEnabled: isTotpEnabled ?? this.isTotpEnabled,
-    hasUnusedRecoveryCodes: hasUnusedRecoveryCodes,
-    externalSubject: externalSubject,
-    subjectKind: subjectKind,
-    subjectProfile: subjectProfile,
-  );
+  FakeUser copyWith({String? email, String? password, bool? isTotpEnabled}) =>
+      FakeUser(
+        subject: subject,
+        email: email ?? this.email,
+        password: password ?? this.password,
+        name: name,
+        isTotpEnabled: isTotpEnabled ?? this.isTotpEnabled,
+        hasUnusedRecoveryCodes: hasUnusedRecoveryCodes,
+        externalSubject: externalSubject,
+        subjectKind: subjectKind,
+        subjectProfile: subjectProfile,
+      );
 }
 
 /// A code the fake LoginFlow emailed for an email change, and where.
@@ -668,6 +669,8 @@ class FakeLoginFlowServer {
         _members(request, response, method, path.substring(membersPath.length));
       case (final method, final path) when path.startsWith('$totpPath/'):
         _totp(request, response, method, path.substring(totpPath.length));
+      case ('POST', changePasswordPath):
+        _changePassword(request, response);
       case (final method, final path)
           when path == emailChangePath || path.startsWith('$emailChangePath/'):
         _emailChange(
@@ -2276,6 +2279,78 @@ class FakeLoginFlowServer {
       default:
         _envelopeError(response, 404, 'NOT_FOUND', 'No such route');
     }
+  }
+
+  /// LoginFlow's in-app password change
+  /// (`loginflow_api/docs/api/v1/user/auth/change_password.md`).
+  static const String changePasswordPath = '/v1/user/change-password';
+
+  /// `PasswordValidator`'s refusal of a weak password, verbatim.
+  static const String weakPasswordDetails =
+      'The password must have at least 8 characters, an uppercase letter, a '
+      'lowercase letter, a number and a special character';
+
+  /// The refusal of a new password equal to the current one, verbatim.
+  static const String samePasswordDetails =
+      'The new password must be different from the current one';
+
+  /// Every request that reached the change-password route, in order.
+  final List<FakeHttpRequest> changePasswordRequests = <FakeHttpRequest>[];
+
+  /// `authenticate_access`, then `PasswordManagementService::change_password`:
+  /// the step-up the credential requires, the strength rule, a password
+  /// different from the current one, then the update.
+  void _changePassword(FakeHttpRequest request, FakeHttpResponse response) {
+    changePasswordRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _liveAccess(header.substring(scheme.length))
+        : null;
+    if (access == null ||
+        (requiresDpop && _checkDpop(request, response) != null)) {
+      return _refuseToken(response, header);
+    }
+    final user = _userBySubject(access.subject);
+    final body = request.body.isEmpty
+        ? const <String, Object?>{}
+        : jsonDecode(request.body) as Map<String, Object?>;
+    final newPassword = body['new_password'];
+    if (newPassword is! String) {
+      return _envelopeError(
+        response,
+        400,
+        'BAD_REQUEST',
+        'Invalid JSON payload',
+      );
+    }
+    if (user == null) {
+      return _envelopeError(response, 404, 'NOT_FOUND', 'User not found');
+    }
+    final isStale = _staleAuthentications.contains(access.sid);
+    final isStrong = _deviceSessions[access.sid]?.isStrong ?? false;
+    if (_hasSecondFactor(user) && (isStale || !isStrong)) {
+      return _authenticationRequired(response, strongStepUpChallenge);
+    }
+    if (isStale) {
+      return _authenticationRequired(response, recentStepUpChallenge);
+    }
+    final isStrongPassword =
+        newPassword.length >= 8 &&
+        RegExp('[A-Z]').hasMatch(newPassword) &&
+        RegExp('[a-z]').hasMatch(newPassword) &&
+        RegExp('[0-9]').hasMatch(newPassword) &&
+        RegExp('[^A-Za-z0-9]').hasMatch(newPassword);
+    if (!isStrongPassword) {
+      return _validationError(response, weakPasswordDetails);
+    }
+    if (newPassword == user.password) {
+      return _validationError(response, samePasswordDetails);
+    }
+    _replaceUser(user, user.copyWith(password: newPassword));
+    _envelopeSuccess(response, 200, <String, Object?>{
+      'message': 'Password updated.',
+    });
   }
 
   void _invalidTotpCode(FakeHttpResponse response) =>

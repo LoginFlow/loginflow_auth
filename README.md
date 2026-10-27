@@ -355,6 +355,22 @@ if (codes case Err(error: StepUpRequired(:final requirement))) {
 }
 ```
 
+Password change: `changePassword(newPassword)` sets or changes the signed-in
+person's password in the app (`POST /v1/user/change-password`), with no
+current password and no browser; an account without one gets its first.
+It needs a recent sign-in, strong when the account has TOTP or a passkey
+(`StepUpRequired`, then `stepUp` and ask again). `PasswordRejected(reason)`
+is a weak, breached or unchanged password. Every other session of the
+person ends; this one continues.
+
+```dart
+var changed = await auth.changePassword(newPassword);
+if (changed case Err(error: StepUpRequired(:final requirement))) {
+  await auth.stepUp(requirement); // answer its steps until SignedIn…
+  changed = await auth.changePassword(newPassword);
+}
+```
+
 Native SSO: when `initialize()` returns `SsoAvailable(candidate)`, show
 "Continue as …" and call `continueWithSso()` or `declineSso()`. Call
 `verifyDeviceSession()` when the app resumes so a device logout done by a

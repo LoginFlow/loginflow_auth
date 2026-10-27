@@ -720,3 +720,28 @@ final class TotpAccountRefused extends LoginFlowError {
   @override
   int get hashCode => Object.hash(TotpAccountRefused, code);
 }
+
+/// The new password of `LoginFlowAuth.changePassword` was refused
+/// (`422 VALIDATION_ERROR`, `POST /v1/user/change-password`): too weak for
+/// the strength rules, found in a known data breach, or the account's
+/// current password. Nothing changed on the server; ask for another one.
+final class PasswordRejected extends LoginFlowError {
+  /// Creates a [PasswordRejected].
+  const PasswordRejected({required this.reason});
+
+  /// The server's explanation (`error.details`), verbatim and in English,
+  /// e.g. the strength rule the password missed. For logs or as a hint;
+  /// the app shows its own localized text.
+  final String reason;
+
+  @override
+  String get message => 'The new password was refused: $reason';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PasswordRejected && reason == other.reason;
+
+  @override
+  int get hashCode => Object.hash(PasswordRejected, reason);
+}
