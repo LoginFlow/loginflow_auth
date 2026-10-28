@@ -54,6 +54,7 @@ extension SignInFeedbackPresentation on SignInFeedback {
       strings.feedbackAccessCodesUnavailable,
     SignInFeedback.accessCodeNotConfigured =>
       strings.feedbackAccessCodeNotConfigured,
+    SignInFeedback.passwordRejected => strings.feedbackPasswordRejected,
   };
 }
 
@@ -63,7 +64,8 @@ extension FieldErrorPresentation on FieldError {
     FieldError.none => null,
     FieldError.required => strings.emailRequired,
     FieldError.invalidEmail ||
-    FieldError.incompleteAccessCode => strings.emailInvalid,
+    FieldError.incompleteAccessCode ||
+    FieldError.passwordMismatch => strings.emailInvalid,
   };
 
   String? toPasswordMessage(LoginFlowStrings strings) => switch (this) {
@@ -71,11 +73,14 @@ extension FieldErrorPresentation on FieldError {
     FieldError.required ||
     FieldError.invalidEmail ||
     FieldError.incompleteAccessCode => strings.passwordRequired,
+    FieldError.passwordMismatch => strings.passwordMismatch,
   };
 
   String? toCodeMessage(LoginFlowStrings strings) => switch (this) {
     FieldError.none => null,
-    FieldError.required || FieldError.invalidEmail => strings.codeRequired,
+    FieldError.required ||
+    FieldError.invalidEmail ||
+    FieldError.passwordMismatch => strings.codeRequired,
     FieldError.incompleteAccessCode => strings.accessCodeIncomplete(
       AccessCodeFormat.length,
     ),

@@ -98,6 +98,13 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.feedbackPasskeysUnavailable,
   (l) => l.feedbackReauthenticationRequired,
   (l) => l.feedbackRateLimited,
+  (l) => l.resetPasswordTitle,
+  (l) => l.newPasswordTitle,
+  (l) => l.newPasswordLabel,
+  (l) => l.repeatPasswordLabel,
+  (l) => l.savePasswordButton,
+  (l) => l.passwordMismatch,
+  (l) => l.feedbackPasswordRejected,
 ];
 
 void main() {
@@ -134,6 +141,7 @@ void main() {
     test('placeholder keys interpolate in every supported locale', () {
       for (final l10n in locales.values) {
         expect(l10n.codeSentTo('a@b.com'), contains('a@b.com'));
+        expect(l10n.resetCodeSentTo('a@b.com'), contains('a@b.com'));
         expect(l10n.resendIn(7), contains('7'));
         expect(l10n.continueAs('Ana'), contains('Ana'));
         expect(l10n.lockedOutMessage(30), contains('30'));

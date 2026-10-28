@@ -218,4 +218,20 @@ final class LoginFlowStringsEn implements LoginFlowStrings {
       _l10n.feedbackReauthenticationRequired;
   @override
   String get feedbackRateLimited => _l10n.feedbackRateLimited;
+  @override
+  String get resetPasswordTitle => _l10n.resetPasswordTitle;
+  @override
+  String resetCodeSentTo(String email) => _l10n.resetCodeSentTo(email);
+  @override
+  String get newPasswordTitle => _l10n.newPasswordTitle;
+  @override
+  String get newPasswordLabel => _l10n.newPasswordLabel;
+  @override
+  String get repeatPasswordLabel => _l10n.repeatPasswordLabel;
+  @override
+  String get savePasswordButton => _l10n.savePasswordButton;
+  @override
+  String get passwordMismatch => _l10n.passwordMismatch;
+  @override
+  String get feedbackPasswordRejected => _l10n.feedbackPasswordRejected;
 }

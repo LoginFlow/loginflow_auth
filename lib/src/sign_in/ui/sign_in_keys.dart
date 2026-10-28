@@ -20,6 +20,21 @@ abstract final class SignInKeys {
   static const ValueKey<String> otpStep = ValueKey<String>(
     'loginflow.step.otp',
   );
+  static const ValueKey<String> resetCodeStep = ValueKey<String>(
+    'loginflow.step.reset_code',
+  );
+  static const ValueKey<String> newPasswordStep = ValueKey<String>(
+    'loginflow.step.new_password',
+  );
+  static const ValueKey<String> newPasswordField = ValueKey<String>(
+    'loginflow.field.new_password',
+  );
+  static const ValueKey<String> repeatPasswordField = ValueKey<String>(
+    'loginflow.field.repeat_password',
+  );
+  static const ValueKey<String> forgotPasswordButton = ValueKey<String>(
+    'loginflow.button.forgot_password',
+  );
   static const String totpStepPrefix = 'loginflow.step.totp';
   static const String methodButtonPrefix = 'loginflow.method';
   static const ValueKey<String> temporaryAccessPassStep = ValueKey<String>(

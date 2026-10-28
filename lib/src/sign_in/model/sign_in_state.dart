@@ -15,6 +15,7 @@ class SignInState {
     this.feedback = SignInFeedback.none,
     this.emailError = FieldError.none,
     this.passwordError = FieldError.none,
+    this.repeatedPasswordError = FieldError.none,
     this.codeError = FieldError.none,
     this.rememberedEmail = '',
     this.canGoBack = false,
@@ -36,6 +37,9 @@ class SignInState {
   final SignInFeedback feedback;
   final FieldError emailError;
   final FieldError passwordError;
+
+  /// The new password typed again, on [SignInNewPasswordEntry].
+  final FieldError repeatedPasswordError;
   final FieldError codeError;
 
   /// The last email the user typed, to prefill the next form.
@@ -82,6 +86,7 @@ class SignInState {
     SignInFeedback? feedback,
     FieldError? emailError,
     FieldError? passwordError,
+    FieldError? repeatedPasswordError,
     FieldError? codeError,
     String? rememberedEmail,
     bool? canGoBack,
@@ -99,6 +104,7 @@ class SignInState {
     feedback: feedback ?? this.feedback,
     emailError: emailError ?? this.emailError,
     passwordError: passwordError ?? this.passwordError,
+    repeatedPasswordError: repeatedPasswordError ?? this.repeatedPasswordError,
     codeError: codeError ?? this.codeError,
     rememberedEmail: rememberedEmail ?? this.rememberedEmail,
     canGoBack: canGoBack ?? this.canGoBack,
@@ -119,6 +125,7 @@ class SignInState {
     feedback: SignInFeedback.none,
     emailError: FieldError.none,
     passwordError: FieldError.none,
+    repeatedPasswordError: FieldError.none,
     codeError: FieldError.none,
   );
 
@@ -131,6 +138,7 @@ class SignInState {
           feedback == other.feedback &&
           emailError == other.emailError &&
           passwordError == other.passwordError &&
+          repeatedPasswordError == other.repeatedPasswordError &&
           codeError == other.codeError &&
           rememberedEmail == other.rememberedEmail &&
           canGoBack == other.canGoBack &&
@@ -150,6 +158,7 @@ class SignInState {
     feedback,
     emailError,
     passwordError,
+    repeatedPasswordError,
     codeError,
     rememberedEmail,
     canGoBack,

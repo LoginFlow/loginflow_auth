@@ -178,7 +178,10 @@ the server does not allow is never shown.
   Access Pass is never advertised here — it is admin-issued, not
   client-selected.
 - `self_signup`: the application's `allow_self_signup` flag.
-- `password_reset`: whether the hosted reset flow is enabled for the client.
+- `password_reset`: whether password reset is enabled for the client. The
+  library's reset is in-app (the `email_otp` challenge plus
+  `POST /v1/user/change-password`), so it also needs `email_otp` in
+  `login_methods`.
 - `passkey`: `true` when the company's passkey policy (company-wide, set by
   the company's admin or by LoginFlow's operators — never per end user) is
   `mfa_only`, or `passwordless` with `passkey` in this client's
@@ -285,7 +288,7 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `upstream_token` | The provider token (with the matching `upstream_provider`), typed by `upstream_token_type` |
 | `upstream_token_type` | `id_token` (Google always; Apple always; Facebook iOS Limited Login) or `access_token` (Facebook Android classic login) — **LoginFlow extension**, generalizing the single implicit `id_token` Google used before Apple/Facebook existed |
 | `upstream_user_name` | **LoginFlow extension.** Apple's given/family name (e.g. `"Ana Ruiz"`), sent only on the first authorization for that Apple ID + app pair — Apple omits it from every later `identityToken`, so the library forwards whatever it received instead of caching it client-side |
-| `intent` | `password_reset` → `redirect_to_web` to the hosted reset flow (FIPA App. A.2); MAY carry `login_hint` |
+| `intent` | `password_reset` → `redirect_to_web` to the hosted reset flow (FIPA App. A.2); MAY carry `login_hint`. The library no longer sends it (0.17.0): its reset is in-app |
 | `method` (passkeys) | `webauthn_identify` → starts a passkey ceremony: targeted when sent together with `login_hint`, discoverable/conditional otherwise. Answers `next: webauthn_assertion` with `options` (§5.7) |
 | `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
 | `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |

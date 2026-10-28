@@ -40,7 +40,10 @@ extension PasskeysErrorFeedback on LoginFlowError {
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
     TotpAccountRefused() ||
-    PasswordRejected() => PasskeysFeedback.unexpected,
+    PasswordRejected() ||
+    InvalidResetCode() ||
+    ResetCodeExpired() ||
+    AlreadySignedIn() => PasskeysFeedback.unexpected,
   };
 }
 

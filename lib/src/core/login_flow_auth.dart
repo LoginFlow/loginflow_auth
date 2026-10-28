@@ -25,6 +25,7 @@ import 'package:loginflow_auth/src/core/flow/active_session.dart';
 import 'package:loginflow_auth/src/core/flow/authorization_attempt.dart';
 import 'package:loginflow_auth/src/core/flow/flow_origin.dart';
 import 'package:loginflow_auth/src/core/flow/issued_access_token.dart';
+import 'package:loginflow_auth/src/core/flow/password_reset.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/resource_authorization.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
@@ -42,6 +43,7 @@ import 'package:loginflow_auth/src/core/protocol/challenge/challenge_input.dart'
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_request.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
@@ -240,6 +242,11 @@ class LoginFlowAuth {
   AuthState _state = const AuthInitializing();
   AuthorizationAttempt? _attempt;
   ActiveSession? _session;
+
+  /// The in-app password reset in progress ([startPasswordReset]). While it
+  /// holds a session, that session is in [_session] but never stored nor
+  /// announced as [SignedIn].
+  PasswordReset? _reset;
 
   /// The refreshes in flight, keyed by the API they renew the token of
   /// (`null`: the session's own token). Concurrent callers for one share it.
@@ -632,16 +639,103 @@ class LoginFlowAuth {
         organization: organization,
       );
 
-  /// Password reset on the hosted pages (first-party-apps App. A.2).
-  Future<Result<AuthState, LoginFlowError>> resetPassword({
-    String? loginHint,
+  /// Starts an in-app password reset for [email]: the server emails a
+  /// one-time code (the email-code sign-in of the authorization challenge,
+  /// `method=email_otp`) and the state becomes [AwaitingResetCode]. It
+  /// answers the same for an address with no account, and sends nothing
+  /// then. No browser is involved, so no `redirectUri` is needed; the
+  /// client's login methods must include `email_otp`.
+  ///
+  /// Then [submitResetCode] with the code, and [setNewPassword]. The
+  /// session the code opens is held, never stored nor surfaced as
+  /// [SignedIn], until the new password is set; [cancelPasswordReset]
+  /// leaves at any step. A second factor the account has (TOTP) is asked as
+  /// a [ChallengeRequired] with [ChallengePurpose.passwordReset], answered
+  /// with the usual `submit*` and [selectMethod] calls.
+  ///
+  /// Fails with [AlreadySignedIn] when someone is signed in: they change the
+  /// password with [changePassword] instead.
+  Future<Result<AuthState, LoginFlowError>> startPasswordReset(
+    String email, {
     String? organization,
-  }) => _startAttempt(
-    purpose: ChallengePurpose.signIn,
-    loginHint: loginHint,
-    organization: organization,
-    input: PasswordResetInput(loginHint: loginHint),
-  );
+  }) async {
+    if (_session != null && _reset == null) {
+      return Err(const AlreadySignedIn());
+    }
+    await _leaveReset();
+    final address = email.trim();
+    _reset = PasswordReset(email: address);
+    final started = await _startAttempt(
+      purpose: ChallengePurpose.passwordReset,
+      loginHint: address,
+      organization: organization,
+      input: IdentifierInput(
+        loginHint: address,
+        method: ChallengeStep.emailOtp,
+      ),
+    );
+    if (started case Err() when _state is! AwaitingResetCode) {
+      // Nothing was sent: no reset is left half open for a later call.
+      _reset = null;
+      _attempt = null;
+    }
+    return started;
+  }
+
+  /// Answers [AwaitingResetCode] with the emailed [code]. On success the
+  /// state becomes [AwaitingNewPassword], or a [ChallengeRequired] with
+  /// [ChallengePurpose.passwordReset] when the account's second factor is
+  /// asked first. A refused code is [InvalidResetCode] or
+  /// [ResetCodeExpired], and the reset stays on [AwaitingResetCode].
+  Future<Result<AuthState, LoginFlowError>> submitResetCode(String code) =>
+      _whileAwaitingResetCode(
+        () => _continueAttempt(EmailOtpInput(code: code)),
+      );
+
+  /// Asks for another reset code on the same reset. The server answers
+  /// every request as sent: one too early (inside its interval between two
+  /// codes) emails nothing, and the code already sent keeps working.
+  Future<Result<AuthState, LoginFlowError>> resendResetCode() =>
+      _whileAwaitingResetCode(
+        () => _continueAttempt(const ResendEmailOtpInput()),
+      );
+
+  /// Sets [newPassword] on the account the reset code identified
+  /// (`POST /v1/user/change-password` with the held session), then signs the
+  /// person in: the session is stored and [SignedIn] emitted.
+  ///
+  /// An account with a second factor (TOTP or a passkey) needs a strong
+  /// sign-in for it: the step-up opens on its own, as a [ChallengeRequired]
+  /// with [ChallengePurpose.passwordReset], and once answered the password
+  /// is sent again without asking for it. [PasswordRejected] (weak, breached
+  /// or unchanged) keeps [AwaitingNewPassword]; ask for another one.
+  Future<Result<AuthState, LoginFlowError>> setNewPassword(
+    String newPassword,
+  ) async {
+    final reset = _reset;
+    if (reset == null ||
+        !reset.isSessionHeld ||
+        _state is! AwaitingNewPassword) {
+      return Err(const NoChallengeInProgress());
+    }
+    return _changeHeldPassword(newPassword, isRetry: false);
+  }
+
+  /// Leaves the password reset at any step and returns to [SignedOut]. A
+  /// session the reset code opened is signed out of this app (its refresh
+  /// token revoked); nothing was stored.
+  Future<Result<AuthState, LoginFlowError>> cancelPasswordReset() async {
+    final reset = _reset;
+    if (reset == null) {
+      return Ok(_state);
+    }
+    if (reset.isSessionHeld) {
+      return _signOutApp();
+    }
+    _reset = null;
+    _attempt = null;
+    return Ok(_emit(const SignedOut()));
+  }
 
   /// Authorization code + PKCE through the system browser. On the web this
   /// is a top-level redirect: try [AuthorizationPrompt.none] first and fall
@@ -651,6 +745,7 @@ class LoginFlowAuth {
     String? loginHint,
     String? organization,
   }) async {
+    await _leaveReset();
     final discoveryResult = await _discovery.load();
     if (discoveryResult case Err(:final error)) {
       return Err(error);
@@ -820,6 +915,7 @@ class LoginFlowAuth {
   /// Abandons the challenge in progress.
   Future<Result<AuthState, LoginFlowError>> cancelChallenge() async {
     _attempt = null;
+    _settleReset();
     await _clearPending();
     return Ok(_emit(_restingState()));
   }
@@ -875,7 +971,12 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> verifyDeviceSession() async {
     final session = _session;
     final store = _ssoStore;
-    if (session == null || store == null || !session.stored.isSsoBound) {
+    // A session a password reset holds is not shared yet (`_completeReset`
+    // writes its entry), so a missing entry says nothing about it.
+    if (session == null ||
+        store == null ||
+        !session.stored.isSsoBound ||
+        _isSessionHeld) {
       return Ok(_state);
     }
     final entry = await store.read(config.issuer.toString());
@@ -907,7 +1008,9 @@ class LoginFlowAuth {
       );
     }
     final session = _session;
-    if (session == null) {
+    // A session a password reset holds signs nobody in until the new
+    // password is set.
+    if (session == null || _isSessionHeld) {
       return Err(const NotSignedIn());
     }
     final fresh = session.freshApiToken(api, _clock.now());
@@ -1376,6 +1479,142 @@ class LoginFlowAuth {
   /// Closes [states]. The instance is unusable afterwards.
   Future<void> dispose() => _states.close();
 
+  /// Runs [step] only while the reset waits for its code.
+  Future<Result<AuthState, LoginFlowError>> _whileAwaitingResetCode(
+    Future<Result<AuthState, LoginFlowError>> Function() step,
+  ) async {
+    final reset = _reset;
+    if (reset == null || reset.isSessionHeld || _state is! AwaitingResetCode) {
+      return Err(const NoChallengeInProgress());
+    }
+    return step();
+  }
+
+  /// Sends [newPassword] with the held session. A step-up the server asks
+  /// for is run once, keeping the password to send again when it completes
+  /// ([_holdForNewPassword]); [isRetry] is that second send.
+  Future<Result<AuthState, LoginFlowError>> _changeHeldPassword(
+    String newPassword, {
+    required bool isRetry,
+  }) async {
+    final generation = _generation;
+    final changed = await _withSessionToken(
+      (token) =>
+          _passwordChange.change(bearerToken: token, newPassword: newPassword),
+    );
+    final reset = _reset;
+    if (!_isCurrent(generation) || reset == null || !reset.isSessionHeld) {
+      return Err(const NoChallengeInProgress());
+    }
+    if (changed case Err(:final error)) {
+      return _passwordNotChanged(reset, newPassword, error, isRetry: isRetry);
+    }
+    return _completeReset(reset);
+  }
+
+  /// The held session's password change was refused with [error]: a first
+  /// [StepUpRequired] runs the step-up and keeps [newPassword] for after it;
+  /// anything else goes back to [AwaitingNewPassword] with the error.
+  Future<Result<AuthState, LoginFlowError>> _passwordNotChanged(
+    PasswordReset reset,
+    String newPassword,
+    LoginFlowError error, {
+    required bool isRetry,
+  }) async {
+    if (error case StepUpRequired(:final requirement) when !isRetry) {
+      _reset = reset.copyWith(newPassword: newPassword);
+      final steppedUp = await stepUp(requirement);
+      if (steppedUp case Err()) {
+        _reset = _reset?.withoutNewPassword();
+      }
+      return steppedUp;
+    }
+    _reset = reset.withoutNewPassword();
+    final awaiting = AwaitingNewPassword(email: reset.email);
+    if (_state != awaiting) {
+      _emit(awaiting);
+    }
+    return Err(error);
+  }
+
+  /// The new password is set: the held session is stored, its Native SSO
+  /// entry written, and the person signed in.
+  Future<Result<AuthState, LoginFlowError>> _completeReset(
+    PasswordReset reset,
+  ) async {
+    final session = _session;
+    if (session == null) {
+      return Err(const NotSignedIn());
+    }
+    final persisting = _captureOrigin(isStepUp: false);
+    final saved = await _sessionStore.write(session.stored);
+    if (!_isCurrentOrigin(persisting)) {
+      final current = await _sessionStore.read();
+      if (current case Ok(data: final written) when written == session.stored) {
+        await _sessionStore.clear();
+      }
+      return Err(const NoChallengeInProgress());
+    }
+    if (saved case Err(:final error)) {
+      Log.e('The reset session could not be stored; signing out.');
+      await _signOutApp();
+      return Err(error);
+    }
+    final deviceSecret = reset.deviceSecret;
+    if (deviceSecret != null) {
+      await _writeSsoEntry(
+        deviceSecret: deviceSecret,
+        idToken: session.stored.idToken,
+      );
+    }
+    _reset = null;
+    return Ok(_emit(SignedIn(session: session.toPublic())));
+  }
+
+  /// The reset code (or the step-up of its new password) signed the person
+  /// in: the session is held, unstored and unannounced, and the reset waits
+  /// for the new password — or sends the one a step-up was asked for.
+  Future<Result<AuthState, LoginFlowError>> _holdForNewPassword(
+    PasswordReset reset,
+    ActiveSession session, {
+    required String? deviceSecret,
+  }) async {
+    _session = session;
+    _attempt = null;
+    final held = reset.holding(deviceSecret: deviceSecret);
+    _reset = held;
+    final newPassword = held.newPassword;
+    if (newPassword != null) {
+      return _changeHeldPassword(newPassword, isRetry: true);
+    }
+    return Ok(_emit(AwaitingNewPassword(email: held.email)));
+  }
+
+  /// A new sign-in replaces a password reset in progress: a session it held
+  /// is signed out of this app first.
+  Future<void> _leaveReset() async {
+    final reset = _reset;
+    final session = _session;
+    _reset = null;
+    if (reset == null || !reset.isSessionHeld || session == null) {
+      return;
+    }
+    await _endLocalSession(SignOutReason.none);
+    await _revoke(session.stored.refreshToken);
+  }
+
+  /// A password reset holds the session: in memory only, not signed in.
+  bool get _isSessionHeld => _reset?.isSessionHeld ?? false;
+
+  /// What is left of a reset once its current attempt ends: a held session
+  /// waits for a new password again; a reset holding none is over.
+  void _settleReset() {
+    final reset = _reset;
+    _reset = reset != null && reset.isSessionHeld
+        ? reset.withoutNewPassword()
+        : null;
+  }
+
   Future<void> _restore(StoredSession stored) async {
     final claims = _readStoredClaims(stored.idToken);
     if (claims == null) {
@@ -1484,6 +1723,9 @@ class LoginFlowAuth {
     String? idTokenHint,
     String? organization,
   }) async {
+    if (purpose == ChallengePurpose.signIn) {
+      await _leaveReset();
+    }
     _attempt = AuthorizationAttempt.start(
       purpose: purpose,
       randomSource: _randomSource,
@@ -1601,6 +1843,12 @@ class LoginFlowAuth {
     if (step.next == ChallengeStep.webauthnAssertion) {
       return _answerWebauthnAssertion(step);
     }
+    final reset = _reset;
+    if (reset != null &&
+        attempt.purpose == ChallengePurpose.passwordReset &&
+        step.next == ChallengeStep.emailOtp) {
+      return _awaitResetCode(reset, step.stepError);
+    }
     return Ok(
       _emit(
         ChallengeRequired(
@@ -1608,10 +1856,29 @@ class LoginFlowAuth {
             step,
             loginHint: attempt.loginHint,
           ),
-          purpose: attempt.purpose,
+          purpose: reset == null
+              ? attempt.purpose
+              : ChallengePurpose.passwordReset,
         ),
       ),
     );
+  }
+
+  /// The reset's `email_otp` step: [AwaitingResetCode], with the refusal of
+  /// the code just sent, if it was refused.
+  Result<AuthState, LoginFlowError> _awaitResetCode(
+    PasswordReset reset,
+    StepError? refusal,
+  ) {
+    final awaiting = AwaitingResetCode(email: reset.email);
+    if (_state != awaiting) {
+      _emit(awaiting);
+    }
+    return switch (refusal) {
+      null => Ok(awaiting),
+      StepError.invalidCredential => Err(const InvalidResetCode()),
+      StepError.codeExpired => Err(const ResetCodeExpired()),
+    };
   }
 
   Future<Result<AuthState, LoginFlowError>> _answerUpstream(
@@ -1687,6 +1954,12 @@ class LoginFlowAuth {
     AuthorizationAttempt sent,
     ChallengeRedirectToWeb redirect,
   ) async {
+    if (_reset != null) {
+      // An in-app password reset never hands off to the browser.
+      return _abandon(
+        const UnsupportedByServer(feature: 'in-app password reset'),
+      );
+    }
     final attempt = sent.copyWith(authSession: redirect.authSession);
     _attempt = attempt;
     return _openAuthorization(
@@ -1700,7 +1973,9 @@ class LoginFlowAuth {
     AuthorizationAttempt sent,
   ) async {
     _attempt = null;
-    if (sent.purpose == ChallengePurpose.signIn) {
+    if (sent.purpose == ChallengePurpose.signIn ||
+        sent.purpose == ChallengePurpose.passwordReset) {
+      _settleReset();
       return Ok(_emit(const SignedOut(reason: SignOutReason.challengeExpired)));
     }
     // A step-up opened on the stored auth_session the server cannot trace back
@@ -1719,6 +1994,7 @@ class LoginFlowAuth {
         organization: sent.organization,
       );
     }
+    _settleReset();
     return Ok(_emit(_restingState()));
   }
 
@@ -1925,6 +2201,22 @@ class LoginFlowAuth {
     _generation++;
     _refreshing.clear();
     _refreshQueue = Future<void>.value();
+    final reset = _reset;
+    if (reset != null) {
+      return _holdForNewPassword(
+        reset,
+        ActiveSession(
+          stored: stored,
+          identity: UserIdentity.fromClaims(claims.data),
+          sessionToken: IssuedAccessToken.issued(
+            value: response.accessToken,
+            now: _clock.now(),
+            expiresIn: response.expiresIn,
+          ),
+        ),
+        deviceSecret: deviceSecret,
+      );
+    }
     // The new session's own origin: a sign-out or cancel during the local
     // writes below changes it (`doc/decisions.md` D9).
     final persisting = _captureOrigin(isStepUp: false);
@@ -2131,7 +2423,12 @@ class LoginFlowAuth {
       authSession: response.authSession,
       organizationId: organization,
     );
-    final saved = await _sessionStore.write(stored);
+    // A session a password reset holds is stored only once the new
+    // password is set (`_completeReset`).
+    final isHeld = _isSessionHeld;
+    final saved = isHeld
+        ? Ok<void, LoginFlowError>(null)
+        : await _sessionStore.write(stored);
     if (saved case Err(:final error)) {
       Log.e('The rotated refresh token could not be persisted; signing out.');
       await _endLocalSession(SignOutReason.sessionRevoked);
@@ -2153,13 +2450,15 @@ class LoginFlowAuth {
     );
     _session = updated;
     final deviceSecret = response.deviceSecret;
-    if (deviceSecret != null && idToken != null) {
+    if (deviceSecret != null && idToken != null && isHeld) {
+      _reset = _reset?.holding(deviceSecret: deviceSecret);
+    } else if (deviceSecret != null && idToken != null) {
       await _writeSsoEntry(deviceSecret: deviceSecret, idToken: idToken);
     } else if (deviceSecret != null) {
       Log.w('Ignoring a device_secret issued without its ID token.');
     }
     final public = updated.toPublic();
-    if (public != session.toPublic()) {
+    if (public != session.toPublic() && !isHeld) {
       _emit(SignedIn(session: public));
     }
     return Ok(response.accessToken);
@@ -2396,6 +2695,7 @@ class LoginFlowAuth {
     }
     _session = null;
     _attempt = null;
+    _reset = null;
     _emit(SignedOut(reason: reason));
   }
 
@@ -2486,12 +2786,19 @@ class LoginFlowAuth {
     LoginFlowError error,
   ) async {
     _attempt = null;
+    _settleReset();
     _emit(_restingState());
     return Err(error);
   }
 
+  /// Where the app rests with no attempt in progress: signed in or out, or
+  /// back on the new password of a reset that holds a session.
   AuthState _restingState() {
     final session = _session;
+    final reset = _reset;
+    if (reset != null && reset.isSessionHeld) {
+      return AwaitingNewPassword(email: reset.email);
+    }
     return session == null
         ? const SignedOut()
         : SignedIn(session: session.toPublic());

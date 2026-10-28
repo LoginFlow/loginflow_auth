@@ -227,6 +227,8 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
       SsoAvailable() ||
       ChallengeRequired() ||
       AwaitingBrowser() ||
+      AwaitingResetCode() ||
+      AwaitingNewPassword() ||
       null => null,
     };
     _authStates = auth?.states.listen(_onAuthStateChanged);
@@ -278,7 +280,9 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
       case AuthInitializing() ||
           SsoAvailable() ||
           ChallengeRequired() ||
-          AwaitingBrowser():
+          AwaitingBrowser() ||
+          AwaitingResetCode() ||
+          AwaitingNewPassword():
         break;
     }
   }

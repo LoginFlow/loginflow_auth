@@ -157,6 +157,58 @@ final class SignInOtpEntry extends SignInPhase {
   int get hashCode => Object.hash(email, resendSecondsLeft);
 }
 
+/// The code of an in-app password reset (`LoginFlowAuth.startPasswordReset`),
+/// sent to [email] when it has an account.
+final class SignInResetCodeEntry extends SignInPhase {
+  const SignInResetCodeEntry({
+    required this.email,
+    required this.resendSecondsLeft,
+  });
+
+  final String email;
+
+  /// 0 when "Resend code" is enabled.
+  final int resendSecondsLeft;
+
+  bool get canResend => resendSecondsLeft == 0;
+
+  SignInResetCodeEntry copyWith({String? email, int? resendSecondsLeft}) =>
+      SignInResetCodeEntry(
+        email: email ?? this.email,
+        resendSecondsLeft: resendSecondsLeft ?? this.resendSecondsLeft,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInResetCodeEntry &&
+          email == other.email &&
+          resendSecondsLeft == other.resendSecondsLeft;
+
+  @override
+  int get hashCode =>
+      Object.hash(SignInResetCodeEntry, email, resendSecondsLeft);
+}
+
+/// The new password of an in-app password reset, typed twice. The person
+/// behind [email] is not signed in until it is saved.
+final class SignInNewPasswordEntry extends SignInPhase {
+  const SignInNewPasswordEntry({required this.email});
+
+  final String email;
+
+  SignInNewPasswordEntry copyWith({String? email}) =>
+      SignInNewPasswordEntry(email: email ?? this.email);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInNewPasswordEntry && email == other.email;
+
+  @override
+  int get hashCode => Object.hash(SignInNewPasswordEntry, email);
+}
+
 /// TOTP (or recovery code) form, shown whenever the server asks for it.
 final class SignInTotpEntry extends SignInPhase {
   const SignInTotpEntry({

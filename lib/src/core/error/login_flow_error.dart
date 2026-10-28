@@ -745,3 +745,57 @@ final class PasswordRejected extends LoginFlowError {
   @override
   int get hashCode => Object.hash(PasswordRejected, reason);
 }
+
+/// The code of an in-app password reset was refused
+/// (`LoginFlowAuth.submitResetCode`, `step_error=invalid_credential`): a
+/// wrong code, or any code for an address with no account — the server
+/// never tells them apart. The reset stays on `AwaitingResetCode`; the
+/// person types it again or asks for another one.
+final class InvalidResetCode extends LoginFlowError {
+  /// Creates an [InvalidResetCode].
+  const InvalidResetCode();
+
+  @override
+  String get message => 'The password-reset code is not valid.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidResetCode;
+
+  @override
+  int get hashCode => (InvalidResetCode).hashCode;
+}
+
+/// The code of an in-app password reset expired, or was burned by too many
+/// wrong attempts (`step_error=code_expired`). The reset stays on
+/// `AwaitingResetCode`: `LoginFlowAuth.resendResetCode` asks for another.
+final class ResetCodeExpired extends LoginFlowError {
+  /// Creates a [ResetCodeExpired].
+  const ResetCodeExpired();
+
+  @override
+  String get message => 'The password-reset code expired; ask for another.';
+
+  @override
+  bool operator ==(Object other) => other is ResetCodeExpired;
+
+  @override
+  int get hashCode => (ResetCodeExpired).hashCode;
+}
+
+/// `LoginFlowAuth.startPasswordReset` was called with someone signed in. A
+/// signed-in person changes the password with `LoginFlowAuth.changePassword`;
+/// the reset is for someone who cannot sign in.
+final class AlreadySignedIn extends LoginFlowError {
+  /// Creates an [AlreadySignedIn].
+  const AlreadySignedIn();
+
+  @override
+  String get message =>
+      'Someone is signed in: use changePassword, not a password reset.';
+
+  @override
+  bool operator ==(Object other) => other is AlreadySignedIn;
+
+  @override
+  int get hashCode => (AlreadySignedIn).hashCode;
+}

@@ -67,11 +67,16 @@ browsers"); APPLE-ASWAS (only the calling app receives the callback). The
 ephemeral-session switch is set deliberately by the app
 (APPLE-ASWAS-EPHEMERAL).
 
-**D4 — Microsoft, sign-up, password reset (and Google without the native
-SDK) continue in the browser (`redirect_to_web`).** FIPA §5.2.2.1.1, §9.2,
-Appendix A.2; MS-NA-CHOOSE (social identity providers still use a browser
-window with native authentication). Sign-up uses `prompt=create`
-(OIDC-CREATE).
+**D4 — Microsoft and sign-up (and Google without the native SDK)
+continue in the browser (`redirect_to_web`).** FIPA §5.2.2.1.1, §9.2;
+MS-NA-CHOOSE (social identity providers still use a browser window with
+native authentication). Sign-up uses `prompt=create` (OIDC-CREATE).
+Password reset does NOT (0.17.0): every authentication of a first-party app
+happens in the app through this library, so the reset is the email-code
+sign-in held back until `POST /v1/user/change-password` succeeds
+(`LoginFlowAuth.startPasswordReset`), with the usual step-up when the
+account needs a strong sign-in. `intent=password_reset` (FIPA App. A.2) is
+no longer sent; only providers that force a browser keep one.
 
 **D5 — Google natively with a server-issued nonce.** The ID token is
 requested with `serverClientId` = the company's Google web client and the

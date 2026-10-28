@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.17.0
+
+In-app password reset owned by the library: every authentication of a
+first-party app now happens in the app. "Forgot your password?" is an
+emailed code, the new password, then signed in — no browser, no
+`redirectUri`. Built on the server's email-code sign-in (the authorization
+challenge's `email_otp`) and `POST /v1/user/change-password`, with the
+library's step-up when the account needs a strong sign-in.
+
+- Breaking: `LoginFlowAuth.resetPassword({loginHint, organization})` is
+  removed, and with it `intent=password_reset` and the browser hand-off it
+  opened. Migration:
+
+  | Before (0.16.x) | Now (0.17.0) |
+  |---|---|
+  | `auth.resetPassword(loginHint: email)` → browser → `SignedIn` | `auth.startPasswordReset(email)` → `AwaitingResetCode` |
+  | (the hosted page asked for the code) | `auth.submitResetCode(code)` → `AwaitingNewPassword` (or a `ChallengeRequired(purpose: passwordReset)` for TOTP first) |
+  | (the hosted page asked for the password) | `auth.setNewPassword(password)` → `SignedIn` (or the step-up's `ChallengeRequired`; the password is resent by itself after it) |
+  | close the browser | `auth.cancelPasswordReset()` → `SignedOut` from any step |
+  | — | `auth.resendResetCode()` |
+
+  The client's login methods must include `email_otp`; `redirectUri` is no
+  longer needed for the reset.
+- New: `startPasswordReset(email, {organization})`, `submitResetCode(code)`,
+  `resendResetCode()`, `setNewPassword(newPassword)` and
+  `cancelPasswordReset()` on `LoginFlowAuth`, all
+  `Future<Result<AuthState, LoginFlowError>>`. The session the code opens is
+  held — never stored, never a `SignedIn`, not shared through Native SSO,
+  no `accessTokenFor` — until the new password is set; cancelling signs it
+  out of this app (refresh token revoked).
+- Breaking: `AuthState` gains `AwaitingResetCode(email)` and
+  `AwaitingNewPassword(email)`; an exhaustive `switch` over `AuthState`
+  needs their cases.
+- Breaking: `ChallengePurpose` gains `passwordReset`: a second factor or
+  step-up asked within a reset.
+- Breaking: `LoginFlowError` gains `InvalidResetCode` (wrong code, or any
+  code for an address with no account), `ResetCodeExpired` (expired or
+  burned) and `AlreadySignedIn` (a reset started with someone signed in);
+  an exhaustive `switch` over `LoginFlowError` needs their cases.
+  `PasswordRejected(reason)`, `RateLimited` and `NetworkFailure` keep the
+  reset on its current step.
+- Breaking: `LoginFlowStrings` gains `resetPasswordTitle`,
+  `resetCodeSentTo(email)`, `newPasswordTitle`, `newPasswordLabel`,
+  `repeatPasswordLabel`, `savePasswordButton`, `passwordMismatch` and
+  `feedbackPasswordRejected`; a custom implementation needs them.
+- Changed: the bundled UI's "Forgot your password?" runs the in-app reset
+  (a code step with resend, then the new password typed twice). It shows
+  only when the server enables reset **and** the client allows `email_otp`.
+  On the reset's step-up the password step hides "Forgot your password?"
+  and its passkey button answers the step-up.
+- Docs: README "Password reset (in-app)", `doc/integration-guide.md`
+  section 4.2, `doc/decisions.md` D4, `doc/server-contract.md`.
+- Tests: `test/core/password_reset_test.dart` (the flow against the fake
+  server: happy path, wrong/expired code, resend, rate limit, TOTP, passkey
+  step-up, refused password, refresh while held, cancel at each step, the
+  browser reset gone), `test/sign_in/sign_in_viewmodel_password_reset_test.dart`,
+  a widget test, and the `reset_code` and `new_password` goldens. The fake
+  server can answer `step_error=code_expired` (`isEmailOtpExpired`).
+
 ## 0.16.0
 
 In-app password change: the signed-in person sets or changes their own

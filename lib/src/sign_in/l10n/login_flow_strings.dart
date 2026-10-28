@@ -345,4 +345,35 @@ abstract interface class LoginFlowStrings {
   /// The server answered 429 to a passkey request.
   /// English: "Too many attempts. Wait a moment and try again."
   String get feedbackRateLimited;
+
+  /// Title of the code step of an in-app password reset.
+  /// English: "Reset your password".
+  String get resetPasswordTitle;
+
+  /// The reset code was asked for this email; it is sent only when the
+  /// email has an account.
+  /// English: "If {email} has an account, we sent it a code."
+  String resetCodeSentTo(String email);
+
+  /// Title of the new-password step of an in-app password reset.
+  /// English: "Create a new password".
+  String get newPasswordTitle;
+
+  /// English: "New password".
+  String get newPasswordLabel;
+
+  /// English: "Repeat the new password".
+  String get repeatPasswordLabel;
+
+  /// English: "Save password".
+  String get savePasswordButton;
+
+  /// The new password typed again does not match.
+  /// English: "The passwords do not match".
+  String get passwordMismatch;
+
+  /// The server refused the new password (PasswordRejected).
+  /// English: "That password was not accepted: it is too weak, appeared in a
+  /// data breach or is your current one. Try another."
+  String get feedbackPasswordRejected;
 }

@@ -68,6 +68,7 @@ extension PasskeyNameErrorPresentation on FieldError {
     FieldError.none => null,
     FieldError.required ||
     FieldError.invalidEmail ||
-    FieldError.incompleteAccessCode => strings.passkeyNameRequired,
+    FieldError.incompleteAccessCode ||
+    FieldError.passwordMismatch => strings.passkeyNameRequired,
   };
 }

@@ -226,11 +226,17 @@ class SignInViewModel extends ViewModel<SignInState> {
     );
   }
 
-  /// The "Sign in with a passkey" button on the method picker.
+  /// The "Sign in with a passkey" button. On the step-up of a password
+  /// reset it answers that step-up, so the new password is set before the
+  /// person is signed in; anywhere else it is a passkey sign-in.
   Future<void> signInWithPasskey() => _run(
-    (auth) => auth.signInWithPasskey(
-      loginHint: data.rememberedEmail.isEmpty ? null : data.rememberedEmail,
-    ),
+    (auth) => _isPasswordResetStep(auth.state)
+        ? auth.selectMethod(ChallengeStep.webauthnIdentify)
+        : auth.signInWithPasskey(
+            loginHint: data.rememberedEmail.isEmpty
+                ? null
+                : data.rememberedEmail,
+          ),
   );
 
   /// Leaves the current screen for the Temporary Access Pass entry
@@ -328,16 +334,83 @@ class SignInViewModel extends ViewModel<SignInState> {
 
   Future<void> useAnotherAccount() => _run((auth) => auth.declineSso());
 
-  Future<void> forgotPassword(String email) {
-    final loginHint = email.trim();
-    return _run(
-      (auth) => auth.resetPassword(
-        loginHint: loginHint.toEmailError() == FieldError.none
-            ? loginHint
-            : null,
-      ),
-    );
+  /// "Forgot your password?": the in-app reset of [email] starts
+  /// (`LoginFlowAuth.startPasswordReset`) — a code goes to it, then the new
+  /// password is asked. The browser is never involved.
+  Future<void> forgotPassword(String email) async {
+    final emailError = email.toEmailError();
+    if (emailError != FieldError.none) {
+      updateState(data.withoutMessages().copyWith(emailError: emailError));
+      return;
+    }
+    final address = email.trim();
+    updateState(data.copyWith(rememberedEmail: address));
+    await _run((auth) => auth.startPasswordReset(address));
   }
+
+  /// The emailed code of the reset ([SignInResetCodeEntry]).
+  Future<void> submitResetCode(String code) async {
+    if (data.phase is! SignInResetCodeEntry) {
+      return;
+    }
+    final codeError = code.toRequiredError();
+    if (codeError != FieldError.none) {
+      updateState(data.withoutMessages().copyWith(codeError: codeError));
+      return;
+    }
+    await _run((auth) => auth.submitResetCode(code.trim()));
+  }
+
+  /// "Resend code" on the reset's code step, once its cooldown is over.
+  Future<void> resendResetCode() async {
+    final phase = data.phase;
+    if (phase is! SignInResetCodeEntry || !phase.canResend) {
+      return;
+    }
+    await _run((auth) => auth.resendResetCode());
+    final current = data.phase;
+    if (current is SignInResetCodeEntry) {
+      updateState(
+        data.copyWith(
+          phase: current.copyWith(resendSecondsLeft: _resendCooldownSeconds),
+        ),
+      );
+      _startCountdown();
+    }
+  }
+
+  /// "Save password" on [SignInNewPasswordEntry]: [password] is sent only
+  /// when it is not empty and [repeatedPassword] matches it. A step-up the
+  /// account needs shows as its own step; then the person is signed in.
+  Future<void> setNewPassword({
+    required String password,
+    required String repeatedPassword,
+  }) async {
+    if (data.phase is! SignInNewPasswordEntry) {
+      return;
+    }
+    final passwordError = password.isEmpty
+        ? FieldError.required
+        : FieldError.none;
+    final repeatedPasswordError = password == repeatedPassword
+        ? FieldError.none
+        : FieldError.passwordMismatch;
+    if (passwordError != FieldError.none ||
+        repeatedPasswordError != FieldError.none) {
+      updateState(
+        data.withoutMessages().copyWith(
+          passwordError: passwordError,
+          repeatedPasswordError: repeatedPasswordError,
+        ),
+      );
+      return;
+    }
+    await _run((auth) => auth.setNewPassword(password));
+  }
+
+  /// "Back" on a reset step: the reset ends and the sign-in starts over.
+  Future<void> cancelPasswordReset() =>
+      _run((auth) => auth.cancelPasswordReset());
 
   Future<void> signUp() => _run((auth) => auth.signUp());
 
@@ -557,13 +630,15 @@ class SignInViewModel extends ViewModel<SignInState> {
   }
 
   void _apply(AuthState authState, SignInState base) {
-    final wasOtpEntry = data.phase is SignInOtpEntry;
+    final previous = data.phase;
     final next = _nextState(authState, base);
     updateState(next);
     switch (next.phase) {
-      case SignInOtpEntry() when !wasOtpEntry:
+      case SignInOtpEntry() when previous is! SignInOtpEntry:
         _startCountdown();
-      case SignInOtpEntry() || SignInLockedOut():
+      case SignInResetCodeEntry() when previous is! SignInResetCodeEntry:
+        _startCountdown();
+      case SignInOtpEntry() || SignInResetCodeEntry() || SignInLockedOut():
         break;
       case SignInNotConfigured() ||
           SignInLoadingOptions() ||
@@ -572,6 +647,7 @@ class SignInViewModel extends ViewModel<SignInState> {
           SignInChoosingMethod() ||
           SignInPasswordEntry() ||
           SignInEmailEntry() ||
+          SignInNewPasswordEntry() ||
           SignInTotpEntry() ||
           SignInTemporaryAccessPassEntry() ||
           SignInAccessCodeEntry() ||
@@ -605,11 +681,31 @@ class SignInViewModel extends ViewModel<SignInState> {
       base,
     ),
     AwaitingBrowser() => base.copyWith(phase: const SignInAwaitingBrowser()),
+    AwaitingResetCode(:final email) => _resetCodeState(email, base),
+    AwaitingNewPassword(:final email) => base.copyWith(
+      phase: SignInNewPasswordEntry(email: email),
+      canGoBack: false,
+    ),
     SignedIn(:final session) => base.copyWith(
       phase: SignInCompleted(session: session),
       canGoBack: false,
     ),
   };
+
+  /// The reset's code step for [email], keeping a resend cooldown already
+  /// running.
+  SignInState _resetCodeState(String email, SignInState base) {
+    final current = data.phase;
+    return base.copyWith(
+      phase: SignInResetCodeEntry(
+        email: email,
+        resendSecondsLeft: current is SignInResetCodeEntry
+            ? current.resendSecondsLeft
+            : _resendCooldownSeconds,
+      ),
+      canGoBack: false,
+    );
+  }
 
   SignInState _challengeState(
     ChallengePrompt prompt,
@@ -625,7 +721,10 @@ class SignInViewModel extends ViewModel<SignInState> {
     return switch (prompt.step) {
       ChallengeStep.password => withFeedback.copyWith(
         phase: SignInPasswordEntry(
-          isForgotPasswordShown: _isForgotPasswordShown,
+          // The person is already resetting the password.
+          isForgotPasswordShown:
+              purpose != ChallengePurpose.passwordReset &&
+              _isForgotPasswordShown,
           isIdentifierLocked: isIdentifierLocked,
           isEmailCodeOffered: isIdentifierLocked && _isEmailCodeAllowed(prompt),
         ),
@@ -707,8 +806,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       PasswordMethod() => base.copyWith(
         phase: SignInPasswordEntry(
           isForgotPasswordShown:
-              method.isForgotPasswordShown &&
-              (_options?.isPasswordResetEnabled ?? false),
+              method.isForgotPasswordShown && _isPasswordResetAllowed,
         ),
         canGoBack: canGoBack,
       ),
@@ -737,10 +835,22 @@ class SignInViewModel extends ViewModel<SignInState> {
       (_options?.allows(EmailOtpMethod.methodName) ?? false);
 
   bool get _isForgotPasswordShown =>
-      (_options?.isPasswordResetEnabled ?? false) &&
+      _isPasswordResetAllowed &&
       _available.whereType<PasswordMethod>().any(
         (method) => method.isForgotPasswordShown,
       );
+
+  /// The server enables password reset for this client, and its login
+  /// methods include the email code the in-app reset is built on.
+  bool get _isPasswordResetAllowed =>
+      (_options?.isPasswordResetEnabled ?? false) &&
+      (_options?.allows(EmailOtpMethod.methodName) ?? false);
+
+  /// A step of a password reset in progress (its second factor or its
+  /// step-up), answered within the reset.
+  static bool _isPasswordResetStep(AuthState state) =>
+      state is ChallengeRequired &&
+      state.purpose == ChallengePurpose.passwordReset;
 
   int get _resendCooldownSeconds =>
       (_available.whereType<EmailOtpMethod>().firstOrNull ??
@@ -754,7 +864,8 @@ class SignInViewModel extends ViewModel<SignInState> {
     _countdown?.cancel();
     _countdown = null;
     final hasSecondsLeft = switch (data.phase) {
-      SignInOtpEntry(:final resendSecondsLeft) => resendSecondsLeft > 0,
+      SignInOtpEntry(:final resendSecondsLeft) ||
+      SignInResetCodeEntry(:final resendSecondsLeft) => resendSecondsLeft > 0,
       SignInLockedOut(:final secondsLeft) => secondsLeft > 0,
       SignInNotConfigured() ||
       SignInLoadingOptions() ||
@@ -763,6 +874,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       SignInChoosingMethod() ||
       SignInPasswordEntry() ||
       SignInEmailEntry() ||
+      SignInNewPasswordEntry() ||
       SignInTotpEntry() ||
       SignInTemporaryAccessPassEntry() ||
       SignInAccessCodeEntry() ||
@@ -780,18 +892,31 @@ class SignInViewModel extends ViewModel<SignInState> {
     _countdown = null;
   }
 
+  /// One second less on a resend cooldown: [next] shows it, and the timer
+  /// stops when [secondsLeft] was the last one.
+  void _countResend(SignInPhase next, {required int secondsLeft}) {
+    updateState(data.copyWith(phase: next));
+    if (secondsLeft == 1) {
+      _stopCountdown();
+    }
+  }
+
   void _tick() {
     final phase = data.phase;
     if (phase case SignInOtpEntry(:final resendSecondsLeft)
         when resendSecondsLeft > 0) {
-      updateState(
-        data.copyWith(
-          phase: phase.copyWith(resendSecondsLeft: resendSecondsLeft - 1),
-        ),
+      _countResend(
+        phase.copyWith(resendSecondsLeft: resendSecondsLeft - 1),
+        secondsLeft: resendSecondsLeft,
       );
-      if (resendSecondsLeft == 1) {
-        _stopCountdown();
-      }
+      return;
+    }
+    if (phase case SignInResetCodeEntry(:final resendSecondsLeft)
+        when resendSecondsLeft > 0) {
+      _countResend(
+        phase.copyWith(resendSecondsLeft: resendSecondsLeft - 1),
+        secondsLeft: resendSecondsLeft,
+      );
       return;
     }
     if (phase case SignInLockedOut(:final secondsLeft) when secondsLeft > 1) {
