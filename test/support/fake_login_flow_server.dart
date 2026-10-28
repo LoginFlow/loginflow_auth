@@ -371,6 +371,11 @@ class FakeLoginFlowServer {
   /// The next challenge request answers 429 with this `Retry-After`.
   Duration? rateLimitNextChallenge;
 
+  /// Plays an emailed code past its lifetime, or burned by too many wrong
+  /// attempts: every code answers `step_error=code_expired`, the right one
+  /// included (`StepInput::EmailOtpExpired`).
+  bool isEmailOtpExpired = false;
+
   /// Simulated hosted-login browser session for `prompt=none`.
   bool hasBrowserSession = false;
 
@@ -849,6 +854,9 @@ class FakeLoginFlowServer {
       return _step(response, session, 'email_otp');
     }
     final otp = form['email_otp'];
+    if (otp != null && isEmailOtpExpired) {
+      return _step(response, session, 'email_otp', stepError: 'code_expired');
+    }
     if (otp != null) {
       if (user == null || otp != emailOtpCode) {
         return _step(

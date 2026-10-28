@@ -86,9 +86,10 @@ class ClientLoginOptions {
   /// may be shown.
   final bool isSelfSignUpEnabled;
 
-  /// Whether the hosted password reset is enabled for this client
-  /// (`password_reset`), so a "Forgot password?" entry
-  /// (`LoginFlowAuth.resetPassword`) may be shown.
+  /// Whether password reset is enabled for this client (`password_reset`),
+  /// so a "Forgot password?" entry may be shown. The in-app reset
+  /// (`LoginFlowAuth.startPasswordReset`) is built on the email code, so
+  /// it also needs `email_otp` among the login methods ([allows]).
   final bool isPasswordResetEnabled;
 
   /// `true` when the company's passkey policy is `mfa_only`, or

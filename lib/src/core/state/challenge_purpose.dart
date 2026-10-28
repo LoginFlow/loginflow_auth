@@ -10,4 +10,9 @@ enum ChallengePurpose {
   /// A refresh was answered with `insufficient_authorization`
   /// (first-party-apps §6.2).
   reauthentication,
+
+  /// A step of an in-app password reset (`LoginFlowAuth.startPasswordReset`):
+  /// the second factor the emailed code asks for, or the step-up the new
+  /// password needs. The reset goes on once it is answered.
+  passwordReset,
 }

@@ -108,8 +108,8 @@ LoginFlowAuth createAuth() => LoginFlowPlatform.createAuth(
 - `apis`: the audiences of the APIs the app calls; any other is refused
   locally before a request.
 - `redirectUri`: needed only for browser steps (Microsoft, sign-up,
-  password reset, Google/Apple/Facebook without a native source, the web's
-  authorization-code redirect). An app without it — like the driver app —
+  Google/Apple/Facebook without a native source, the web's
+  authorization-code redirect). The password reset is in-app (section 4.2). An app without it — like the driver app —
   simply never offers them.
 - `enableDpop: true` for every first-party native client and every client
   with browser origins (section 1): the server refuses their tokens without
@@ -374,6 +374,47 @@ disabled (`enablePasskeys` left at its default).
 A synced passkey used on another phone signs in with that phone's DPoP
 key (`cnf.jkt`), so a backend that binds a subject to one device refuses
 it there; keep that check.
+
+### 4.2 Password reset (in-app)
+
+A person who forgot the password resets it in the app; the library owns
+the whole flow, the app only shows its screens. It is the email-code
+sign-in plus `POST /v1/user/change-password`, so the client's login methods
+must include `email_otp`. A repository:
+
+```dart
+Future<Result<AuthState, LoginFlowError>> start(String email) =>
+    _auth.startPasswordReset(email); // AwaitingResetCode
+
+Future<Result<AuthState, LoginFlowError>> submitCode(String code) =>
+    _auth.submitResetCode(code); // AwaitingNewPassword
+
+Future<Result<AuthState, LoginFlowError>> resendCode() =>
+    _auth.resendResetCode();
+
+Future<Result<AuthState, LoginFlowError>> save(String password) =>
+    _auth.setNewPassword(password); // SignedIn
+
+Future<Result<AuthState, LoginFlowError>> cancel() =>
+    _auth.cancelPasswordReset(); // SignedOut
+```
+
+- The app sees `AwaitingResetCode`, then `AwaitingNewPassword`, then
+  `SignedIn` — never a `SignedIn` in between: the session the code opens is
+  held by the library, unstored, until the password is set. Route on
+  `SignedIn` exactly as after any sign-in.
+- The server answers an address with no account like one with an account
+  (and sends nothing); its codes are `InvalidResetCode`. An expired or
+  burned code is `ResetCodeExpired`. A resend inside the server's interval
+  is answered as sent and emails nothing.
+- A second factor of the account shows up as `ChallengeRequired` with
+  `ChallengePurpose.passwordReset`: the TOTP after the code, or the strong
+  step-up the password change needs for an account with a passkey. Answer
+  it with the usual calls (`submitTotp`, `selectMethod(ChallengeStep.webauthnIdentify)`,
+  …); after the step-up the password is sent again by itself.
+- `PasswordRejected(reason)` keeps `AwaitingNewPassword`. "Back" at any step
+  is `cancelPasswordReset()`: `SignedOut`, and a held session is revoked.
+- `AlreadySignedIn`: someone is signed in — they use `changePassword`.
 
 ## 5. Call your API with the user's token
 
@@ -659,6 +700,7 @@ by the compiler. The ones an app usually handles:
 | `DelegationDenied(code, statusCode)` | section 8 |
 | `InvalidEmailAddress` / `InvalidEmailChangeCode` | section 9 |
 | `InvalidTotpCode` / `TotpAccountRefused(code)` | section 10 |
+| `InvalidResetCode` / `ResetCodeExpired` / `PasswordRejected(reason)` / `AlreadySignedIn` | password reset, section 4.2 |
 | `InvalidAccessCode` / `AccessCodeThrottled` / `AccessCodesUnavailable` | access codes |
 | `PasskeyAccountRefused(code)` | the passkey account API refused with a coded `403` (section 4.1) |
 | `PasskeyRejected` | the server did not accept a passkey sign-in: deleted credential, policy, client or gate (section 4.1) |

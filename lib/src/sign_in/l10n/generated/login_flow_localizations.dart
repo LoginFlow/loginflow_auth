@@ -694,6 +694,54 @@ abstract class LoginFlowLocalizations {
   /// In es, this message translates to:
   /// **'Demasiados intentos. Espera un momento e inténtalo de nuevo.'**
   String get feedbackRateLimited;
+
+  /// Title of the code step of an in-app password reset.
+  ///
+  /// In es, this message translates to:
+  /// **'Restablece tu contraseña'**
+  String get resetPasswordTitle;
+
+  /// The reset code was asked for this email; it is sent only when the email has an account.
+  ///
+  /// In es, this message translates to:
+  /// **'Si {email} tiene una cuenta, le enviamos un código.'**
+  String resetCodeSentTo(String email);
+
+  /// Title of the new-password step of an in-app password reset.
+  ///
+  /// In es, this message translates to:
+  /// **'Crea una contraseña nueva'**
+  String get newPasswordTitle;
+
+  /// No description provided for @newPasswordLabel.
+  ///
+  /// In es, this message translates to:
+  /// **'Contraseña nueva'**
+  String get newPasswordLabel;
+
+  /// No description provided for @repeatPasswordLabel.
+  ///
+  /// In es, this message translates to:
+  /// **'Repite la contraseña nueva'**
+  String get repeatPasswordLabel;
+
+  /// No description provided for @savePasswordButton.
+  ///
+  /// In es, this message translates to:
+  /// **'Guardar contraseña'**
+  String get savePasswordButton;
+
+  /// The new password typed again does not match.
+  ///
+  /// In es, this message translates to:
+  /// **'Las contraseñas no coinciden'**
+  String get passwordMismatch;
+
+  /// The server refused the new password (PasswordRejected).
+  ///
+  /// In es, this message translates to:
+  /// **'No se aceptó esa contraseña: es muy débil, apareció en una filtración de datos o es la actual. Prueba con otra.'**
+  String get feedbackPasswordRejected;
 }
 
 class _LoginFlowLocalizationsDelegate

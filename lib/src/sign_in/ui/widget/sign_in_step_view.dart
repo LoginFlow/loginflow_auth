@@ -8,8 +8,10 @@ import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/access_code_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/email_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/method_picker_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/new_password_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/otp_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/password_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/reset_code_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sign_in_message_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sso_confirm_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/temporary_access_pass_step.dart';
@@ -61,6 +63,18 @@ class SignInStepView extends StatelessWidget {
       ),
       final SignInOtpEntry phase => OtpStep(
         key: SignInKeys.otpStep,
+        phase: phase,
+        state: state,
+        viewModel: viewModel,
+      ),
+      final SignInResetCodeEntry phase => ResetCodeStep(
+        key: SignInKeys.resetCodeStep,
+        phase: phase,
+        state: state,
+        viewModel: viewModel,
+      ),
+      final SignInNewPasswordEntry phase => NewPasswordStep(
+        key: SignInKeys.newPasswordStep,
         phase: phase,
         state: state,
         viewModel: viewModel,

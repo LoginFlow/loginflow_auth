@@ -32,6 +32,8 @@ mega-file.
 | Method picker (password, Google, Microsoft, Apple, Facebook, email code, passkey, sign-up) | `method_picker_golden_test.dart` |
 | Password | `password_golden_test.dart` |
 | OTP code | `otp_golden_test.dart` |
+| Password reset: code (resend cooldown running) | `reset_code_golden_test.dart` |
+| Password reset: new password (mismatch error) | `new_password_golden_test.dart` |
 | Magic link offered | `magic_link_golden_test.dart` |
 | TOTP | `totp_golden_test.dart` |
 | Recovery code | `recovery_code_golden_test.dart` |

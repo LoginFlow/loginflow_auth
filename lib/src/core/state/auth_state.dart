@@ -118,6 +118,53 @@ final class AwaitingBrowser extends AuthState {
   int get hashCode => (AwaitingBrowser).hashCode;
 }
 
+/// An in-app password reset waits for the code emailed to [email]
+/// (`LoginFlowAuth.startPasswordReset`). The server answers the same for an
+/// address with no account, and sends nothing then; say "if this email has
+/// an account, we sent it a code".
+final class AwaitingResetCode extends AuthState {
+  /// Creates an [AwaitingResetCode].
+  const AwaitingResetCode({required this.email});
+
+  /// The address the code was sent to.
+  final String email;
+
+  /// A copy of this [AwaitingResetCode] with the given fields replaced.
+  AwaitingResetCode copyWith({String? email}) =>
+      AwaitingResetCode(email: email ?? this.email);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AwaitingResetCode && email == other.email;
+
+  @override
+  int get hashCode => Object.hash(AwaitingResetCode, email);
+}
+
+/// The reset code was accepted: the person behind [email] is identified and
+/// the library holds their session, but nobody is signed in until
+/// `LoginFlowAuth.setNewPassword` succeeds. Nothing is stored meanwhile.
+final class AwaitingNewPassword extends AuthState {
+  /// Creates an [AwaitingNewPassword].
+  const AwaitingNewPassword({required this.email});
+
+  /// The address the reset started with, for display.
+  final String email;
+
+  /// A copy of this [AwaitingNewPassword] with the given fields replaced.
+  AwaitingNewPassword copyWith({String? email}) =>
+      AwaitingNewPassword(email: email ?? this.email);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AwaitingNewPassword && email == other.email;
+
+  @override
+  int get hashCode => Object.hash(AwaitingNewPassword, email);
+}
+
 /// A user is signed in.
 final class SignedIn extends AuthState {
   /// Creates a [SignedIn].

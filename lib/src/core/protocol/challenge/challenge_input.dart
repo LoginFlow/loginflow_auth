@@ -477,27 +477,3 @@ final class AccessCodeInput extends ChallengeInput {
   @override
   int get hashCode => code.hashCode;
 }
-
-/// Asks for the hosted password-reset flow (answered with `redirect_to_web`).
-final class PasswordResetInput extends ChallengeInput {
-  const PasswordResetInput({this.loginHint});
-
-  final String? loginHint;
-
-  PasswordResetInput copyWith({String? loginHint}) =>
-      PasswordResetInput(loginHint: loginHint ?? this.loginHint);
-
-  @override
-  Map<String, String> toFormFields() => <String, String>{
-    'intent': 'password_reset',
-    'login_hint': ?loginHint,
-  };
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is PasswordResetInput && loginHint == other.loginHint;
-
-  @override
-  int get hashCode => loginHint.hashCode;
-}

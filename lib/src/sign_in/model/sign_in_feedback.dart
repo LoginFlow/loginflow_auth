@@ -21,4 +21,8 @@ enum SignInFeedback {
   /// The app cannot redeem access codes: no DPoP key store
   /// (`LoginFlowConfig.enableDpop`).
   accessCodeNotConfigured,
+
+  /// The new password of a reset was refused: too weak, found in a data
+  /// breach, or the current one (`PasswordRejected`).
+  passwordRejected,
 }

@@ -43,7 +43,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
           PasskeyFailureReason.unknown,
     ) =>
       SignInFeedback.unexpected,
-    PasskeyRejected() => SignInFeedback.invalidCredential,
+    PasskeyRejected() || InvalidResetCode() => SignInFeedback.invalidCredential,
+    ResetCodeExpired() => SignInFeedback.codeExpired,
+    PasswordRejected() => SignInFeedback.passwordRejected,
     InvalidAccessCode() => SignInFeedback.invalidAccessCode,
     AccessCodesUnavailable() => SignInFeedback.accessCodesUnavailable,
     ServerResponseInvalid() ||
@@ -70,7 +72,7 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
     TotpAccountRefused() ||
-    PasswordRejected() => SignInFeedback.unexpected,
+    AlreadySignedIn() => SignInFeedback.unexpected,
   };
 }
 
@@ -115,7 +117,10 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
     TotpAccountRefused() ||
-    PasswordRejected() => toFeedback(),
+    PasswordRejected() ||
+    InvalidResetCode() ||
+    ResetCodeExpired() ||
+    AlreadySignedIn() => toFeedback(),
   };
 }
 

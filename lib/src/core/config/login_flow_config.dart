@@ -58,7 +58,8 @@ class LoginFlowConfig {
   final List<String> apis;
 
   /// Redirect URI for every step that needs the system browser
-  /// (`redirect_to_web`, Microsoft, sign-up, password reset, web sign-in).
+  /// (`redirect_to_web`, Microsoft, sign-up, web sign-in). The password
+  /// reset is in-app and needs none.
   /// Prefer a claimed `https` link (RFC 8252 §7.2). Without it, browser steps
   /// fail with `BrowserFailed(unavailable)`.
   final Uri? redirectUri;

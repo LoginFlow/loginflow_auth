@@ -96,6 +96,7 @@ class _PasswordStepState extends State<PasswordStep> {
             Align(
               alignment: .centerRight,
               child: SignInTextAction(
+                key: SignInKeys.forgotPasswordButton,
                 label: strings.forgotPassword,
                 onPressed: isEnabled
                     ? () => unawaited(

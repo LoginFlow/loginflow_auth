@@ -347,4 +347,31 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
   @override
   String get feedbackRateLimited =>
       'Too many attempts. Wait a moment and try again.';
+
+  @override
+  String get resetPasswordTitle => 'Reset your password';
+
+  @override
+  String resetCodeSentTo(String email) {
+    return 'If $email has an account, we sent it a code.';
+  }
+
+  @override
+  String get newPasswordTitle => 'Create a new password';
+
+  @override
+  String get newPasswordLabel => 'New password';
+
+  @override
+  String get repeatPasswordLabel => 'Repeat the new password';
+
+  @override
+  String get savePasswordButton => 'Save password';
+
+  @override
+  String get passwordMismatch => 'The passwords do not match';
+
+  @override
+  String get feedbackPasswordRejected =>
+      'That password was not accepted: it is too weak, appeared in a data breach or is your current one. Try another.';
 }

@@ -15,9 +15,12 @@ provider. It gives first-party apps:
   code to write. **Google native sign-in** is one small optional package
   away (`loginflow_auth_google` — see [Google](#google)); without it,
   Google still works through the system browser.
+- **In-app password reset**: an emailed code, the new password, then
+  signed in — the library holds the session until the password is set
+  ([Password reset (in-app)](#password-reset-in-app)). No browser.
 - **System-browser fallback** (ASWebAuthenticationSession, Custom Tabs, a
   top-level redirect on the web) whenever the server answers
-  `redirect_to_web`: Microsoft, sign-up, password reset. Never a WebView.
+  `redirect_to_web`: Microsoft, sign-up. Never a WebView.
 - **ID token validation** (signature through the issuer JWKS, `iss`, `aud`,
   `azp`, `nonce`, `exp`, `iat`) before any claim is trusted.
 - **Token lifecycle**: in-memory access tokens, refresh with rotation,
@@ -137,6 +140,8 @@ auth.states.listen((state) {
     case SsoAvailable():
     case ChallengeRequired():
     case AwaitingBrowser():
+    case AwaitingResetCode(): // password reset, see below
+    case AwaitingNewPassword():
     case AuthInitializing():
   }
 });
@@ -162,8 +167,9 @@ sealed hierarchy, so a `switch` over it is exhaustive.
 
 Challenge steps: `requestEmailOtp`, `submitEmailOtp`, `resendEmailOtp`,
 `submitPassword`, `submitTotp`, `submitRecoveryCode`, `selectMethod`,
-`signInWithGoogle`, `signInWithMicrosoft`, `signUp`, `resetPassword`,
-`cancelChallenge`. Step-up: `auth.stepUp(StepUpRequirement(acrValues: ['mfa']))`
+`signInWithGoogle`, `signInWithMicrosoft`, `signUp`, `cancelChallenge`.
+Password reset: `startPasswordReset`, `submitResetCode`, `resendResetCode`,
+`setNewPassword`, `cancelPasswordReset`. Step-up: `auth.stepUp(StepUpRequirement(acrValues: ['mfa']))`
 or `StepUpRequirement.fromWwwAuthenticate(header)` from a 401 of your API
 (RFC 9470).
 
@@ -378,6 +384,65 @@ sibling app signs this one out too.
 
 Logout: `auth.signOut(SignOutScope.app | device | browser | everywhere)`.
 
+### Password reset (in-app)
+
+Someone who forgot the password resets it inside the app, through the
+library: an emailed code, the new password, then signed in. No browser,
+no `redirectUri`; the app composes nothing but the screens.
+
+- `startPasswordReset(email, {organization})` → `AwaitingResetCode(email)`:
+  a code went to the address — or nothing did, when it has no account; the
+  server answers the same either way, so say "if this email has an account,
+  we sent it a code". `AlreadySignedIn` when someone is signed in (they use
+  `changePassword`). The client's login methods must include `email_otp`.
+- `submitResetCode(code)` → `AwaitingNewPassword(email)`. A refused code is
+  `InvalidResetCode` (wrong, or any code for an unknown address) or
+  `ResetCodeExpired` (expired or burned); the reset stays on the code.
+  `resendResetCode()` asks for another: a request inside the server's
+  interval between two codes is answered as sent, emails nothing, and the
+  code already sent keeps working. An account with TOTP is asked for it
+  first: a `ChallengeRequired` with `ChallengePurpose.passwordReset`,
+  answered with `submitTotp` / `submitRecoveryCode`.
+- `setNewPassword(newPassword)` → `SignedIn`, the session stored only now.
+  The code's session is held until then: never stored, never a `SignedIn`,
+  never shared through Native SSO, and `accessTokenFor` answers
+  `NotSignedIn`; a restart in between signs nobody in. An account with a second factor
+  (TOTP or a passkey) needs a strong sign-in to change it: the step-up
+  opens by itself (`ChallengeRequired`, `ChallengePurpose.passwordReset`;
+  answer it with `selectMethod(ChallengeStep.webauthnIdentify)` for a
+  passkey, or the usual `submit*`), and the password is sent again when it
+  completes. `PasswordRejected(reason)` (weak, breached or the current one)
+  keeps `AwaitingNewPassword`: ask for another.
+- `cancelPasswordReset()` → `SignedOut` from any step; a held session is
+  signed out of this app (its refresh token revoked). `cancelChallenge()`
+  on the step-up goes back to `AwaitingNewPassword`.
+- `RateLimited(retryAfter)` and `NetworkFailure` keep the current step.
+
+```dart
+Future<void> runPasswordReset(LoginFlowAuth auth) async {
+  await auth.startPasswordReset('ana@example.com'); // AwaitingResetCode
+  final verified = await auth.submitResetCode(await askForCode());
+  if (verified case Err(error: InvalidResetCode() || ResetCodeExpired())) {
+    return; // show the error; offer auth.resendResetCode()
+  }
+  // A ChallengeRequired(purpose: passwordReset) first? Answer it, e.g.
+  // auth.submitTotp(code), until AwaitingNewPassword.
+  final saved = await auth.setNewPassword(await askForNewPassword());
+  switch (saved) {
+    case Ok(data: SignedIn()):
+      break; // done: signed in with the new password
+    case Ok(data: ChallengeRequired()):
+      break; // the step-up: answer it, the password is then set by itself
+    case Err(error: PasswordRejected()):
+      break; // still AwaitingNewPassword: ask for another one
+    case _:
+      await auth.cancelPasswordReset(); // back to SignedOut
+  }
+}
+```
+
+The ready-to-use UI does all of this behind "Forgot your password?".
+
 ## Ready-to-use sign-in UI
 
 ### Configure once
@@ -470,7 +535,10 @@ class AcmeApp extends StatelessWidget {
 - **Sign-up** → "Create an account" only if `isSelfSignUpOffered` **and** the
   server enables self sign-up.
 - **Forgot password** → only if `PasswordMethod.isForgotPasswordShown` **and**
-  the server enables password reset.
+  the server enables password reset **and** the client's login methods
+  include `email_otp` (the reset is built on the email code). It runs the
+  [in-app reset](#password-reset-in-app): the code, the new password typed
+  twice, then signed in.
 - **Passkey (first factor)** → "Continue with a passkey" on the method
   picker only if `isPasskeySignInOffered` (default `true`) **and** the
   server's company-wide passkey policy is `passwordless`
@@ -753,8 +821,7 @@ authorization-code redirect) remains available.
    JWKS, login options, token, revocation and the `/v1/*` scopes (the passkey
    account API) are called from JavaScript.
 3. A registered `https` redirect URI on the app's origin for the browser
-   steps (Microsoft, sign-up, password reset, Google/Apple without a native
-   source).
+   steps (Microsoft, sign-up, Google/Apple without a native source).
 
 **App configuration**:
 
@@ -817,8 +884,8 @@ the other desktops:
   development package (`libsecret-1-dev` on Debian/Ubuntu); at runtime a
   Secret Service must be running and unlocked, otherwise storage reports
   `StorageFailure`.
-- **Browser steps** (`redirect_to_web`: Microsoft, sign-up, password reset,
-  Google/Apple) open the default browser (`xdg-open`) and wait on an
+- **Browser steps** (`redirect_to_web`: Microsoft, sign-up, Google/Apple)
+  open the default browser (`xdg-open`) and wait on an
   RFC 8252 §7.3 loopback redirect. Register a **native** client with a
   fixed-port loopback redirect URI and use exactly that URI:
   `redirectUri: Uri.parse('http://127.0.0.1:53682/oauth/callback')`.
@@ -1316,6 +1383,8 @@ automated:
 | 23 | iOS, Web | "Continue with a passkey" with no remembered email (discoverable request) | A modal passkey sheet opens at once; dismissing it returns to the picker with no spinner |
 | 24 | Android | Enroll a passkey twice on the same device | `PasskeyFailed(alreadyRegistered)` |
 | 25 | Android | App signed with a certificate the company did not register | `PasskeyFailed(securityError)` or `domainNotAssociated`, the picker stays usable |
+| 26 | Android, iOS, Web | "Forgot your password?" with a real mailbox: type the emailed code, then a new password twice | No browser opens; signed in only after "Save password"; the new password signs in on another device |
+| 27 | Android, iOS | Same as 26 on an account with a passkey and no TOTP | After the code, "Save password" asks for the passkey; once confirmed, signed in with the new password |
 
 ## Development
 

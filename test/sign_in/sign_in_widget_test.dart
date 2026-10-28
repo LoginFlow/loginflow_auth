@@ -196,6 +196,53 @@ void main() {
       expect(password.autofillHints, contains(AutofillHints.password));
       expect(password.obscureText, isTrue);
     });
+
+    // Requirement: "Forgot your password?" resets in the app — the code,
+    // then the new password twice — and signs in only once it is saved.
+    // Oracle: the texts on screen, `onSignedIn`, the new password's
+    // autofill hint.
+    testWidgets('forgot password resets in the app, then signs in', (
+      tester,
+    ) async {
+      server.users['luz@example.com'] = const FakeUser(
+        subject: 'cu_luz',
+        email: 'luz@example.com',
+        password: 'Luz-Password-1',
+      );
+      final harness = SignInHarness.install(server, allMethods);
+      await harness.pump(tester);
+      await tester.tap(method('password'));
+      await tester.pumpAndSettle();
+
+      await enter(tester, SignInKeys.emailField, 'luz@example.com');
+      await tester.tap(find.byKey(SignInKeys.forgotPasswordButton));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('If luz@example.com has an account, we sent it a code.'),
+        findsOneWidget,
+      );
+      await enter(
+        tester,
+        SignInKeys.codeField,
+        FakeLoginFlowServer.emailOtpCode,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Create a new password'), findsOneWidget);
+      expect(harness.signedIn, isEmpty);
+      final newPassword = tester.widget<TextField>(
+        find.byKey(SignInKeys.newPasswordField),
+      );
+      expect(newPassword.autofillHints, contains(AutofillHints.newPassword));
+      await enter(tester, SignInKeys.newPasswordField, 'N3w-Passw0rd!');
+      await enter(tester, SignInKeys.repeatPasswordField, 'N3w-Passw0rd!');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save password'));
+      await tester.pumpAndSettle();
+
+      expect(harness.signedIn.single.identity.subject, 'cu_luz');
+      expect(server.changePasswordRequests, hasLength(1));
+    });
   });
 
   group('Email code', () {

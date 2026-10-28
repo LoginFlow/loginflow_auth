@@ -98,5 +98,13 @@
   "feedbackPasskeyNotFound": "That passkey no longer exists.",
   "feedbackPasskeysUnavailable": "Passkeys are not available for this account.",
   "feedbackReauthenticationRequired": "Sign in again to add a passkey.",
-  "feedbackRateLimited": "Too many attempts. Wait a moment and try again."
+  "feedbackRateLimited": "Too many attempts. Wait a moment and try again.",
+  "resetPasswordTitle": "Reset your password",
+  "resetCodeSentTo": "If {email} has an account, we sent it a code.",
+  "newPasswordTitle": "Create a new password",
+  "newPasswordLabel": "New password",
+  "repeatPasswordLabel": "Repeat the new password",
+  "savePasswordButton": "Save password",
+  "passwordMismatch": "The passwords do not match",
+  "feedbackPasswordRejected": "That password was not accepted: it is too weak, appeared in a data breach or is your current one. Try another."
 }
