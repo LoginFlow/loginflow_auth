@@ -20,7 +20,7 @@ void main() {
 
       final token = auth.magicLinkTokenFromUri(
         Uri.parse(
-          'https://acme.id.loginflow.dev/login/magic/app-one?token=abc123',
+          'https://acme-id.loginflow.dev/login/magic/app-one?token=abc123',
         ),
       );
 
@@ -32,7 +32,7 @@ void main() {
 
       final token = auth.magicLinkTokenFromUri(
         Uri.parse(
-          'https://acme.id.loginflow.dev/login/magic/app-two?token=abc123',
+          'https://acme-id.loginflow.dev/login/magic/app-two?token=abc123',
         ),
       );
 
@@ -45,7 +45,7 @@ void main() {
       expect(
         auth.magicLinkTokenFromUri(
           Uri.parse(
-            'http://acme.id.loginflow.dev/login/magic/app-one?token=abc123',
+            'http://acme-id.loginflow.dev/login/magic/app-one?token=abc123',
           ),
         ),
         isNull,
@@ -53,14 +53,14 @@ void main() {
       expect(
         auth.magicLinkTokenFromUri(
           Uri.parse(
-            'https://acme.id.loginflow.dev/login/magic/app-one/x?token=abc123',
+            'https://acme-id.loginflow.dev/login/magic/app-one/x?token=abc123',
           ),
         ),
         isNull,
       );
       expect(
         auth.magicLinkTokenFromUri(
-          Uri.parse('https://acme.id.loginflow.dev/login/magic/app-one'),
+          Uri.parse('https://acme-id.loginflow.dev/login/magic/app-one'),
         ),
         isNull,
       );

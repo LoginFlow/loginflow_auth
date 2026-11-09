@@ -259,7 +259,7 @@ the 24 h absolute lifetime of web refresh tokens).
 ### 3.5 Passkeys on Android and iOS
 
 A passkey belongs to the company's relying-party domain
-(`<slug>.id.loginflow.dev` or its custom domain), not to the app, so the OS
+(`<slug>-id.loginflow.dev` or its custom domain), not to the app, so the OS
 must be told the app may use it. An operator registers the app on the
 client:
 

@@ -55,7 +55,7 @@ void main() {
   }) => <String, Object?>{
     'publicKey': <String, Object?>{
       'challenge': 'Y2hhbGxlbmdl',
-      'rpId': 'acme.id.loginflow.dev',
+      'rpId': 'acme-id.loginflow.dev',
       'userVerification': 'required',
       'timeout': timeout,
     },
@@ -68,7 +68,7 @@ void main() {
     'publicKey': <String, Object?>{
       'challenge': 'Y2hhbGxlbmdl',
       if (hasRelyingParty)
-        'rp': <String, Object?>{'id': 'acme.id.loginflow.dev', 'name': 'Acme'},
+        'rp': <String, Object?>{'id': 'acme-id.loginflow.dev', 'name': 'Acme'},
       'user': <String, Object?>{
         'id': 'dXNlcg',
         'name': 'ana@example.com',
