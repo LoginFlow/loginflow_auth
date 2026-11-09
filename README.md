@@ -768,7 +768,7 @@ sign-in link instead" button, shown only when the server publishes
       <category android:name="android.intent.category.DEFAULT" />
       <category android:name="android.intent.category.BROWSABLE" />
       <data android:scheme="https"
-            android:host="acme.id.loginflow.dev"
+            android:host="acme-id.loginflow.dev"
             android:pathPrefix="/login/magic/app-one" />
   </intent-filter>
   ```
@@ -785,7 +785,7 @@ sign-in link instead" button, shown only when the server publishes
   });
   ```
 
-- **iOS**: Associated Domains capability, `applinks:acme.id.loginflow.dev`
+- **iOS**: Associated Domains capability, `applinks:acme-id.loginflow.dev`
   — the entitlement is per HOST, shared by every app of the company on
   that host (the AASA's own `applinks.details[].components` is what scopes
   each app's `appID` to only its own `/login/magic/<client_id>` path, so
@@ -980,23 +980,24 @@ double — `PasskeyAuthenticator`, `loginflow_auth_core.dart`, is still a
 plain interface for that purpose).
 
 Every company has its own **relying party (RP) ID**: a fixed,
-per-company host of the shape `<slug>.id.loginflow.dev` (LoginFlow's
-multi-tenant hosted domain) — never the app's own domain, and never
+per-company host of the shape `<slug>-id.loginflow.dev` (LoginFlow's
+multi-tenant hosted domain; `<slug>-id-dev.loginflow.dev` on the dev
+environment) — never the app's own domain, and never
 changed once passkeys are enrolled (an RP ID change invalidates every
 existing passkey). `doc/server-contract.md` §5.7 and §15 cover the wire;
 the platform association below is what makes the OS trust that host for
 *your* app specifically.
 
 - **iOS/macOS**: add the **Associated Domains** capability in Xcode with a
-  `webcredentials:<slug>.id.loginflow.dev` entry (one entry per company the
+  `webcredentials:<slug>-id.loginflow.dev` entry (one entry per company the
   app can sign a user into — most apps have exactly one):
 
   ```
-  webcredentials:acme.id.loginflow.dev
+  webcredentials:acme-id.loginflow.dev
   ```
 
   This is the LoginFlow domain's `apple-app-site-association` (served from
-  `https://<slug>.id.loginflow.dev/.well-known/apple-app-site-association`,
+  `https://<slug>-id.loginflow.dev/.well-known/apple-app-site-association`,
   §15) that must list your app's Team ID + bundle identifier — ask the
   company admin to register it via the master API
   (`PATCH /v1/control/companies/{company_id}/oauth-clients/{client_id}/passkey-app-registration`,
@@ -1006,7 +1007,7 @@ the platform association below is what makes the OS trust that host for
 - **Android**: no manifest entry for the RP ID itself — WebAuthn credential
   requests already carry the RP ID, and Android resolves it against that
   domain's own `/.well-known/assetlinks.json`
-  (`https://<slug>.id.loginflow.dev/.well-known/assetlinks.json`, §15),
+  (`https://<slug>-id.loginflow.dev/.well-known/assetlinks.json`, §15),
   which the same master endpoint above publishes with your app's package
   name and signing certificate SHA-256. Register the SHA-256 of the
   certificate you release with (the Play App Signing certificate in

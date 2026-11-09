@@ -534,7 +534,7 @@ in the same step (a passkey is possession + user verification; a TAP is an
 admin-issued credential), so neither is ever followed by `next: totp`.
 
 **Related origins (WebAuthn L3, LoginFlow profile).** The RP ID is the
-company's (`<slug>.id.loginflow.dev` or its custom domain), so a first-party
+company's (`<slug>-id.loginflow.dev` or its custom domain), so a first-party
 web app on another origin (§5.1) runs the ceremony against that RP ID as a
 related origin: the browser fetches `https://<rp_id>/.well-known/webauthn`,
 which lists `{"origins": [...]}` — the `allowed_web_origins` of the company's
