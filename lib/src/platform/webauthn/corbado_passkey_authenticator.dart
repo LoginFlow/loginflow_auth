@@ -212,7 +212,13 @@ class CorbadoPasskeyAuthenticator implements PasskeyAuthenticator {
       corbado.MissingGoogleSignInException() ||
       corbado.SyncAccountNotAvailableException() ||
       corbado.NoCreateOptionException() ||
-      corbado.RestoreCredentialUnsupportedException() =>
+      corbado.RestoreCredentialUnsupportedException() ||
+      // passkeys 2.24: features this library never requests (conditional
+      // create, password credentials); reported as unsupported if a
+      // platform ever raises them.
+      corbado.ConditionalCreateNotEligibleException() ||
+      corbado.ConditionalCreateUnsupportedException() ||
+      corbado.PasswordCredentialUnsupportedException() =>
         PasskeyFailureReason.notSupported,
       corbado.MalformedBase64Url() => PasskeyFailureReason.invalidResponse,
       corbado.UnhandledAuthenticatorException(:final code) => _reasonForCode(
