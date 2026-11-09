@@ -7,6 +7,7 @@ import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
 
 import '../support/fake_login_flow_server.dart';
 import '../support/sign_in_harness.dart';
+import '../support/test_clock.dart';
 import '../support/test_signing_keys.dart';
 
 void main() {
@@ -22,7 +23,7 @@ void main() {
       MicrosoftMethod(),
       PasswordMethod(),
       GoogleMethod(),
-      EmailOtpMethod(resendCooldown: Duration.zero),
+      EmailOtpMethod(),
     ],
     isSelfSignUpOffered: true,
   );
@@ -271,28 +272,48 @@ void main() {
       expect(harness.signedIn.single.identity.email, 'ana@example.com');
     });
 
-    testWidgets('resend waits for the configured cooldown', (tester) async {
+    // Oracle: the resend action's text and whether it can be tapped, read
+    // from the core's `emailOtpResendWait` on its clock — never a counter
+    // the widget keeps — and the codes the fake server emailed.
+    testWidgets('resend shows the wait left as m:ss and is enabled once the '
+        'core allows it', (tester) async {
+      final clock = TestClock();
       final harness = SignInHarness.install(
         server,
-        const SignInConfiguration(
-          methods: <AuthMethod>[
-            EmailOtpMethod(resendCooldown: Duration(seconds: 3)),
-          ],
-        ),
+        const SignInConfiguration(methods: <AuthMethod>[EmailOtpMethod()]),
+        clock: clock,
       );
+      TextButton resendAction(String label) =>
+          tester.widget<TextButton>(find.widgetWithText(TextButton, label));
       await harness.pump(tester);
       await enter(tester, SignInKeys.emailField, 'ana@example.com');
       await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Resend code in 3s'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 3));
-      expect(find.text('Resend code'), findsOneWidget);
+      expect(
+        find.text(
+          'It can take up to 2 minutes; check spam. '
+          'The code lasts 30 minutes.',
+        ),
+        findsOneWidget,
+      );
+      expect(resendAction('Resend code (1:00)').onPressed, isNull);
+
+      clock.advance(const Duration(seconds: 18));
+      await tester.pump(const Duration(seconds: 1));
+      expect(resendAction('Resend code (0:42)').onPressed, isNull);
+
+      clock.advance(const Duration(seconds: 42));
+      await tester.pump(const Duration(seconds: 1));
+      expect(resendAction('Resend code').onPressed, isNotNull);
 
       await tester.tap(find.text('Resend code'));
       await tester.pumpAndSettle();
       expect(server.sentEmailOtps, hasLength(2));
-      await tester.pump(const Duration(seconds: 3));
+      expect(resendAction('Resend code (1:00)').onPressed, isNull);
+
+      clock.advance(harness.auth.config.emailCodeResendCooldown);
+      await tester.pump(const Duration(seconds: 1));
     });
   });
 

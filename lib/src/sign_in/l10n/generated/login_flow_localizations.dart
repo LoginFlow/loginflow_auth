@@ -245,6 +245,18 @@ abstract class LoginFlowLocalizations {
   /// **'Reenviar código en {seconds} s'**
   String resendIn(int seconds);
 
+  /// Email-code step: the resend action while its wait runs, with the time left as m:ss.
+  ///
+  /// In es, this message translates to:
+  /// **'Reenviar código ({time})'**
+  String resendCodeCountdown(String time);
+
+  /// Email-code step: delivery and validity of the emailed code.
+  ///
+  /// In es, this message translates to:
+  /// **'Puede tardar hasta 2 minutos; revisa también spam. El código sirve 30 minutos.'**
+  String get emailCodeHelp;
+
   /// No description provided for @sendMagicLink.
   ///
   /// In es, this message translates to:

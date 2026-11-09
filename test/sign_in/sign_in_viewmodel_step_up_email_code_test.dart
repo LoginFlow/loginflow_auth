@@ -27,6 +27,7 @@ import 'package:loginflow_auth/src/sign_in/viewmodel/sign_in_viewmodel.dart';
 import '../support/fake_login_flow_server.dart';
 import '../support/fake_passkey_authenticator.dart';
 import '../support/sign_in_harness.dart';
+import '../support/test_clock.dart';
 import '../support/test_signing_keys.dart';
 
 void main() {
@@ -37,6 +38,7 @@ void main() {
   late TestSigningKeys keys;
   late FakeLoginFlowServer server;
   late SignInHarness harness;
+  late TestClock clock;
 
   setUpAll(() => keys = TestSigningKeys.generate());
 
@@ -81,13 +83,24 @@ void main() {
     harness = SignInHarness.install(
       server,
       const SignInConfiguration(
-        methods: <AuthMethod>[
-          PasswordMethod(),
-          EmailOtpMethod(resendCooldown: Duration.zero),
-        ],
+        methods: <AuthMethod>[PasswordMethod(), EmailOtpMethod()],
       ),
       passkey: FakePasskeyAuthenticator(credentialId: 'credential-new-0001'),
+      clock: clock = TestClock(),
     );
+  }
+
+  /// Lets the email-code wait pass on the core's clock and waits for the
+  /// step's next tick to enable "Resend code".
+  Future<void> resendWaitOver() async {
+    clock.advance(harness.auth.config.emailCodeResendCooldown);
+    for (var attempt = 0; attempt < 300; attempt++) {
+      if (signIn().data.phase case SignInOtpEntry(canResend: true)) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    throw TestFailure('Resend never enabled; last: ${signIn().data.phase}');
   }
 
   /// Lets the recent-auth window of the signed-in user pass and asks to add
@@ -136,7 +149,9 @@ void main() {
     final otpStep = await signInIdleOn<SignInOtpEntry>();
     expect(otpStep.email, email);
     expect(server.sentEmailOtps, <String>[email]);
+    expect(otpStep.canResend, isFalse);
 
+    await resendWaitOver();
     await signIn().resendEmailCode();
 
     expect(server.sentEmailOtps, <String>[email, email]);

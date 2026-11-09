@@ -173,6 +173,50 @@ Password reset: `startPasswordReset`, `submitResetCode`, `resendResetCode`,
 or `StepUpRequirement.fromWwwAuthenticate(header)` from a 401 of your API
 (RFC 9470).
 
+### Email-code resend cooldown
+
+LoginFlow answers an email-code request the same whether or not an email
+left (it never reveals whether an address has an account), and sends no new
+code for a while once one was issued. A "Resend code" pressed at once does
+nothing visible, and people get stuck. The library owns the wait, so no app
+re-implements it:
+
+- `LoginFlowConfig.emailCodeResendCooldown` — the wait between two codes;
+  default 60 seconds (`LoginFlowConfig.defaultEmailCodeResendCooldown`),
+  must be positive (`validate()` refuses zero or less).
+- `ChallengePrompt.resendAvailableAt` (`DateTime?`, UTC) — set on the
+  `email_otp` step, `null` on any other. It starts one cooldown after the
+  code is requested (`requestEmailOtp`, `selectMethod(ChallengeStep.emailOtp)`)
+  and moves one cooldown ahead after each accepted `resendEmailOtp`. A
+  wrong or expired code keeps it; `cancelChallenge` or a new sign-in
+  attempt clears it.
+- `LoginFlowAuth.emailOtpResendWait` (`Duration`) — the wait left, on the
+  library's clock; `Duration.zero` once a resend is allowed or when no
+  email-code step is in progress.
+- `resendEmailOtp()` before that moment fails with
+  `RateLimited(retryAfter: <wait left>)` and sends **no** request.
+
+```dart
+final wait = auth.emailOtpResendWait;
+if (wait > Duration.zero) {
+  showResendDisabledFor(wait); // e.g. "Resend code (0:42)"
+}
+switch (await auth.resendEmailOtp()) {
+  case Err(error: RateLimited(retryAfter: final Duration wait)):
+    showResendDisabledFor(wait);
+  case Err(:final error):
+    showError(error);
+  case Ok():
+    break; // the new prompt carries the next resendAvailableAt
+}
+```
+
+The built-in sign-in UI shows "Resend code (0:42)" disabled until the wait
+is over, read from the library's clock every second (so a countdown never
+falls behind while the app sat in the background), plus "It can take up to
+2 minutes; check spam. The code lasts 30 minutes." The password reset's
+code step counts the same configured cooldown.
+
 ### Calling your own API (DPoP)
 
 With `enableDpop: true` the access token is bound to the app's DPoP key:
@@ -467,7 +511,7 @@ void main() async {
     configuration: const SignInConfiguration(
       methods: [
         PasswordMethod(isForgotPasswordShown: true),
-        EmailOtpMethod(resendCooldown: Duration(seconds: 30)),
+        EmailOtpMethod(),
         GoogleMethod(),
         MicrosoftMethod(),
       ],

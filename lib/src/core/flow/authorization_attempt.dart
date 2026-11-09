@@ -22,6 +22,7 @@ class AuthorizationAttempt {
     this.maxAge,
     this.idTokenHint,
     this.organization,
+    this.emailCodeResendAvailableAt,
   });
 
   factory AuthorizationAttempt.start({
@@ -70,6 +71,29 @@ class AuthorizationAttempt {
   /// §17), sent with the opening request.
   final String? organization;
 
+  /// When another email code may be asked for on this attempt's
+  /// `email_otp` step; `null` while the step is another one.
+  final DateTime? emailCodeResendAvailableAt;
+
+  /// This attempt with [emailCodeResendAvailableAt] set to [availableAt],
+  /// `null` included ([copyWith] cannot clear a field).
+  AuthorizationAttempt withEmailCodeResendAvailableAt(DateTime? availableAt) =>
+      AuthorizationAttempt(
+        purpose: purpose,
+        pkce: pkce,
+        nonce: nonce,
+        state: state,
+        authSession: authSession,
+        isAuthorizationSent: isAuthorizationSent,
+        loginHint: loginHint,
+        prompt: prompt,
+        acrValues: acrValues,
+        maxAge: maxAge,
+        idTokenHint: idTokenHint,
+        organization: organization,
+        emailCodeResendAvailableAt: availableAt,
+      );
+
   ChallengeAuthorizationParameters toParameters({
     required String scope,
     required Uri? redirectUri,
@@ -101,6 +125,7 @@ class AuthorizationAttempt {
     Duration? maxAge,
     String? idTokenHint,
     String? organization,
+    DateTime? emailCodeResendAvailableAt,
   }) => AuthorizationAttempt(
     purpose: purpose ?? this.purpose,
     pkce: pkce ?? this.pkce,
@@ -114,6 +139,8 @@ class AuthorizationAttempt {
     maxAge: maxAge ?? this.maxAge,
     idTokenHint: idTokenHint ?? this.idTokenHint,
     organization: organization ?? this.organization,
+    emailCodeResendAvailableAt:
+        emailCodeResendAvailableAt ?? this.emailCodeResendAvailableAt,
   );
 
   @override
@@ -131,7 +158,8 @@ class AuthorizationAttempt {
           acrValues.hasSameValues(other.acrValues) &&
           maxAge == other.maxAge &&
           idTokenHint == other.idTokenHint &&
-          organization == other.organization;
+          organization == other.organization &&
+          emailCodeResendAvailableAt == other.emailCodeResendAvailableAt;
 
   @override
   int get hashCode => Object.hash(
@@ -147,6 +175,7 @@ class AuthorizationAttempt {
     maxAge,
     idTokenHint,
     organization,
+    emailCodeResendAvailableAt,
   );
 
   @override

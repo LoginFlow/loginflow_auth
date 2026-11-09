@@ -166,6 +166,9 @@ void main() {
         StepError.invalidCredential,
       );
 
+      // A resend is refused locally until the cooldown is over
+      // (`email_otp_resend_cooldown_test.dart`).
+      fixture.clock.advance(fixture.auth.config.emailCodeResendCooldown);
       await fixture.auth.resendEmailOtp();
       expect(server.sentEmailOtps, hasLength(2));
 

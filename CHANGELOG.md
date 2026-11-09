@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.18.0
+
+Email-code resend cooldown owned by the library. LoginFlow answers an
+email-code request the same whether or not an email left, and sends no new
+code for a while once one was issued; a "Resend code" pressed at once did
+nothing visible and people got stuck.
+
+- New: `LoginFlowConfig.emailCodeResendCooldown` (`Duration`, default
+  `LoginFlowConfig.defaultEmailCodeResendCooldown` = 60 s). `validate()`
+  refuses a value that is not positive; its JSON form is
+  `email_code_resend_cooldown_seconds` (absent → 60).
+- New: `ChallengePrompt.resendAvailableAt` (`DateTime?`, UTC; JSON
+  `resend_available_at`): set on the `email_otp` step one cooldown after the
+  code is requested and after each accepted resend; a wrong or expired code
+  keeps it; `cancelChallenge` or a new attempt clears it; `null` on any
+  other step.
+- New: `LoginFlowAuth.emailOtpResendWait` (`Duration`): the wait left on the
+  library's clock, `Duration.zero` when a resend is allowed or no
+  email-code step is in progress.
+- Changed: `resendEmailOtp()` before `resendAvailableAt` fails with
+  `RateLimited(retryAfter: <wait left>)` and sends no request.
+- Breaking: `EmailOtpMethod.resendCooldown` (and its JSON
+  `resend_cooldown_seconds`) is removed: the wait is the core's, not the
+  UI's. Migration: `EmailOtpMethod(resendCooldown: d)` →
+  `EmailOtpMethod()` plus `LoginFlowConfig(emailCodeResendCooldown: d)`.
+- Sign-in UI: the email-code step shows "Resend code (0:42)" disabled until
+  the wait is over, read from the library's clock every second (the
+  `SignInViewModel` timer, never `build()`), and the help line "It can take
+  up to 2 minutes; check spam. The code lasts 30 minutes." (es: "Puede
+  tardar hasta 2 minutos; revisa también spam. El código sirve 30
+  minutos."). The password reset's code step counts the same configured
+  cooldown. New `LoginFlowStrings.resendCodeCountdown(time)` and
+  `LoginFlowStrings.emailCodeHelp` — a custom `LoginFlowStrings`
+  implementation must add them.
+- Fixed: builds against `passkeys` 2.24, whose new
+  `ConditionalCreateNotEligibleException`,
+  `ConditionalCreateUnsupportedException` and
+  `PasswordCredentialUnsupportedException` broke the exhaustive switch in
+  `CorbadoPasskeyAuthenticator`; they map to
+  `PasskeyFailureReason.notSupported`.
+
 ## 0.17.0
 
 In-app password reset owned by the library: every authentication of a

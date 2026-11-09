@@ -6,7 +6,7 @@ void main() {
     const configuration = SignInConfiguration(
       methods: <AuthMethod>[
         PasswordMethod(isForgotPasswordShown: false),
-        EmailOtpMethod(resendCooldown: Duration(seconds: 45)),
+        EmailOtpMethod(),
         GoogleMethod(),
         MicrosoftMethod(),
       ],

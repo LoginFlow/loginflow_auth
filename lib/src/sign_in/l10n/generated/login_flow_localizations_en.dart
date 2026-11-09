@@ -87,6 +87,15 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
   }
 
   @override
+  String resendCodeCountdown(String time) {
+    return 'Resend code ($time)';
+  }
+
+  @override
+  String get emailCodeHelp =>
+      'It can take up to 2 minutes; check spam. The code lasts 30 minutes.';
+
+  @override
   String get sendMagicLink => 'Email me a sign-in link instead';
 
   @override

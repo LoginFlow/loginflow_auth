@@ -108,10 +108,7 @@ void main() {
     final harness = SignInHarness.install(
       server,
       const SignInConfiguration(
-        methods: <AuthMethod>[
-          PasswordMethod(),
-          EmailOtpMethod(resendCooldown: Duration.zero),
-        ],
+        methods: <AuthMethod>[PasswordMethod(), EmailOtpMethod()],
       ),
       clock: clock,
     );
@@ -139,10 +136,7 @@ void main() {
   test('back from the code step abandons the challenge', () async {
     await installed(
       const SignInConfiguration(
-        methods: <AuthMethod>[
-          PasswordMethod(),
-          EmailOtpMethod(resendCooldown: Duration.zero),
-        ],
+        methods: <AuthMethod>[PasswordMethod(), EmailOtpMethod()],
       ),
     );
     await phaseOf<SignInChoosingMethod>();
