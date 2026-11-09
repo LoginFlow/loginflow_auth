@@ -12,7 +12,7 @@ sealed class AuthMethod {
     final method = json.requireString('method');
     return switch (method) {
       PasswordMethod.methodName => PasswordMethod.fromJson(json),
-      EmailOtpMethod.methodName => EmailOtpMethod.fromJson(json),
+      EmailOtpMethod.methodName => const EmailOtpMethod(),
       GoogleMethod.methodName => const GoogleMethod(),
       MicrosoftMethod.methodName => const MicrosoftMethod(),
       AppleMethod.methodName => const AppleMethod(),
@@ -71,44 +71,29 @@ final class PasswordMethod extends AuthMethod {
   int get hashCode => Object.hash(methodName, isForgotPasswordShown);
 }
 
-/// A one-time code sent by email.
+/// A one-time code sent by email. The wait before "Resend code" is the
+/// core's `LoginFlowConfig.emailCodeResendCooldown`, so every app shares it.
 final class EmailOtpMethod extends AuthMethod {
   /// Creates an [EmailOtpMethod].
-  const EmailOtpMethod({this.resendCooldown = const Duration(seconds: 30)});
-
-  /// Reads an [EmailOtpMethod] from its JSON form ([toJson]).
-  factory EmailOtpMethod.fromJson(Map<String, Object?> json) => EmailOtpMethod(
-    resendCooldown: Duration(
-      seconds: json.optionalInt('resend_cooldown_seconds') ?? 30,
-    ),
-  );
+  const EmailOtpMethod();
 
   /// The wire name of this method in the login options.
   static const String methodName = 'email_otp';
-
-  /// Wait before "Resend code" is enabled again.
-  final Duration resendCooldown;
 
   @override
   String get wireName => methodName;
 
   /// A copy of this [EmailOtpMethod] with the given fields replaced.
-  EmailOtpMethod copyWith({Duration? resendCooldown}) =>
-      EmailOtpMethod(resendCooldown: resendCooldown ?? this.resendCooldown);
+  EmailOtpMethod copyWith() => const EmailOtpMethod();
 
   @override
-  Map<String, Object?> toJson() => <String, Object?>{
-    'method': methodName,
-    'resend_cooldown_seconds': resendCooldown.inSeconds,
-  };
+  Map<String, Object?> toJson() => <String, Object?>{'method': methodName};
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is EmailOtpMethod && resendCooldown == other.resendCooldown;
+  bool operator ==(Object other) => other is EmailOtpMethod;
 
   @override
-  int get hashCode => Object.hash(methodName, resendCooldown);
+  int get hashCode => methodName.hashCode;
 }
 
 /// Google: native token when `loginflow_auth_google` is configured,

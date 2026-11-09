@@ -21,7 +21,7 @@ void main() {
         MicrosoftMethod(),
         AppleMethod(),
         FacebookMethod(),
-        EmailOtpMethod(resendCooldown: Duration.zero),
+        EmailOtpMethod(),
       ],
     ),
     isPasskeySignInOffered: true,

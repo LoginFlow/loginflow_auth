@@ -33,6 +33,13 @@
     "description": "Countdown before the resend button is enabled again.",
     "placeholders": {"seconds": {"type": "int"}}
   },
+  "resendCodeCountdown": "Reenviar código ({time})",
+  "@resendCodeCountdown": {
+    "description": "Email-code step: the resend action while its wait runs, with the time left as m:ss.",
+    "placeholders": {"time": {"type": "String", "example": "0:42"}}
+  },
+  "emailCodeHelp": "Puede tardar hasta 2 minutos; revisa también spam. El código sirve 30 minutos.",
+  "@emailCodeHelp": {"description": "Email-code step: delivery and validity of the emailed code."},
   "sendMagicLink": "Enviarme un enlace de inicio de sesión",
   "twoStepTitle": "Verificación en dos pasos",
   "authenticatorInstructions": "Ingresa el código de 6 dígitos de tu app de autenticación.",

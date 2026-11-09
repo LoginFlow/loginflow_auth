@@ -24,6 +24,8 @@
   "verifyButton": "Verify",
   "resendCode": "Resend code",
   "resendIn": "Resend code in {seconds}s",
+  "resendCodeCountdown": "Resend code ({time})",
+  "emailCodeHelp": "It can take up to 2 minutes; check spam. The code lasts 30 minutes.",
   "sendMagicLink": "Email me a sign-in link instead",
   "twoStepTitle": "Two-step verification",
   "authenticatorInstructions": "Enter the 6-digit code from your authenticator app.",

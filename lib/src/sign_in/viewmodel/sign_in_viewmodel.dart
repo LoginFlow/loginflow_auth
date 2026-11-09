@@ -180,21 +180,14 @@ class SignInViewModel extends ViewModel<SignInState> {
     await _run((auth) => auth.submitEmailOtp(code.trim()));
   }
 
+  /// "Resend code" on the email-code step, once its wait is over. The new
+  /// wait comes back with the step (`ChallengePrompt.resendAvailableAt`).
   Future<void> resendEmailCode() async {
     final phase = data.phase;
     if (phase is! SignInOtpEntry || !phase.canResend) {
       return;
     }
     await _run((auth) => auth.resendEmailOtp());
-    final current = data.phase;
-    if (current is SignInOtpEntry) {
-      updateState(
-        data.copyWith(
-          phase: current.copyWith(resendSecondsLeft: _resendCooldownSeconds),
-        ),
-      );
-      _startCountdown();
-    }
   }
 
   /// The `email_otp` step's "email me a sign-in link instead" button
@@ -372,7 +365,9 @@ class SignInViewModel extends ViewModel<SignInState> {
     if (current is SignInResetCodeEntry) {
       updateState(
         data.copyWith(
-          phase: current.copyWith(resendSecondsLeft: _resendCooldownSeconds),
+          phase: current.copyWith(
+            resendSecondsLeft: _resetCodeResendCooldownSeconds,
+          ),
         ),
       );
       _startCountdown();
@@ -634,11 +629,13 @@ class SignInViewModel extends ViewModel<SignInState> {
     final next = _nextState(authState, base);
     updateState(next);
     switch (next.phase) {
-      case SignInOtpEntry() when previous is! SignInOtpEntry:
+      // Its wait is read again from the core on every state (a resend
+      // starts a new one), so the timer restarts with each.
+      case SignInOtpEntry():
         _startCountdown();
       case SignInResetCodeEntry() when previous is! SignInResetCodeEntry:
         _startCountdown();
-      case SignInOtpEntry() || SignInResetCodeEntry() || SignInLockedOut():
+      case SignInResetCodeEntry() || SignInLockedOut():
         break;
       case SignInNotConfigured() ||
           SignInLoadingOptions() ||
@@ -701,7 +698,7 @@ class SignInViewModel extends ViewModel<SignInState> {
         email: email,
         resendSecondsLeft: current is SignInResetCodeEntry
             ? current.resendSecondsLeft
-            : _resendCooldownSeconds,
+            : _resetCodeResendCooldownSeconds,
       ),
       canGoBack: false,
     );
@@ -716,7 +713,6 @@ class SignInViewModel extends ViewModel<SignInState> {
       feedback: prompt.stepError.toFeedback(),
       canGoBack: true,
     );
-    final current = data.phase;
     final isIdentifierLocked = purpose != ChallengePurpose.signIn;
     return switch (prompt.step) {
       ChallengeStep.password => withFeedback.copyWith(
@@ -733,9 +729,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       ChallengeStep.emailOtp => withFeedback.copyWith(
         phase: SignInOtpEntry(
           email: prompt.loginHint ?? base.rememberedEmail,
-          resendSecondsLeft: current is SignInOtpEntry
-              ? current.resendSecondsLeft
-              : _resendCooldownSeconds,
+          resendSecondsLeft: _emailCodeResendSecondsLeft,
         ),
       ),
       ChallengeStep.totp => withFeedback.copyWith(
@@ -852,10 +846,18 @@ class SignInViewModel extends ViewModel<SignInState> {
       state is ChallengeRequired &&
       state.purpose == ChallengePurpose.passwordReset;
 
-  int get _resendCooldownSeconds =>
-      (_available.whereType<EmailOtpMethod>().firstOrNull ??
-              const EmailOtpMethod())
-          .resendCooldown
+  /// Whole seconds, rounded up, before the email-code step may resend:
+  /// the core owns the rule and the clock (`LoginFlowAuth.emailOtpResendWait`).
+  int get _emailCodeResendSecondsLeft {
+    final wait = _environment.auth?.emailOtpResendWait ?? Duration.zero;
+    return (wait.inMicroseconds + Duration.microsecondsPerSecond - 1) ~/
+        Duration.microsecondsPerSecond;
+  }
+
+  /// The reset's code step counts its own wait, from the same configured
+  /// cooldown as the email-code sign-in.
+  int get _resetCodeResendCooldownSeconds =>
+      (_environment.auth?.config.emailCodeResendCooldown ?? Duration.zero)
           .inSeconds;
 
   /// Ticks once a second while the current phase has seconds left; never
@@ -903,12 +905,16 @@ class SignInViewModel extends ViewModel<SignInState> {
 
   void _tick() {
     final phase = data.phase;
-    if (phase case SignInOtpEntry(:final resendSecondsLeft)
-        when resendSecondsLeft > 0) {
-      _countResend(
-        phase.copyWith(resendSecondsLeft: resendSecondsLeft - 1),
-        secondsLeft: resendSecondsLeft,
+    if (phase is SignInOtpEntry) {
+      // Read from the clock, not counted down: a timer paused while the app
+      // was in the background (reading the email) never leaves it behind.
+      final secondsLeft = _emailCodeResendSecondsLeft;
+      updateState(
+        data.copyWith(phase: phase.copyWith(resendSecondsLeft: secondsLeft)),
       );
+      if (secondsLeft == 0) {
+        _stopCountdown();
+      }
       return;
     }
     if (phase case SignInResetCodeEntry(:final resendSecondsLeft)

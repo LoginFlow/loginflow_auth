@@ -18,6 +18,7 @@ class LoginFlowConfig {
     this.clockSkew = const Duration(seconds: 60),
     this.requestTimeout = const Duration(seconds: 30),
     this.enableDpop = false,
+    this.emailCodeResendCooldown = defaultEmailCodeResendCooldown,
   });
 
   /// Reads a [LoginFlowConfig] from its JSON form ([toJson]).
@@ -37,8 +38,16 @@ class LoginFlowConfig {
         seconds: json.requireInt('request_timeout_seconds'),
       ),
       enableDpop: json.optionalBool('enable_dpop', absent: false),
+      emailCodeResendCooldown: Duration(
+        seconds:
+            json.optionalInt('email_code_resend_cooldown_seconds') ??
+            defaultEmailCodeResendCooldown.inSeconds,
+      ),
     );
   }
+
+  /// The [emailCodeResendCooldown] of a configuration that sets none.
+  static const Duration defaultEmailCodeResendCooldown = Duration(seconds: 60);
 
   /// The issuer identifier, e.g. `LoginFlowEnvironment.production.issuer`.
   final Uri issuer;
@@ -83,6 +92,13 @@ class LoginFlowConfig {
   /// for `native` + `first_party` clients (`doc/server-contract.md` §13).
   final bool enableDpop;
 
+  /// The wait between two emailed sign-in codes. LoginFlow answers an
+  /// email-code request the same whether or not an email left, and sends no
+  /// new code for a while once one was issued; `LoginFlowAuth.resendEmailOtp`
+  /// is refused locally until this wait is over, and
+  /// `ChallengePrompt.resendAvailableAt` says when it is. Must be positive.
+  final Duration emailCodeResendCooldown;
+
   /// Refuses a configuration that could leak codes or tokens: the issuer
   /// must be `https` without query or fragment, and every redirect URI must
   /// be acceptable (`doc/decisions.md` D3, D8).
@@ -102,6 +118,13 @@ class LoginFlowConfig {
       return Err(
         const ConfigurationInvalid(
           description: 'the issuer must be https without query or fragment',
+        ),
+      );
+    }
+    if (emailCodeResendCooldown <= Duration.zero) {
+      return Err(
+        const ConfigurationInvalid(
+          description: 'email_code_resend_cooldown must be positive',
         ),
       );
     }
@@ -130,6 +153,7 @@ class LoginFlowConfig {
     Duration? clockSkew,
     Duration? requestTimeout,
     bool? enableDpop,
+    Duration? emailCodeResendCooldown,
   }) => LoginFlowConfig(
     issuer: issuer ?? this.issuer,
     clientId: clientId ?? this.clientId,
@@ -141,6 +165,8 @@ class LoginFlowConfig {
     clockSkew: clockSkew ?? this.clockSkew,
     requestTimeout: requestTimeout ?? this.requestTimeout,
     enableDpop: enableDpop ?? this.enableDpop,
+    emailCodeResendCooldown:
+        emailCodeResendCooldown ?? this.emailCodeResendCooldown,
   );
 
   /// The JSON form of this [LoginFlowConfig], read back by [LoginFlowConfig.fromJson].
@@ -155,6 +181,7 @@ class LoginFlowConfig {
     'clock_skew_seconds': clockSkew.inSeconds,
     'request_timeout_seconds': requestTimeout.inSeconds,
     'enable_dpop': enableDpop,
+    'email_code_resend_cooldown_seconds': emailCodeResendCooldown.inSeconds,
   };
 
   @override
@@ -170,7 +197,8 @@ class LoginFlowConfig {
           uiLocales.hasSameValues(other.uiLocales) &&
           clockSkew == other.clockSkew &&
           requestTimeout == other.requestTimeout &&
-          enableDpop == other.enableDpop;
+          enableDpop == other.enableDpop &&
+          emailCodeResendCooldown == other.emailCodeResendCooldown;
 
   @override
   int get hashCode => Object.hash(
@@ -184,5 +212,6 @@ class LoginFlowConfig {
     clockSkew,
     requestTimeout,
     enableDpop,
+    emailCodeResendCooldown,
   );
 }

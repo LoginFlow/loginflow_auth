@@ -75,6 +75,16 @@ abstract interface class LoginFlowStrings {
   /// English: "Resend code in {seconds}s".
   String resendIn(int seconds);
 
+  /// The email-code step's resend action while its wait runs; [time] is
+  /// the wait left as `m:ss`.
+  /// English: "Resend code ({time})".
+  String resendCodeCountdown(String time);
+
+  /// The email-code step's note on delivery and validity.
+  /// English: "It can take up to 2 minutes; check spam. The code lasts 30
+  /// minutes."
+  String get emailCodeHelp;
+
   /// English: "Email me a sign-in link instead".
   String get sendMagicLink;
 

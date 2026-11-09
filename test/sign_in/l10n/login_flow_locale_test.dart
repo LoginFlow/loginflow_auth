@@ -34,6 +34,7 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.codeLabel,
   (l) => l.verifyButton,
   (l) => l.resendCode,
+  (l) => l.emailCodeHelp,
   (l) => l.sendMagicLink,
   (l) => l.twoStepTitle,
   (l) => l.authenticatorInstructions,
@@ -143,6 +144,7 @@ void main() {
         expect(l10n.codeSentTo('a@b.com'), contains('a@b.com'));
         expect(l10n.resetCodeSentTo('a@b.com'), contains('a@b.com'));
         expect(l10n.resendIn(7), contains('7'));
+        expect(l10n.resendCodeCountdown('0:42'), contains('(0:42)'));
         expect(l10n.continueAs('Ana'), contains('Ana'));
         expect(l10n.lockedOutMessage(30), contains('30'));
         expect(l10n.accessCodeIncomplete(8), contains('8'));

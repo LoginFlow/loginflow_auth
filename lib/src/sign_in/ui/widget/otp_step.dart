@@ -10,7 +10,7 @@ import 'package:loginflow_auth/src/sign_in/ui/widget/code_field.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sign_in_buttons.dart';
 import 'package:loginflow_auth/src/sign_in/viewmodel/sign_in_viewmodel.dart';
 
-/// Email one-time code entry with a resend cooldown.
+/// Email one-time code entry with a resend cooldown and delivery help.
 class OtpStep extends StatefulWidget {
   const OtpStep({
     required this.phase,
@@ -48,6 +48,7 @@ class _OtpStepState extends State<OtpStep> {
       spacing: context.signInTheme.spacingMedium,
       children: [
         Text(strings.codeSentTo(phase.email)),
+        Text(strings.emailCodeHelp),
         CodeField(
           controller: _code,
           label: strings.codeLabel,
@@ -61,9 +62,7 @@ class _OtpStepState extends State<OtpStep> {
           onPressed: isEnabled ? _submit : null,
         ),
         SignInTextAction(
-          label: phase.canResend
-              ? strings.resendCode
-              : strings.resendIn(phase.resendSecondsLeft),
+          label: phase.toResendLabel(strings),
           onPressed: isEnabled && phase.canResend
               ? () => unawaited(widget.viewModel.resendEmailCode())
               : null,

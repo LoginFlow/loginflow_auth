@@ -6,6 +6,7 @@ import 'package:loginflow_auth/src/sign_in/model/auth_method.dart';
 import 'package:loginflow_auth/src/sign_in/model/field_error.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_copy.dart';
 import 'package:loginflow_auth/src/sign_in/model/sign_in_feedback.dart';
+import 'package:loginflow_auth/src/sign_in/model/sign_in_phase.dart';
 import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
 
 /// Label and icon of each method's button.
@@ -99,4 +100,18 @@ extension SignInCopyPresentation on SignInCopy {
 /// How the Native SSO account is named in "Continue as …".
 extension SsoCandidatePresentation on SsoCandidate {
   String toDisplayName() => name ?? email ?? subject;
+}
+
+/// Texts of the email-code step.
+extension SignInOtpEntryPresentation on SignInOtpEntry {
+  /// "Resend code", or "Resend code (0:42)" while its wait runs.
+  String toResendLabel(LoginFlowStrings strings) => canResend
+      ? strings.resendCode
+      : strings.resendCodeCountdown(_resendWaitText);
+
+  /// [resendSecondsLeft] as `m:ss`.
+  String get _resendWaitText {
+    final seconds = (resendSecondsLeft % 60).toString().padLeft(2, '0');
+    return '${resendSecondsLeft ~/ 60}:$seconds';
+  }
 }

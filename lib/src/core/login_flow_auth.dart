@@ -364,8 +364,30 @@ class LoginFlowAuth {
       _continueAttempt(EmailOtpInput(code: code));
 
   /// Asks the server for a new email code on the current step.
-  Future<Result<AuthState, LoginFlowError>> resendEmailOtp() =>
-      _continueAttempt(const ResendEmailOtpInput());
+  ///
+  /// Refused locally, with no request, while [emailOtpResendWait] is not
+  /// over: fails with [RateLimited] whose `retryAfter` is the wait left.
+  /// The server would answer such a request as sent and email nothing.
+  Future<Result<AuthState, LoginFlowError>> resendEmailOtp() async {
+    final wait = emailOtpResendWait;
+    if (wait > Duration.zero) {
+      return Err(RateLimited(retryAfter: wait));
+    }
+    return _continueAttempt(const ResendEmailOtpInput());
+  }
+
+  /// The wait left before [resendEmailOtp] may ask for another code
+  /// (`ChallengePrompt.resendAvailableAt` measured on this client's clock);
+  /// [Duration.zero] once it may, and when no email-code step is in
+  /// progress.
+  Duration get emailOtpResendWait {
+    final availableAt = _attempt?.emailCodeResendAvailableAt;
+    if (availableAt == null) {
+      return Duration.zero;
+    }
+    final wait = availableAt.difference(_clock.now());
+    return wait.isNegative ? Duration.zero : wait;
+  }
 
   /// The `email_otp` step's "email me a sign-in link instead" action
   /// (contract: magic link). Only meaningful when
@@ -1794,7 +1816,7 @@ class LoginFlowAuth {
       return _abandon(const AccessCodesUnavailable());
     }
     return switch (response.data) {
-      final ChallengeStepRequired step => _onStepRequired(sent, step),
+      final ChallengeStepRequired step => _onStepRequired(sent, step, input),
       final ChallengeCodeIssued issued => _redeemCode(
         discovery,
         code: issued.authorizationCode,
@@ -1834,8 +1856,12 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> _onStepRequired(
     AuthorizationAttempt sent,
     ChallengeStepRequired step,
+    ChallengeInput? input,
   ) async {
-    final attempt = sent.copyWith(authSession: step.authSession);
+    final resendAvailableAt = _emailCodeResendAvailableAt(sent, step, input);
+    final attempt = sent
+        .copyWith(authSession: step.authSession)
+        .withEmailCodeResendAvailableAt(resendAvailableAt);
     _attempt = attempt;
     if (step.next == ChallengeStep.upstreamToken) {
       return _answerUpstream(step);
@@ -1855,6 +1881,7 @@ class LoginFlowAuth {
           prompt: ChallengePrompt.fromResponse(
             step,
             loginHint: attempt.loginHint,
+            resendAvailableAt: resendAvailableAt,
           ),
           purpose: reset == null
               ? attempt.purpose
@@ -1862,6 +1889,25 @@ class LoginFlowAuth {
         ),
       ),
     );
+  }
+
+  /// When another email code may be asked for after [step]: one
+  /// [LoginFlowConfig.emailCodeResendCooldown] from now when the step is
+  /// entered or a resend was just accepted; unchanged while the person stays
+  /// on it (a wrong or expired code, a magic link); `null` on any other step.
+  DateTime? _emailCodeResendAvailableAt(
+    AuthorizationAttempt sent,
+    ChallengeStepRequired step,
+    ChallengeInput? input,
+  ) {
+    if (step.next != ChallengeStep.emailOtp) {
+      return null;
+    }
+    final current = sent.emailCodeResendAvailableAt;
+    if (current != null && input is! ResendEmailOtpInput) {
+      return current;
+    }
+    return _clock.now().add(config.emailCodeResendCooldown);
   }
 
   /// The reset's `email_otp` step: [AwaitingResetCode], with the refusal of

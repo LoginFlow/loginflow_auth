@@ -60,6 +60,10 @@ final class LoginFlowStringsEn implements LoginFlowStrings {
   @override
   String resendIn(int seconds) => _l10n.resendIn(seconds);
   @override
+  String resendCodeCountdown(String time) => _l10n.resendCodeCountdown(time);
+  @override
+  String get emailCodeHelp => _l10n.emailCodeHelp;
+  @override
   String get sendMagicLink => _l10n.sendMagicLink;
   @override
   String get twoStepTitle => _l10n.twoStepTitle;
