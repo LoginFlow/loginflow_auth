@@ -220,7 +220,7 @@ void main() {
       await poll();
       expect(polls('device_qr_poll'), hasLength(1));
 
-      final scanned = phone.auth.parseSignInQr(qrSignIn.qrUri.toString());
+      final scanned = await phone.auth.parseSignInQr(qrSignIn.qrUri.toString());
       final approved = await phone.auth.approveQrSignIn(scanned.data);
       expect(approved.isOk, isTrue);
 

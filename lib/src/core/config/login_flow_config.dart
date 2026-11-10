@@ -106,7 +106,9 @@ class LoginFlowConfig {
   /// `assetlinks.json` name, e.g. `acme-id.loginflow.dev`. A sign-in QR
   /// (`LoginFlowAuth.parseSignInQr`) is accepted only when it points at this
   /// host: a QR of another company is not this app's business. `null`
-  /// leaves QR approval off; nothing else reads it.
+  /// makes `parseSignInQr` use the `passkey_rp_id` LoginFlow publishes in
+  /// the client's login options; this value, when set, always wins.
+  /// Nothing else reads it.
   final String? passkeyRpId;
 
   /// Refuses a configuration that could leak codes or tokens: the issuer
@@ -139,7 +141,7 @@ class LoginFlowConfig {
       );
     }
     final rpId = passkeyRpId;
-    if (rpId != null && !_isPlainHost(rpId)) {
+    if (rpId != null && !isPlainHost(rpId)) {
       return Err(
         const ConfigurationInvalid(
           description:
@@ -160,8 +162,9 @@ class LoginFlowConfig {
     return Ok(this);
   }
 
-  /// A lower-case DNS host with no scheme, port, path or user.
-  static bool _isPlainHost(String value) => RegExp(
+  /// Whether [value] is a bare lowercase host name with at least one dot
+  /// (no scheme, port or path): the shape of a passkey relying-party ID.
+  static bool isPlainHost(String value) => RegExp(
     r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$',
   ).hasMatch(value);
 

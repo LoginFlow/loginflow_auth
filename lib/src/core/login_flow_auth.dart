@@ -1392,14 +1392,22 @@ class LoginFlowAuth {
 
   /// Reads a scanned sign-in QR (`doc/server-contract.md` §21): the app
   /// scans, this checks. The QR must be
-  /// `https://<LoginFlowConfig.passkeyRpId>/qr/<request_id>#<secret>`: a QR
-  /// of another company fails with [InvalidSignInQr]
+  /// `https://<company passkey host>/qr/<request_id>#<secret>`, the host
+  /// being [LoginFlowConfig.passkeyRpId] or, when the app did not configure
+  /// one, the `passkey_rp_id` LoginFlow publishes for this client
+  /// ([fetchLoginOptions], `doc/server-contract.md` §4; the configured value
+  /// always wins). A QR of another company fails with [InvalidSignInQr]
   /// ([SignInQrProblem.otherCompany]) and is never sent anywhere; any other
-  /// text with [SignInQrProblem.malformed]; an app without
-  /// [LoginFlowConfig.passkeyRpId] with [SignInQrProblem.notConfigured].
-  /// No request is made.
-  Result<SignInQr, LoginFlowError> parseSignInQr(String scanned) {
-    final rpId = config.passkeyRpId;
+  /// text with [SignInQrProblem.malformed]; no host from either source with
+  /// [SignInQrProblem.notConfigured]. The only request is the login-options
+  /// read, and only without a configured host; its failure is returned as
+  /// is.
+  Future<Result<SignInQr, LoginFlowError>> parseSignInQr(String scanned) async {
+    final rpIdResult = await _passkeyRpId();
+    if (rpIdResult case Err(:final error)) {
+      return Err(error);
+    }
+    final rpId = rpIdResult.data;
     if (rpId == null) {
       return Err(const InvalidSignInQr(problem: SignInQrProblem.notConfigured));
     }
@@ -1421,6 +1429,23 @@ class LoginFlowAuth {
       return Err(const InvalidSignInQr(problem: SignInQrProblem.otherCompany));
     }
     return Ok(SignInQr(requestId: segments.last, secret: uri.fragment));
+  }
+
+  /// The company's passkey host: [LoginFlowConfig.passkeyRpId], else the
+  /// `passkey_rp_id` of the client's login options; `null` when neither
+  /// names one (a published value that is not a plain host counts as none).
+  Future<Result<String?, LoginFlowError>> _passkeyRpId() async {
+    final configured = config.passkeyRpId;
+    if (configured != null) {
+      return Ok(configured);
+    }
+    final options = await fetchLoginOptions();
+    return options.map((options) {
+      final published = options.passkeyRpId;
+      return published != null && LoginFlowConfig.isPlainHost(published)
+          ? published
+          : null;
+    });
   }
 
   /// A UUID, the shape of a QR's request id.

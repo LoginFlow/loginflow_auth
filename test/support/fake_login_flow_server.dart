@@ -439,6 +439,11 @@ class FakeLoginFlowServer {
   /// did before the server started publishing it.
   bool hasPasskey = true;
   PasskeyMode? passkeyMode = PasskeyMode.passwordless;
+
+  /// The `passkey_rp_id` `GET /oauth2/login-options` publishes (the
+  /// company's passkey host, whenever its passkey policy is not disabled);
+  /// `null` leaves it out, as for a company with passkeys disabled.
+  String? publishedPasskeyRpId = passkeyRpId;
   String? googleServerClientId = '1234567890-fake.apps.googleusercontent.com';
   String? facebookAppId = '1234567890123456';
   bool isNativeSsoSupported = true;
@@ -724,6 +729,8 @@ class FakeLoginFlowServer {
           'password_reset': isPasswordResetEnabled,
           'passkey': hasPasskey,
           if (hasPasskey) 'passkey_mode': passkeyMode?.wireName,
+          if (publishedPasskeyRpId != null)
+            'passkey_rp_id': publishedPasskeyRpId,
           if (googleServerClientId != null)
             'google_server_client_id': googleServerClientId,
           if (facebookAppId != null) 'facebook_app_id': facebookAppId,

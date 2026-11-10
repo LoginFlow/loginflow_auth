@@ -1469,18 +1469,21 @@ final auth = LoginFlowPlatform.createAuth(
   config: LoginFlowConfig(
     issuer: LoginFlowEnvironment.production.issuer,
     clientId: 'acme-orders-mobile',
-    // The company's passkey host — the same one your app's Associated
-    // Domains (`webcredentials:`) and assetlinks.json name.
+    // Optional: the company's passkey host — the same one your app's
+    // Associated Domains (`webcredentials:`) and assetlinks.json name.
+    // Without it, the library reads the host LoginFlow publishes for the
+    // client (`passkey_rp_id` of the login options).
     passkeyRpId: 'acme-id.loginflow.dev',
   ),
 );
 
-final scanned = auth.parseSignInQr(textFromTheCamera);
+final scanned = await auth.parseSignInQr(textFromTheCamera);
 switch (scanned) {
   case Err(error: InvalidSignInQr(problem: SignInQrProblem.otherCompany)):
     // A QR of another company: never sent anywhere.
   case Err(:final error):
-    // malformed, or no passkeyRpId configured.
+    // malformed, no passkey host (neither configured nor published), or
+    // the login-options read failed.
   case Ok(data: final qr):
     final details = await auth.signInQrDetails(qr);
     // details.data.clientName, .requester.device, .requester.ipAddress
@@ -1489,8 +1492,10 @@ switch (scanned) {
 }
 ```
 
-`parseSignInQr` accepts only `https://<passkeyRpId>/qr/<uuid>#<secret>` and
-makes no request. The secret only travels in the JSON body of
+`parseSignInQr` accepts only `https://<passkey host>/qr/<uuid>#<secret>`.
+With `passkeyRpId` configured it makes no request; without it, it reads
+the client's login options once per call (`ClientLoginOptions.passkeyRpId`)
+— the configured value always wins. The secret only travels in the JSON body of
 `/v1/user/device-qr/{id}/details|approve|deny`, never in a URL. Like
 `approvePhoneSignIn`, `approveQrSignIn` runs the passkey step-up
 (`LoginFlowAuth.phoneApprovalRequirement`) when the session's last sign-in
