@@ -72,7 +72,8 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     InvalidEmailAddress() ||
     InvalidTotpCode() ||
     TotpAccountRefused() ||
-    AlreadySignedIn() => SignInFeedback.unexpected,
+    AlreadySignedIn() ||
+    PhoneApprovalRefused() => SignInFeedback.unexpected,
   };
 }
 
@@ -120,7 +121,8 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     PasswordRejected() ||
     InvalidResetCode() ||
     ResetCodeExpired() ||
-    AlreadySignedIn() => toFeedback(),
+    AlreadySignedIn() ||
+    PhoneApprovalRefused() => toFeedback(),
   };
 }
 

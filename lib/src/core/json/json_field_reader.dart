@@ -119,6 +119,16 @@ extension JsonFieldReader on Map<String, Object?> {
     throw FormatException('Field "$field" must be an array of objects.');
   }
 
+  /// An array of integers; an absent field is an error, an empty array is
+  /// not.
+  List<int> intList(String field) {
+    final value = this[field];
+    if (value is List<Object?> && value.every((entry) => entry is int)) {
+      return value.cast<int>();
+    }
+    throw FormatException('Field "$field" must be an array of integers.');
+  }
+
   /// [optionalUtcDateTime] of a field that must be present.
   DateTime requireUtcDateTime(String field) =>
       optionalUtcDateTime(field) ??

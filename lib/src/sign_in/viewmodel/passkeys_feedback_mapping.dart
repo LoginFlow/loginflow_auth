@@ -43,7 +43,8 @@ extension PasskeysErrorFeedback on LoginFlowError {
     PasswordRejected() ||
     InvalidResetCode() ||
     ResetCodeExpired() ||
-    AlreadySignedIn() => PasskeysFeedback.unexpected,
+    AlreadySignedIn() ||
+    PhoneApprovalRefused() => PasskeysFeedback.unexpected,
   };
 }
 
