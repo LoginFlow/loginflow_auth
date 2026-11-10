@@ -154,6 +154,7 @@ the server does not allow is never shown.
   "password_reset": true,
   "passkey": true,
   "passkey_mode": "passwordless",
+  "passkey_rp_id": "turnosqr.id.loginflow.dev",
   "google_server_client_id": "1234567890-abc.apps.googleusercontent.com",
   "facebook_app_id": "1234567890123456",
   "policy_uri": "https://acme.example/privacy",
@@ -193,6 +194,11 @@ the server does not allow is never shown.
   method — or `"passwordless"` — it may also be the first factor on its
   own, for this client. Drives whether the built-in UI offers "Sign in with
   a passkey" as a first-factor option.
+- `passkey_rp_id` (present whenever the company's passkey policy is not
+  disabled, independent of `passkey` for this client): the company's
+  passkey relying-party ID, the host of its sign-in QRs (§21).
+  `ClientLoginOptions.passkeyRpId`; `parseSignInQr` reads it when the app
+  did not configure `LoginFlowConfig.passkeyRpId`.
 - `google_server_client_id` (present only when `google` is configured and
   enabled): the Google OAuth client ID a native app needs for
   `CredentialManager`'s `GetGoogleIdOption` / `GoogleSignInOptions`. Not a
@@ -1462,16 +1468,19 @@ account API's usual error (§15).
 
 | Call | Wire | Result |
 |---|---|---|
-| `parseSignInQr(text)` | none | `SignInQr(requestId, secret)`, or `InvalidSignInQr(problem)` |
+| `parseSignInQr(text)` | none, or `GET /oauth2/login-options` without a configured `passkeyRpId` | `SignInQr(requestId, secret)`, or `InvalidSignInQr(problem)` |
 | `signInQrDetails(qr)` | `POST …/device-qr/{id}/details` `{"secret"}` | `SignInQrDetails` (`requester` is a `PhoneApprovalRequester`; times read as UTC) |
 | `approveQrSignIn(qr)` | `POST …/device-qr/{id}/approve` `{"secret"}` | `void` (the envelope's `status` must be `approved`) |
 | `denyQrSignIn(qr)` | `POST …/device-qr/{id}/deny` `{"secret"}` | `void` (`status` `denied`) |
 
-`parseSignInQr` accepts `https://<LoginFlowConfig.passkeyRpId>/qr/<uuid>#<secret>`
+`parseSignInQr` accepts `https://<passkey host>/qr/<uuid>#<secret>`
 (base64url secret, no query, no user info, no explicit port) and nothing
-else: another host is `SignInQrProblem.otherCompany`, any other shape
-`.malformed`, a config without `passkeyRpId` `.notConfigured`; nothing is
-sent in any of those cases. `approveQrSignIn` shares `approvePhoneSignIn`'s
+else, the passkey host being `LoginFlowConfig.passkeyRpId` or, when the app
+configured none, the `passkey_rp_id` of the client's login options (§4; a
+failed read is returned as is): another host is
+`SignInQrProblem.otherCompany`, any other shape `.malformed`, no host from
+either source `.notConfigured`; the QR is never sent in any of those
+cases. `approveQrSignIn` shares `approvePhoneSignIn`'s
 passkey step-up (§21.3: before the call when the session is not a passkey
 within 110 s, once after a `401` challenge, then exactly one more call). A
 `device_qr_*` code is `SignInQrRefused(reason)` (`notFound`, `expired`,

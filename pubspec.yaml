@@ -4,7 +4,7 @@ description: >-
   OAuth 2.0 authorization challenge flow, OpenID Connect ID token validation,
   token lifecycle, Native SSO between same-publisher apps, and a ready-to-use
   sign-in UI.
-version: 0.20.0
+version: 0.21.0
 publish_to: none
 repository: https://github.com/LoginFlow/loginflow_auth
 
@@ -23,7 +23,7 @@ dependencies:
   intl: any
   logger_rs: ^2.1.1
   meta: ^1.18.3
-  passkeys: ^2.23.1
+  passkeys: ^2.24.1
   pointycastle: ^4.0.0
   qr: ^4.0.0
   reactive_notifier: ^2.18.1

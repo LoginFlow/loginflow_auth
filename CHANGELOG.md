@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.21.0
+
+Shares `major.minor` with LoginFlow API `0.21.x`.
+
+- New: `ClientLoginOptions.passkeyRpId` — the `passkey_rp_id` LoginFlow
+  publishes in `GET /oauth2/login-options` (the company's passkey host,
+  whenever its passkey policy is not disabled).
+- Changed (breaking): `LoginFlowAuth.parseSignInQr(scanned)` is now
+  `Future<Result<SignInQr, LoginFlowError>>`. Without
+  `LoginFlowConfig.passkeyRpId` it reads the client's login options and
+  checks the QR against the published host; `.notConfigured` only when
+  neither names one, and a failed read is returned as is. A configured
+  `passkeyRpId` keeps priority and makes no request, as before.
+- New: `LoginFlowConfig.isPlainHost(value)`, the host check
+  `passkeyRpId` already used.
+- Fixed: `passkeys` is required at `^2.24.1` — the authenticator already
+  matched exceptions that only exist from 2.24, so a project resolving
+  2.23.x did not compile.
+
 ## 0.20.0
 
 Both sides of LoginFlow's two sign-ins on another device: approval on a

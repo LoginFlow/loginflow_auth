@@ -83,15 +83,21 @@ void main() {
       .toList();
 
   group('parseSignInQr', () {
-    test('reads the request id and the secret of a QR of its company', () {
-      final fixture = AuthFixture.create(server);
-      final qr = server.showQrSignIn();
+    test(
+      'reads the request id and the secret of a QR of its company',
+      () async {
+        final fixture = AuthFixture.create(server);
+        final qr = server.showQrSignIn();
 
-      final parsed = fixture.auth.parseSignInQr(qr.uri);
+        final parsed = await fixture.auth.parseSignInQr(qr.uri);
 
-      expect(parsed.data, SignInQr(requestId: qr.requestId, secret: qr.secret));
-      expect(parsed.data.toString(), isNot(contains(qr.secret)));
-    });
+        expect(
+          parsed.data,
+          SignInQr(requestId: qr.requestId, secret: qr.secret),
+        );
+        expect(parsed.data.toString(), isNot(contains(qr.secret)));
+      },
+    );
 
     test('a QR of another company is refused and never sent', () async {
       final fixture = await signedInWithPassword();
@@ -101,7 +107,7 @@ void main() {
         'evil-id.loginflow.dev',
       );
 
-      final parsed = fixture.auth.parseSignInQr(foreign);
+      final parsed = await fixture.auth.parseSignInQr(foreign);
 
       expect(
         parsed.errorOrNull,
@@ -110,31 +116,80 @@ void main() {
       expect(server.deviceQrRequests, isEmpty);
     });
 
-    test('anything else is malformed; an app without its passkey host '
-        'checks nothing', () {
+    test('anything else is malformed', () async {
       final fixture = AuthFixture.create(server);
-      final unconfigured = AuthFixture.create(server, knowsPasskeyRpId: false);
       final qr = server.showQrSignIn();
       const malformed = InvalidSignInQr(problem: SignInQrProblem.malformed);
 
       expect(
-        fixture.auth
-            .parseSignInQr(qr.uri.replaceFirst('https', 'http'))
+        (await fixture.auth.parseSignInQr(qr.uri.replaceFirst('https', 'http')))
             .errorOrNull,
         malformed,
       );
       expect(
-        fixture.auth.parseSignInQr(qr.uri.split('#').first).errorOrNull,
+        (await fixture.auth.parseSignInQr(qr.uri.split('#').first)).errorOrNull,
         malformed,
       );
       expect(
-        fixture.auth.parseSignInQr('https://example.com/menu').errorOrNull,
+        (await fixture.auth.parseSignInQr('https://example.com/menu'))
+            .errorOrNull,
         malformed,
       );
+    });
+
+    // TEST_CHARTER (tdd-light)
+    // Requirement: an app that did not configure `passkeyRpId` checks a
+    // scanned QR against the `passkey_rp_id` LoginFlow publishes in
+    // `GET /oauth2/login-options`; the configured value keeps priority.
+    // Oracle: the `Result` of `parseSignInQr` — accepted for the published
+    // host, `otherCompany` for another one, `notConfigured` when neither
+    // the app nor the server names a host; with a configured host, a
+    // different published host changes nothing.
+    // Risk edge: the fallback reading the wrong field, or the server value
+    // overriding the app's own configuration.
+    // Layer: core against the fake LoginFlow server (real HTTP).
+    // Counterfactual: without the fallback the first expectation is
+    // `notConfigured`; preferring the published value turns the last one
+    // into `otherCompany`.
+    test('without its own passkey host the app uses the one LoginFlow '
+        'publishes, and its own host wins when it has one', () async {
+      final unconfigured = AuthFixture.create(server, knowsPasskeyRpId: false);
+      final qr = server.showQrSignIn();
+
       expect(
-        unconfigured.auth.parseSignInQr(qr.uri).errorOrNull,
+        (await unconfigured.auth.parseSignInQr(qr.uri)).data,
+        SignInQr(requestId: qr.requestId, secret: qr.secret),
+      );
+      expect(
+        (await unconfigured.auth.parseSignInQr(
+          qr.uri.replaceFirst(
+            FakeLoginFlowServer.passkeyRpId,
+            'evil-id.loginflow.dev',
+          ),
+        )).errorOrNull,
+        const InvalidSignInQr(problem: SignInQrProblem.otherCompany),
+      );
+
+      server.publishedPasskeyRpId = null;
+      expect(
+        (await unconfigured.auth.parseSignInQr(qr.uri)).errorOrNull,
         const InvalidSignInQr(problem: SignInQrProblem.notConfigured),
       );
+
+      server.publishedPasskeyRpId = 'other-id.loginflow.dev';
+      final configured = AuthFixture.create(server);
+      expect((await configured.auth.parseSignInQr(qr.uri)).isOk, isTrue);
+    });
+
+    test('a failed login-options read is returned as is', () async {
+      final unconfigured = AuthFixture.create(server, knowsPasskeyRpId: false);
+      final qr = server.showQrSignIn();
+      server.isLoginOptionsDown = true;
+
+      final parsed = await unconfigured.auth.parseSignInQr(qr.uri);
+
+      expect(parsed.errorOrNull, isNot(isA<InvalidSignInQr>()));
+      expect(parsed.isOk, isFalse);
     });
   });
 
@@ -142,7 +197,7 @@ void main() {
       'the JSON body', () async {
     final fixture = await signedInWithPassword();
     final qr = server.showQrSignIn();
-    final scanned = fixture.auth.parseSignInQr(qr.uri).data;
+    final scanned = (await fixture.auth.parseSignInQr(qr.uri)).data;
 
     final details = await fixture.auth.signInQrDetails(scanned);
 
@@ -175,7 +230,7 @@ void main() {
     final qr = server.showQrSignIn();
 
     final approved = await fixture.auth.approveQrSignIn(
-      fixture.auth.parseSignInQr(qr.uri).data,
+      (await fixture.auth.parseSignInQr(qr.uri)).data,
     );
 
     expect(approved.isOk, isTrue);
@@ -193,7 +248,7 @@ void main() {
     final qr = server.showQrSignIn();
 
     final approved = await fixture.auth.approveQrSignIn(
-      fixture.auth.parseSignInQr(qr.uri).data,
+      (await fixture.auth.parseSignInQr(qr.uri)).data,
     );
 
     expect(approved.isOk, isTrue);
@@ -210,10 +265,10 @@ void main() {
     final wrongSecret = server.showQrSignIn();
 
     final tooLate = await fixture.auth.approveQrSignIn(
-      fixture.auth.parseSignInQr(expired.uri).data,
+      (await fixture.auth.parseSignInQr(expired.uri)).data,
     );
     final notAllowed = await fixture.auth.approveQrSignIn(
-      fixture.auth.parseSignInQr(gated.uri).data,
+      (await fixture.auth.parseSignInQr(gated.uri)).data,
     );
     final notFound = await fixture.auth.signInQrDetails(
       SignInQr(requestId: wrongSecret.requestId, secret: 'A' * 43),
@@ -237,7 +292,7 @@ void main() {
   test('deny refuses with no step-up; deciding again is expired', () async {
     final fixture = await signedInWithPassword();
     final qr = server.showQrSignIn();
-    final scanned = fixture.auth.parseSignInQr(qr.uri).data;
+    final scanned = (await fixture.auth.parseSignInQr(qr.uri)).data;
 
     final denied = await fixture.auth.denyQrSignIn(scanned);
     final again = await fixture.auth.approveQrSignIn(scanned);

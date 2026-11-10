@@ -17,6 +17,7 @@ class ClientLoginOptions {
     required this.isPasswordResetEnabled,
     this.hasPasskey = false,
     this.passkeyMode,
+    this.passkeyRpId,
     this.googleServerClientId,
     this.facebookAppId,
     this.policyUri,
@@ -36,6 +37,7 @@ class ClientLoginOptions {
       ),
       hasPasskey: hasPasskey,
       passkeyMode: hasPasskey ? _readPasskeyMode(json) : null,
+      passkeyRpId: json.optionalString('passkey_rp_id'),
       googleServerClientId: json.optionalString('google_server_client_id'),
       facebookAppId: json.optionalString('facebook_app_id'),
       policyUri: _readHttpsUri(json, 'policy_uri'),
@@ -101,6 +103,14 @@ class ClientLoginOptions {
   /// Present only when [hasPasskey] is `true`.
   final PasskeyMode? passkeyMode;
 
+  /// The company's passkey relying-party ID (`passkey_rp_id`), the host of
+  /// its passkeys and of its sign-in QRs, e.g. `acme-id.loginflow.dev`.
+  /// Published whenever the company's passkey policy is not disabled, even
+  /// when [hasPasskey] is `false` for this client; `null` otherwise.
+  /// `LoginFlowAuth.parseSignInQr` reads it when the app did not configure
+  /// `LoginFlowConfig.passkeyRpId`.
+  final String? passkeyRpId;
+
   /// The Google OAuth client ID a native app needs for
   /// `CredentialManager`'s `GetGoogleIdOption`/`GoogleSignInOptions`. Not a
   /// secret. `null` when Google is not configured and enabled.
@@ -147,6 +157,7 @@ class ClientLoginOptions {
     bool? isPasswordResetEnabled,
     bool? hasPasskey,
     PasskeyMode? passkeyMode,
+    String? passkeyRpId,
     String? googleServerClientId,
     String? facebookAppId,
     Uri? policyUri,
@@ -159,6 +170,7 @@ class ClientLoginOptions {
         isPasswordResetEnabled ?? this.isPasswordResetEnabled,
     hasPasskey: hasPasskey ?? this.hasPasskey,
     passkeyMode: passkeyMode ?? this.passkeyMode,
+    passkeyRpId: passkeyRpId ?? this.passkeyRpId,
     googleServerClientId: googleServerClientId ?? this.googleServerClientId,
     facebookAppId: facebookAppId ?? this.facebookAppId,
     policyUri: policyUri ?? this.policyUri,
@@ -173,6 +185,7 @@ class ClientLoginOptions {
     'password_reset': isPasswordResetEnabled,
     'passkey': hasPasskey,
     if (passkeyMode != null) 'passkey_mode': passkeyMode!.wireName,
+    if (passkeyRpId != null) 'passkey_rp_id': passkeyRpId,
     if (googleServerClientId != null)
       'google_server_client_id': googleServerClientId,
     if (facebookAppId != null) 'facebook_app_id': facebookAppId,
@@ -190,6 +203,7 @@ class ClientLoginOptions {
           isPasswordResetEnabled == other.isPasswordResetEnabled &&
           hasPasskey == other.hasPasskey &&
           passkeyMode == other.passkeyMode &&
+          passkeyRpId == other.passkeyRpId &&
           googleServerClientId == other.googleServerClientId &&
           facebookAppId == other.facebookAppId &&
           policyUri == other.policyUri &&
@@ -203,6 +217,7 @@ class ClientLoginOptions {
     isPasswordResetEnabled,
     hasPasskey,
     passkeyMode,
+    passkeyRpId,
     googleServerClientId,
     facebookAppId,
     policyUri,
