@@ -11,6 +11,9 @@ import 'package:loginflow_auth/src/sign_in/ui/widget/method_picker_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/new_password_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/otp_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/password_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/phone_approval_email_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/phone_approval_step.dart';
+import 'package:loginflow_auth/src/sign_in/ui/widget/qr_sign_in_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/reset_code_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sign_in_message_step.dart';
 import 'package:loginflow_auth/src/sign_in/ui/widget/sso_confirm_step.dart';
@@ -95,6 +98,23 @@ class SignInStepView extends StatelessWidget {
       ),
       SignInAccessCodeEntry() => AccessCodeStep(
         key: SignInKeys.accessCodeStep,
+        state: state,
+        viewModel: viewModel,
+      ),
+      SignInPhoneApprovalEmailEntry() => PhoneApprovalEmailStep(
+        key: SignInKeys.phoneApprovalEmailStep,
+        state: state,
+        viewModel: viewModel,
+      ),
+      final SignInPhoneApprovalWaiting phase => PhoneApprovalStep(
+        key: SignInKeys.phoneApprovalStep,
+        phase: phase,
+        state: state,
+        viewModel: viewModel,
+      ),
+      final SignInQrWaiting phase => QrSignInStep(
+        key: SignInKeys.qrSignInStep,
+        phase: phase,
         state: state,
         viewModel: viewModel,
       ),

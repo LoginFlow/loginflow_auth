@@ -73,7 +73,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     InvalidTotpCode() ||
     TotpAccountRefused() ||
     AlreadySignedIn() ||
-    PhoneApprovalRefused() => SignInFeedback.unexpected,
+    PhoneApprovalRefused() ||
+    SignInQrRefused() ||
+    InvalidSignInQr() => SignInFeedback.unexpected,
   };
 }
 
@@ -122,7 +124,9 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     InvalidResetCode() ||
     ResetCodeExpired() ||
     AlreadySignedIn() ||
-    PhoneApprovalRefused() => toFeedback(),
+    PhoneApprovalRefused() ||
+    SignInQrRefused() ||
+    InvalidSignInQr() => toFeedback(),
   };
 }
 
@@ -144,6 +148,8 @@ extension StepErrorFeedback on StepError? {
   SignInFeedback toFeedback() => switch (this) {
     StepError.invalidCredential => SignInFeedback.invalidCredential,
     StepError.codeExpired => SignInFeedback.codeExpired,
+    StepError.denied => SignInFeedback.deviceSignInDenied,
+    StepError.expired => SignInFeedback.deviceSignInExpired,
     null => SignInFeedback.none,
   };
 }

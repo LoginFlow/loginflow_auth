@@ -22,6 +22,7 @@ class SignInHarness {
     PasskeyAuthenticator? passkey,
     LoginFlowClock clock = const SystemLoginFlowClock(),
     bool enableDpop = false,
+    LoginFlowScheduler scheduler = const TimerLoginFlowScheduler(),
   }) {
     final auth = LoginFlowAuth(
       config: LoginFlowConfig(
@@ -43,6 +44,7 @@ class SignInHarness {
       passkeyAuthenticator: passkey,
       dpopKeyStore: enableDpop ? TestDpopKeyStore() : null,
       clock: clock,
+      scheduler: scheduler,
     );
     LoginFlowSignInSetup.install(auth: auth, configuration: configuration);
     return SignInHarness._(auth, server);

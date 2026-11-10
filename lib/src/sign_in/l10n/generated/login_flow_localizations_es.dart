@@ -393,4 +393,47 @@ class LoginFlowLocalizationsEs extends LoginFlowLocalizations {
   @override
   String get feedbackPasswordRejected =>
       'No se aceptó esa contraseña: es muy débil, apareció en una filtración de datos o es la actual. Prueba con otra.';
+
+  @override
+  String get continueWithPhoneApproval => 'Aprobar desde mi teléfono';
+
+  @override
+  String get continueWithQrCode => 'Iniciar sesión con un código QR';
+
+  @override
+  String get phoneApprovalEmailInstructions =>
+      'Ingresa tu correo. Le pediremos a la aplicación de tu teléfono, donde ya iniciaste sesión, que lo apruebe.';
+
+  @override
+  String get phoneApprovalSendButton => 'Enviar a mi teléfono';
+
+  @override
+  String get phoneApprovalInstructions =>
+      'Abre la aplicación en tu teléfono y elige este número.';
+
+  @override
+  String get qrSignInInstructions =>
+      'Escanea este código con la aplicación de tu teléfono donde ya iniciaste sesión y confirma allí.';
+
+  @override
+  String get qrCodeLabel => 'Código QR para iniciar sesión';
+
+  @override
+  String deviceSignInExpiresIn(String time) {
+    return 'Vence en $time';
+  }
+
+  @override
+  String get phoneApprovalAskAgain => 'Enviar una nueva solicitud';
+
+  @override
+  String get qrSignInNewCode => 'Mostrar un código nuevo';
+
+  @override
+  String get feedbackDeviceSignInDenied =>
+      'El inicio de sesión fue rechazado en el teléfono.';
+
+  @override
+  String get feedbackDeviceSignInExpired =>
+      'Nadie respondió a tiempo. Inténtalo de nuevo.';
 }

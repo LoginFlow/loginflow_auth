@@ -44,7 +44,9 @@ extension PasskeysErrorFeedback on LoginFlowError {
     InvalidResetCode() ||
     ResetCodeExpired() ||
     AlreadySignedIn() ||
-    PhoneApprovalRefused() => PasskeysFeedback.unexpected,
+    PhoneApprovalRefused() ||
+    SignInQrRefused() ||
+    InvalidSignInQr() => PasskeysFeedback.unexpected,
   };
 }
 

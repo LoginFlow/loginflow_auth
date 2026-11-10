@@ -64,7 +64,7 @@ dependencies:
   loginflow_auth:
     git:
       url: https://github.com/LoginFlow/loginflow_auth.git
-      ref: v0.15.0
+      ref: v0.20.0
 ```
 
 Create ONE `LoginFlowAuth` for the app's lifetime, with

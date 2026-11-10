@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 import 'package:loginflow_auth/src/core/json/list_equality.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/device_sign_in_details.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
 
@@ -54,6 +55,9 @@ final class ChallengeCodeIssued extends ChallengeResponse {
 }
 
 /// 403 `insufficient_authorization`: the user must complete [next] (§5.2.2).
+/// Also the `403` of a poll of a sign-in on another device that is still
+/// undecided (`authorization_pending`, `slow_down`), which keeps the same
+/// shape (`doc/server-contract.md` §21): then [pollStatus] is set.
 final class ChallengeStepRequired extends ChallengeResponse {
   /// Creates a [ChallengeStepRequired].
   const ChallengeStepRequired({
@@ -63,6 +67,8 @@ final class ChallengeStepRequired extends ChallengeResponse {
     this.stepError,
     this.upstream,
     this.options,
+    this.device,
+    this.pollStatus,
   });
 
   /// Reads a [ChallengeStepRequired] from its JSON form ([toJson]).
@@ -73,6 +79,11 @@ final class ChallengeStepRequired extends ChallengeResponse {
       throw FormatException('Unknown challenge step "$nextName".');
     }
     final upstream = json.optionalObject('upstream');
+    final device = switch (next) {
+      ChallengeStep.devicePush ||
+      ChallengeStep.deviceQr => json.optionalObject(next.wireName),
+      _ => null,
+    };
     return ChallengeStepRequired(
       authSession: json.requireString('auth_session'),
       next: next,
@@ -82,6 +93,8 @@ final class ChallengeStepRequired extends ChallengeResponse {
       stepError: StepError.fromWireName(json.optionalString('step_error')),
       upstream: upstream == null ? null : UpstreamPrompt.fromJson(upstream),
       options: json.optionalObject('options'),
+      device: device == null ? null : DeviceSignInDetails.fromJson(device),
+      pollStatus: DevicePollStatus.fromWireName(json.optionalString('error')),
     );
   }
 
@@ -110,6 +123,14 @@ final class ChallengeStepRequired extends ChallengeResponse {
   /// `PasskeyAuthenticator.getAssertion`.
   final Map<String, Object?>? options;
 
+  /// Present when [next] is [ChallengeStep.devicePush] or
+  /// [ChallengeStep.deviceQr]: the request's number or QR, or a poll's
+  /// timing.
+  final DeviceSignInDetails? device;
+
+  /// Set on a poll that is still undecided; `null` on a step.
+  final DevicePollStatus? pollStatus;
+
   /// A copy of this [ChallengeStepRequired] with the given fields replaced.
   ChallengeStepRequired copyWith({
     String? authSession,
@@ -118,6 +139,8 @@ final class ChallengeStepRequired extends ChallengeResponse {
     StepError? stepError,
     UpstreamPrompt? upstream,
     Map<String, Object?>? options,
+    DeviceSignInDetails? device,
+    DevicePollStatus? pollStatus,
   }) => ChallengeStepRequired(
     authSession: authSession ?? this.authSession,
     next: next ?? this.next,
@@ -125,11 +148,13 @@ final class ChallengeStepRequired extends ChallengeResponse {
     stepError: stepError ?? this.stepError,
     upstream: upstream ?? this.upstream,
     options: options ?? this.options,
+    device: device ?? this.device,
+    pollStatus: pollStatus ?? this.pollStatus,
   );
 
   @override
   Map<String, Object?> toJson() => <String, Object?>{
-    'error': errorCode,
+    'error': pollStatus?.wireName ?? errorCode,
     'auth_session': authSession,
     'next': next.wireName,
     if (methods.isNotEmpty)
@@ -137,12 +162,15 @@ final class ChallengeStepRequired extends ChallengeResponse {
     'step_error': ?stepError?.wireName,
     'upstream': ?upstream?.toJson(),
     'options': ?options,
+    next.wireName: ?device?.toJson(),
   };
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ChallengeStepRequired &&
+          device == other.device &&
+          pollStatus == other.pollStatus &&
           authSession == other.authSession &&
           next == other.next &&
           methods.hasSameValues(other.methods) &&
@@ -165,6 +193,8 @@ final class ChallengeStepRequired extends ChallengeResponse {
     stepError,
     upstream,
     _encodedOptions,
+    device,
+    pollStatus,
   );
 }
 

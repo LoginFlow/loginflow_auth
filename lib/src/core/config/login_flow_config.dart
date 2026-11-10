@@ -19,6 +19,7 @@ class LoginFlowConfig {
     this.requestTimeout = const Duration(seconds: 30),
     this.enableDpop = false,
     this.emailCodeResendCooldown = defaultEmailCodeResendCooldown,
+    this.passkeyRpId,
   });
 
   /// Reads a [LoginFlowConfig] from its JSON form ([toJson]).
@@ -43,6 +44,7 @@ class LoginFlowConfig {
             json.optionalInt('email_code_resend_cooldown_seconds') ??
             defaultEmailCodeResendCooldown.inSeconds,
       ),
+      passkeyRpId: json.optionalString('passkey_rp_id'),
     );
   }
 
@@ -99,6 +101,14 @@ class LoginFlowConfig {
   /// `ChallengePrompt.resendAvailableAt` says when it is. Must be positive.
   final Duration emailCodeResendCooldown;
 
+  /// The company's passkey relying-party ID: the host of its passkeys, the
+  /// one the app's Associated Domains (`webcredentials:`) and
+  /// `assetlinks.json` name, e.g. `acme-id.loginflow.dev`. A sign-in QR
+  /// (`LoginFlowAuth.parseSignInQr`) is accepted only when it points at this
+  /// host: a QR of another company is not this app's business. `null`
+  /// leaves QR approval off; nothing else reads it.
+  final String? passkeyRpId;
+
   /// Refuses a configuration that could leak codes or tokens: the issuer
   /// must be `https` without query or fragment, and every redirect URI must
   /// be acceptable (`doc/decisions.md` D3, D8).
@@ -128,6 +138,15 @@ class LoginFlowConfig {
         ),
       );
     }
+    final rpId = passkeyRpId;
+    if (rpId != null && !_isPlainHost(rpId)) {
+      return Err(
+        const ConfigurationInvalid(
+          description:
+              'passkey_rp_id must be a host, e.g. acme-id.loginflow.dev',
+        ),
+      );
+    }
     final redirects = <Uri?>[redirectUri, postLogoutRedirectUri].nonNulls;
     if (!redirects.every((redirect) => redirect.isValidRedirect)) {
       return Err(
@@ -140,6 +159,11 @@ class LoginFlowConfig {
     }
     return Ok(this);
   }
+
+  /// A lower-case DNS host with no scheme, port, path or user.
+  static bool _isPlainHost(String value) => RegExp(
+    r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$',
+  ).hasMatch(value);
 
   /// A copy of this [LoginFlowConfig] with the given fields replaced.
   LoginFlowConfig copyWith({
@@ -154,6 +178,7 @@ class LoginFlowConfig {
     Duration? requestTimeout,
     bool? enableDpop,
     Duration? emailCodeResendCooldown,
+    String? passkeyRpId,
   }) => LoginFlowConfig(
     issuer: issuer ?? this.issuer,
     clientId: clientId ?? this.clientId,
@@ -167,6 +192,7 @@ class LoginFlowConfig {
     enableDpop: enableDpop ?? this.enableDpop,
     emailCodeResendCooldown:
         emailCodeResendCooldown ?? this.emailCodeResendCooldown,
+    passkeyRpId: passkeyRpId ?? this.passkeyRpId,
   );
 
   /// The JSON form of this [LoginFlowConfig], read back by [LoginFlowConfig.fromJson].
@@ -182,6 +208,7 @@ class LoginFlowConfig {
     'request_timeout_seconds': requestTimeout.inSeconds,
     'enable_dpop': enableDpop,
     'email_code_resend_cooldown_seconds': emailCodeResendCooldown.inSeconds,
+    'passkey_rp_id': ?passkeyRpId,
   };
 
   @override
@@ -198,7 +225,8 @@ class LoginFlowConfig {
           clockSkew == other.clockSkew &&
           requestTimeout == other.requestTimeout &&
           enableDpop == other.enableDpop &&
-          emailCodeResendCooldown == other.emailCodeResendCooldown;
+          emailCodeResendCooldown == other.emailCodeResendCooldown &&
+          passkeyRpId == other.passkeyRpId;
 
   @override
   int get hashCode => Object.hash(
@@ -213,5 +241,6 @@ class LoginFlowConfig {
     requestTimeout,
     enableDpop,
     emailCodeResendCooldown,
+    passkeyRpId,
   );
 }

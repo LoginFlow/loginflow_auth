@@ -3,6 +3,8 @@ import 'package:loginflow_auth/src/core/json/list_equality.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
+import 'package:loginflow_auth/src/core/state/phone_approval.dart';
+import 'package:loginflow_auth/src/core/state/qr_sign_in.dart';
 
 /// What the UI must ask for next. The opaque `auth_session` stays inside the
 /// library and is never exposed.
@@ -14,6 +16,8 @@ class ChallengePrompt {
     this.stepError,
     this.loginHint,
     this.resendAvailableAt,
+    this.phoneApproval,
+    this.qrSignIn,
   });
 
   /// The prompt for a `403 insufficient_authorization` [response].
@@ -21,12 +25,16 @@ class ChallengePrompt {
     ChallengeStepRequired response, {
     String? loginHint,
     DateTime? resendAvailableAt,
+    PhoneApproval? phoneApproval,
+    QrSignIn? qrSignIn,
   }) => ChallengePrompt(
     step: response.next,
     alternatives: response.methods,
     stepError: response.stepError,
     loginHint: loginHint,
     resendAvailableAt: resendAvailableAt,
+    phoneApproval: phoneApproval,
+    qrSignIn: qrSignIn,
   );
 
   /// Reads a [ChallengePrompt] from its JSON form ([toJson]).
@@ -36,6 +44,8 @@ class ChallengePrompt {
     if (step == null) {
       throw FormatException('Unknown challenge step "$stepName".');
     }
+    final phoneApproval = json.optionalObject('phone_approval');
+    final qrSignIn = json.optionalObject('qr_sign_in');
     return ChallengePrompt(
       step: step,
       alternatives: List<ChallengeStep>.unmodifiable(
@@ -47,6 +57,10 @@ class ChallengePrompt {
       stepError: StepError.fromWireName(json.optionalString('step_error')),
       loginHint: json.optionalString('login_hint'),
       resendAvailableAt: json.optionalUtcDateTime('resend_available_at'),
+      phoneApproval: phoneApproval == null
+          ? null
+          : PhoneApproval.fromJson(phoneApproval),
+      qrSignIn: qrSignIn == null ? null : QrSignIn.fromJson(qrSignIn),
     );
   }
 
@@ -69,6 +83,16 @@ class ChallengePrompt {
   /// `LoginFlowAuth.emailOtpResendWait`.
   final DateTime? resendAvailableAt;
 
+  /// On the [ChallengeStep.devicePush] step while the request waits on the
+  /// phone: the number to show and when it expires. `null` once it ended:
+  /// then [stepError] is [StepError.denied] or [StepError.expired].
+  final PhoneApproval? phoneApproval;
+
+  /// On the [ChallengeStep.deviceQr] step while the QR waits to be
+  /// scanned: what to render and when it expires. `null` once it ended:
+  /// then [stepError] is [StepError.denied] or [StepError.expired].
+  final QrSignIn? qrSignIn;
+
   /// A copy of this [ChallengePrompt] with the given fields replaced.
   ChallengePrompt copyWith({
     ChallengeStep? step,
@@ -76,12 +100,16 @@ class ChallengePrompt {
     StepError? stepError,
     String? loginHint,
     DateTime? resendAvailableAt,
+    PhoneApproval? phoneApproval,
+    QrSignIn? qrSignIn,
   }) => ChallengePrompt(
     step: step ?? this.step,
     alternatives: alternatives ?? this.alternatives,
     stepError: stepError ?? this.stepError,
     loginHint: loginHint ?? this.loginHint,
     resendAvailableAt: resendAvailableAt ?? this.resendAvailableAt,
+    phoneApproval: phoneApproval ?? this.phoneApproval,
+    qrSignIn: qrSignIn ?? this.qrSignIn,
   );
 
   /// The JSON form of this [ChallengePrompt], read back by [ChallengePrompt.fromJson].
@@ -91,6 +119,8 @@ class ChallengePrompt {
     'step_error': ?stepError?.wireName,
     'login_hint': ?loginHint,
     'resend_available_at': ?resendAvailableAt?.toUtc().toIso8601String(),
+    'phone_approval': ?phoneApproval?.toJson(),
+    'qr_sign_in': ?qrSignIn?.toJson(),
   };
 
   @override
@@ -101,7 +131,9 @@ class ChallengePrompt {
           alternatives.hasSameValues(other.alternatives) &&
           stepError == other.stepError &&
           loginHint == other.loginHint &&
-          resendAvailableAt == other.resendAvailableAt;
+          resendAvailableAt == other.resendAvailableAt &&
+          phoneApproval == other.phoneApproval &&
+          qrSignIn == other.qrSignIn;
 
   @override
   int get hashCode => Object.hash(
@@ -110,5 +142,7 @@ class ChallengePrompt {
     stepError,
     loginHint,
     resendAvailableAt,
+    phoneApproval,
+    qrSignIn,
   );
 }

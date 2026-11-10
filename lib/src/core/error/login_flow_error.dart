@@ -4,6 +4,8 @@ import 'package:loginflow_auth/src/core/error/delegation_denial_code.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
 import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/phone_approval_refusal.dart';
+import 'package:loginflow_auth/src/core/error/sign_in_qr_problem.dart';
+import 'package:loginflow_auth/src/core/error/sign_in_qr_refusal.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
@@ -805,6 +807,52 @@ final class PhoneApprovalRefused extends LoginFlowError {
 
   @override
   int get hashCode => Object.hash(PhoneApprovalRefused, reason);
+}
+
+/// LoginFlow refused to read, approve or deny a sign-in QR
+/// (`LoginFlowAuth.signInQrDetails`, `LoginFlowAuth.approveQrSignIn`,
+/// `LoginFlowAuth.denyQrSignIn`, `doc/server-contract.md` §21): [reason]
+/// says which rule. Too many calls in a short time are [RateLimited]
+/// instead.
+final class SignInQrRefused extends LoginFlowError {
+  /// Creates a [SignInQrRefused].
+  const SignInQrRefused({required this.reason});
+
+  /// The rule that refused the call.
+  final SignInQrRefusal reason;
+
+  @override
+  String get message => 'Sign-in QR refused: ${reason.wireName}';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInQrRefused && reason == other.reason;
+
+  @override
+  int get hashCode => Object.hash(SignInQrRefused, reason);
+}
+
+/// A scanned text this app may not answer as a sign-in QR
+/// (`LoginFlowAuth.parseSignInQr`, `doc/server-contract.md` §21): checked
+/// on the device, nothing was sent.
+final class InvalidSignInQr extends LoginFlowError {
+  /// Creates an [InvalidSignInQr].
+  const InvalidSignInQr({required this.problem});
+
+  /// What is wrong with it.
+  final SignInQrProblem problem;
+
+  @override
+  String get message => 'Not a sign-in QR for this app: ${problem.name}';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InvalidSignInQr && problem == other.problem;
+
+  @override
+  int get hashCode => Object.hash(InvalidSignInQr, problem);
 }
 
 /// `LoginFlowAuth.startPasswordReset` was called with someone signed in. A

@@ -1395,6 +1395,110 @@ otherwise the step-up cannot be a passkey and the call fails with
 (`unmet_authentication_requirements`). Denying needs no step-up. An
 access-code session cannot approve.
 
+### Sign-in on another device: phone approval and QR (requester side)
+
+The person signs in to **this app** by approving on a phone where an app of
+the same company is already signed in — no password typed here. Two login
+methods of their own, each **opt-in per client** in LoginFlow
+(`device_push`, `device_qr`); without it the request fails with
+`OAuthProtocolError` `unsupported_client`. The company needs passkeys on,
+since the phone confirms with one. Same concepts and names as
+`loginflow_auth_web`.
+
+```dart
+// Approval on the phone (number matching): needs the email.
+await auth.requestPhoneApproval('ana@example.com');
+// state: ChallengeRequired, prompt.step == ChallengeStep.devicePush,
+//        prompt.phoneApproval: PhoneApproval(number: 42, expiresAt: …)
+
+// QR: no email.
+await auth.requestQrSignIn();
+// state: ChallengeRequired, prompt.step == ChallengeStep.deviceQr,
+//        prompt.qrSignIn: QrSignIn(qrUri: https://acme-id…/qr/<id>#<secret>, expiresAt: …)
+
+auth.states.listen((state) {
+  if (state case ChallengeRequired(:final prompt)) {
+    if (prompt.phoneApproval case final approval?) {
+      // Show approval.number large: "Open the app on your phone and choose
+      // this number". Count down with auth.deviceSignInWait.
+    } else if (prompt.qrSignIn case final qr?) {
+      // Render qr.qrUri as a QR (the built-in UI draws it for you).
+    } else if (prompt.stepError == StepError.denied) {
+      // Refused on the phone (or another number chosen): offer to ask again.
+    } else if (prompt.stepError == StepError.expired) {
+      // Nobody answered within 120 s: offer to ask again.
+    }
+  }
+  // Approved: SignedIn, the session stored as with any other method.
+});
+
+await auth.cancelChallenge(); // "Use another method": stops waiting
+```
+
+Both calls resolve as soon as the request exists. The library then polls by
+itself at the `interval` LoginFlow gives (2 s today), 5 s slower after every
+`slow_down` (RFC 8628), and keeps polling through a network error until the
+request expires. Waiting polls emit no state: re-render the countdown from
+`expiresAt` (or `auth.deviceSignInWait`) with your own timer. Polling stops
+on any answer, on `cancelChallenge()`, on another sign-in request, on
+`selectMethod`, on `signOut()` and on `dispose()`. To ask again, call
+`requestPhoneApproval` / `requestQrSignIn` again: a new number or QR.
+`LoginFlowAuth(scheduler:)` takes a `LoginFlowScheduler` to drive the
+polling in tests.
+
+The session is never phishing-resistant (`acr` `urn:loginflow:acr:pwd`,
+`amr` `["mca"]` or `["qr"]`): an operation that demands a passkey still
+asks for one on this device.
+
+In the built-in UI, add `PhoneApprovalMethod()` and/or `QrSignInMethod()`
+to `SignInConfiguration.methods`; each shows only when the client allows
+it. "Approve on my phone" asks for the email and shows the number with its
+countdown; "Sign in with a QR code" draws the QR (the `qr` package and a
+`CustomPainter`, black on white whatever the theme) with its countdown.
+Refused or expired, they show why and offer a new one.
+
+### Sign-in by QR (approver side)
+
+A web page of your company shows a QR; the person, signed in to **your
+app**, scans it, sees who asks and approves with a passkey. The library
+has no camera dependency: the app scans with the package it prefers and
+passes the text.
+
+```dart
+final auth = LoginFlowPlatform.createAuth(
+  config: LoginFlowConfig(
+    issuer: LoginFlowEnvironment.production.issuer,
+    clientId: 'acme-orders-mobile',
+    // The company's passkey host — the same one your app's Associated
+    // Domains (`webcredentials:`) and assetlinks.json name.
+    passkeyRpId: 'acme-id.loginflow.dev',
+  ),
+);
+
+final scanned = auth.parseSignInQr(textFromTheCamera);
+switch (scanned) {
+  case Err(error: InvalidSignInQr(problem: SignInQrProblem.otherCompany)):
+    // A QR of another company: never sent anywhere.
+  case Err(:final error):
+    // malformed, or no passkeyRpId configured.
+  case Ok(data: final qr):
+    final details = await auth.signInQrDetails(qr);
+    // details.data.clientName, .requester.device, .requester.ipAddress
+    final approved = await auth.approveQrSignIn(qr); // passkey step-up inside
+    // or: await auth.denyQrSignIn(qr);
+}
+```
+
+`parseSignInQr` accepts only `https://<passkeyRpId>/qr/<uuid>#<secret>` and
+makes no request. The secret only travels in the JSON body of
+`/v1/user/device-qr/{id}/details|approve|deny`, never in a URL. Like
+`approvePhoneSignIn`, `approveQrSignIn` runs the passkey step-up
+(`LoginFlowAuth.phoneApprovalRequirement`) when the session's last sign-in
+is not a recent passkey, or after the server's RFC 9470 challenge, and
+sends the approval exactly once more. Refusals are
+`SignInQrRefused(reason)`: `notFound` (or a wrong secret), `expired` (also
+replaced or already decided), `notAllowed`; `429` is `RateLimited`.
+
 ## Security notes
 
 - PKCE S256 on every authorization; `plain` is never sent.

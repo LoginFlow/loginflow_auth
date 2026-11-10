@@ -238,4 +238,30 @@ final class LoginFlowStringsEn implements LoginFlowStrings {
   String get passwordMismatch => _l10n.passwordMismatch;
   @override
   String get feedbackPasswordRejected => _l10n.feedbackPasswordRejected;
+  @override
+  String get continueWithPhoneApproval => _l10n.continueWithPhoneApproval;
+  @override
+  String get continueWithQrCode => _l10n.continueWithQrCode;
+  @override
+  String get phoneApprovalEmailInstructions =>
+      _l10n.phoneApprovalEmailInstructions;
+  @override
+  String get phoneApprovalSendButton => _l10n.phoneApprovalSendButton;
+  @override
+  String get phoneApprovalInstructions => _l10n.phoneApprovalInstructions;
+  @override
+  String get qrSignInInstructions => _l10n.qrSignInInstructions;
+  @override
+  String get qrCodeLabel => _l10n.qrCodeLabel;
+  @override
+  String deviceSignInExpiresIn(String time) =>
+      _l10n.deviceSignInExpiresIn(time);
+  @override
+  String get phoneApprovalAskAgain => _l10n.phoneApprovalAskAgain;
+  @override
+  String get qrSignInNewCode => _l10n.qrSignInNewCode;
+  @override
+  String get feedbackDeviceSignInDenied => _l10n.feedbackDeviceSignInDenied;
+  @override
+  String get feedbackDeviceSignInExpired => _l10n.feedbackDeviceSignInExpired;
 }

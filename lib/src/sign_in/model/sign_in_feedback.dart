@@ -25,4 +25,12 @@ enum SignInFeedback {
   /// The new password of a reset was refused: too weak, found in a data
   /// breach, or the current one (`PasswordRejected`).
   passwordRejected,
+
+  /// The phone approval or the sign-in QR was refused on the phone
+  /// (`StepError.denied`).
+  deviceSignInDenied,
+
+  /// Nobody answered the phone approval or the sign-in QR in time
+  /// (`StepError.expired`).
+  deviceSignInExpired,
 }

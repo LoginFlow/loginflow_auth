@@ -386,4 +386,52 @@ abstract interface class LoginFlowStrings {
   /// English: "That password was not accepted: it is too weak, appeared in a
   /// data breach or is your current one. Try another."
   String get feedbackPasswordRejected;
+
+  /// Method button: sign in by approving on a phone already signed in (device_push).
+  /// English: "Approve on my phone".
+  String get continueWithPhoneApproval;
+
+  /// Method button: sign in by scanning a QR with a phone already signed in (device_qr).
+  /// English: "Sign in with a QR code".
+  String get continueWithQrCode;
+
+  /// Phone approval: what the email is for.
+  /// English: "Enter your email. We will ask the app on your phone, where you are already signed in, to approve.".
+  String get phoneApprovalEmailInstructions;
+
+  /// Phone approval: sends the request to the phone.
+  /// English: "Send to my phone".
+  String get phoneApprovalSendButton;
+
+  /// Phone approval: shown with the big number while it waits.
+  /// English: "Open the app on your phone and choose this number.".
+  String get phoneApprovalInstructions;
+
+  /// QR sign-in: shown with the QR while it waits.
+  /// English: "Scan this code with the app on your phone where you are already signed in, and confirm there.".
+  String get qrSignInInstructions;
+
+  /// Accessibility label of the sign-in QR.
+  /// English: "QR code to sign in".
+  String get qrCodeLabel;
+
+  /// Phone approval or QR: the time left as m:ss.
+  /// English: "Expires in {time}".
+  String deviceSignInExpiresIn(String time);
+
+  /// Phone approval: asks again after it was refused or expired.
+  /// English: "Send a new request".
+  String get phoneApprovalAskAgain;
+
+  /// QR sign-in: shows a new QR after it was refused or expired.
+  /// English: "Show a new code".
+  String get qrSignInNewCode;
+
+  /// Phone approval or QR refused on the phone (StepError.denied).
+  /// English: "The sign-in was refused on the phone.".
+  String get feedbackDeviceSignInDenied;
+
+  /// Phone approval or QR not answered within 120 s (StepError.expired).
+  /// English: "Nobody answered in time. Try again.".
+  String get feedbackDeviceSignInExpired;
 }

@@ -205,5 +205,32 @@
   "passwordMismatch": "Las contraseñas no coinciden",
   "@passwordMismatch": {"description": "The new password typed again does not match."},
   "feedbackPasswordRejected": "No se aceptó esa contraseña: es muy débil, apareció en una filtración de datos o es la actual. Prueba con otra.",
-  "@feedbackPasswordRejected": {"description": "The server refused the new password (PasswordRejected)."}
+  "@feedbackPasswordRejected": {"description": "The server refused the new password (PasswordRejected)."},
+  "continueWithPhoneApproval": "Aprobar desde mi teléfono",
+  "@continueWithPhoneApproval": {"description": "Method button: sign in by approving on a phone already signed in (device_push)."},
+  "continueWithQrCode": "Iniciar sesión con un código QR",
+  "@continueWithQrCode": {"description": "Method button: sign in by scanning a QR with a phone already signed in (device_qr)."},
+  "phoneApprovalEmailInstructions": "Ingresa tu correo. Le pediremos a la aplicación de tu teléfono, donde ya iniciaste sesión, que lo apruebe.",
+  "@phoneApprovalEmailInstructions": {"description": "Phone approval: what the email is for."},
+  "phoneApprovalSendButton": "Enviar a mi teléfono",
+  "@phoneApprovalSendButton": {"description": "Phone approval: sends the request to the phone."},
+  "phoneApprovalInstructions": "Abre la aplicación en tu teléfono y elige este número.",
+  "@phoneApprovalInstructions": {"description": "Phone approval: shown with the big number while it waits."},
+  "qrSignInInstructions": "Escanea este código con la aplicación de tu teléfono donde ya iniciaste sesión y confirma allí.",
+  "@qrSignInInstructions": {"description": "QR sign-in: shown with the QR while it waits."},
+  "qrCodeLabel": "Código QR para iniciar sesión",
+  "@qrCodeLabel": {"description": "Accessibility label of the sign-in QR."},
+  "deviceSignInExpiresIn": "Vence en {time}",
+  "@deviceSignInExpiresIn": {
+    "description": "Phone approval or QR: the time left as m:ss.",
+    "placeholders": {"time": {"type": "String", "example": "1:42"}}
+  },
+  "phoneApprovalAskAgain": "Enviar una nueva solicitud",
+  "@phoneApprovalAskAgain": {"description": "Phone approval: asks again after it was refused or expired."},
+  "qrSignInNewCode": "Mostrar un código nuevo",
+  "@qrSignInNewCode": {"description": "QR sign-in: shows a new QR after it was refused or expired."},
+  "feedbackDeviceSignInDenied": "El inicio de sesión fue rechazado en el teléfono.",
+  "@feedbackDeviceSignInDenied": {"description": "Phone approval or QR refused on the phone (StepError.denied)."},
+  "feedbackDeviceSignInExpired": "Nadie respondió a tiempo. Inténtalo de nuevo.",
+  "@feedbackDeviceSignInExpired": {"description": "Phone approval or QR not answered within 120 s (StepError.expired)."}
 }

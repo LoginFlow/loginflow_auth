@@ -108,5 +108,17 @@
   "repeatPasswordLabel": "Repeat the new password",
   "savePasswordButton": "Save password",
   "passwordMismatch": "The passwords do not match",
-  "feedbackPasswordRejected": "That password was not accepted: it is too weak, appeared in a data breach or is your current one. Try another."
+  "feedbackPasswordRejected": "That password was not accepted: it is too weak, appeared in a data breach or is your current one. Try another.",
+  "continueWithPhoneApproval": "Approve on my phone",
+  "continueWithQrCode": "Sign in with a QR code",
+  "phoneApprovalEmailInstructions": "Enter your email. We will ask the app on your phone, where you are already signed in, to approve.",
+  "phoneApprovalSendButton": "Send to my phone",
+  "phoneApprovalInstructions": "Open the app on your phone and choose this number.",
+  "qrSignInInstructions": "Scan this code with the app on your phone where you are already signed in, and confirm there.",
+  "qrCodeLabel": "QR code to sign in",
+  "deviceSignInExpiresIn": "Expires in {time}",
+  "phoneApprovalAskAgain": "Send a new request",
+  "qrSignInNewCode": "Show a new code",
+  "feedbackDeviceSignInDenied": "The sign-in was refused on the phone.",
+  "feedbackDeviceSignInExpired": "Nobody answered in time. Try again."
 }

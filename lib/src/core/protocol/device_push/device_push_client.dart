@@ -86,16 +86,10 @@ class DevicePushClient {
   /// A `device_push_*` code is [PhoneApprovalRefused]; anything else (the
   /// passkey step-up, a rate limit, an access-code subject's `403`) is the
   /// account API's usual error.
-  LoginFlowError _error(TransportReply reply) {
-    final code = reply.jsonObject().when(
-      ok: (json) => json.optionalObject('error')?.optionalString('code'),
-      err: (_) => null,
-    );
-    final refusal = code == null
-        ? null
-        : PhoneApprovalRefusal.fromWireName(code);
-    return refusal == null
-        ? reply.toAccountApiError()
-        : PhoneApprovalRefused(reason: refusal);
-  }
+  LoginFlowError _error(TransportReply reply) => reply.toAccountApiErrorOr(
+    (code) => switch (PhoneApprovalRefusal.fromWireName(code)) {
+      final PhoneApprovalRefusal reason => PhoneApprovalRefused(reason: reason),
+      null => null,
+    },
+  );
 }

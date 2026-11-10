@@ -105,8 +105,14 @@ class FakePhoneApproval {
   final DateTime createdAt;
   final DateTime expiresAt;
 
-  /// `pending`, `approved` or `denied`.
+  /// `pending`, `approved`, `denied` or `expired` (replaced or timed out).
   String status = 'pending';
+
+  /// The approver who approved it.
+  FakeUser? approver;
+
+  /// The requester polled it to its authorization code already.
+  bool isRedeemed = false;
 
   /// One entry of `GET /v1/user/device-push/pending`, timestamps as the
   /// real server's `NaiveDateTime` (UTC, no offset).
@@ -126,6 +132,52 @@ class FakePhoneApproval {
 
   static String _naive(DateTime instant) =>
       instant.toUtc().toIso8601String().replaceFirst('Z', '');
+}
+
+/// A sign-in QR a web page showed (`device_qr_requests`), as the
+/// approver's routes see it.
+class FakeQrSignIn {
+  FakeQrSignIn({
+    required this.requestId,
+    required this.secret,
+    required this.createdAt,
+    required this.expiresAt,
+  });
+
+  final String requestId;
+  final String secret;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+
+  /// Whether the approver passes the client's sign-in gate.
+  bool isAllowed = true;
+
+  /// `pending`, `approved`, `denied` or `expired` (replaced or timed out).
+  String status = 'pending';
+
+  /// The approver who approved it.
+  FakeUser? approver;
+
+  /// The requester polled it to its authorization code already.
+  bool isRedeemed = false;
+
+  /// What the QR encodes.
+  String get uri =>
+      'https://${FakeLoginFlowServer.passkeyRpId}/qr/$requestId#$secret';
+
+  /// `data` of `POST /v1/user/device-qr/{id}/details`.
+  Map<String, Object?> toDetailsJson() => <String, Object?>{
+    'request_id': requestId,
+    'client_id': 'panel-web',
+    'client_name': 'Payments panel',
+    'application_id': FakeLoginFlowServer.applicationId,
+    'requester': <String, Object?>{
+      'device': 'Chrome on macOS',
+      'ip_address': '203.0.113.7',
+    },
+    'created_at': FakePhoneApproval._naive(createdAt),
+    'expires_at': FakePhoneApproval._naive(expiresAt),
+  };
 }
 
 /// An organization of the application where a [FakeUser] has an active
@@ -362,6 +414,8 @@ class FakeLoginFlowServer {
   static const Map<String, String> _primaryStepMethods = <String, String>{
     'password': 'password',
     'email_otp': 'email_otp',
+    'device_qr': 'device_qr',
+    'device_push': 'device_push',
     'google': 'google',
     'microsoft': 'microsoft',
     'apple': 'apple',
@@ -722,6 +776,13 @@ class FakeLoginFlowServer {
       case (final method, final path)
           when path == membersPath || path.startsWith('$membersPath/'):
         _members(request, response, method, path.substring(membersPath.length));
+      case (final method, final path) when path.startsWith('$deviceQrPath/'):
+        _deviceQr(
+          request,
+          response,
+          method,
+          path.substring(deviceQrPath.length + 1),
+        );
       case (final method, final path) when path.startsWith('$devicePushPath/'):
         _devicePush(
           request,
@@ -846,6 +907,9 @@ class FakeLoginFlowServer {
     }
     if (form['method'] == 'access_code' && implementsAccessCodes) {
       return _redeemAccessCode(response, session, form['access_code']);
+    }
+    if (_deviceMethods.contains(form['method'])) {
+      return _deviceSignIn(response, session, form['method'] ?? '');
     }
     final provider = form['upstream_provider'];
     const nativeUpstreamProviders = <String>{'google', 'apple', 'facebook'};
@@ -1075,6 +1139,10 @@ class FakeLoginFlowServer {
     'email_otp',
     'magic_link',
     'webauthn_identify',
+    'device_push',
+    'device_qr',
+    'device_push_poll',
+    'device_qr_poll',
   };
 
   /// One leg: an authorization code, or a generic error that never tells an
@@ -1941,11 +2009,289 @@ class FakeLoginFlowServer {
     if (!approval.isAllowed) {
       return _denied(response, 403, 'device_push_not_allowed');
     }
-    approval.status = 'approved';
+    approval
+      ..status = 'approved'
+      ..approver = _userBySubject(access.subject);
     _envelopeSuccess(response, 200, <String, Object?>{
       'request_id': requestId,
       'status': 'approved',
     });
+  }
+
+  /// The requester's device methods (`doc/server-contract.md` §21).
+  static const Set<String> _deviceMethods = <String>{
+    'device_push',
+    'device_qr',
+    'device_push_poll',
+    'device_qr_poll',
+  };
+
+  /// The company's passkey host, which a sign-in QR names.
+  static const String passkeyRpId = 'acme-id.loginflow.dev';
+
+  /// The two-digit number the next phone approval shows.
+  int nextPhoneApprovalNumber = 42;
+
+  /// The polling interval a new phone approval or QR announces.
+  int deviceInterval = 2;
+
+  /// `true` answers the next device poll `slow_down` (the interval grows
+  /// by 5 s), as a poll sooner than the interval would get.
+  bool slowDownNextDevicePoll = false;
+
+  /// QRs the web pages showed, keyed by request id.
+  final Map<String, FakeQrSignIn> qrSignIns = <String, FakeQrSignIn>{};
+
+  /// Every request that reached the device-QR routes, in order.
+  final List<FakeHttpRequest> deviceQrRequests = <FakeHttpRequest>[];
+
+  int _deviceRequestSequence = 0;
+
+  /// A fresh UUID-shaped request id.
+  String _deviceRequestId() {
+    _deviceRequestSequence++;
+    final tail = _deviceRequestSequence.toString().padLeft(12, '0');
+    return '0a1771df-1794-49ba-8dfc-$tail';
+  }
+
+  /// A web page shows a sign-in QR (`method=device_qr`), like the
+  /// requester side does.
+  FakeQrSignIn showQrSignIn({DateTime? expiresAt}) {
+    final now = DateTime.now().toUtc();
+    final qr = FakeQrSignIn(
+      requestId: _deviceRequestId(),
+      secret: _token32(),
+      createdAt: now,
+      expiresAt: expiresAt ?? now.add(const Duration(seconds: 120)),
+    );
+    qrSignIns[qr.requestId] = qr;
+    return qr;
+  }
+
+  /// Plays every phone approval and QR timing out (120 s).
+  void expireDeviceRequests() {
+    for (final approval in phoneApprovals.values) {
+      if (approval.status == 'pending') {
+        approval.status = 'expired';
+      }
+    }
+    for (final qr in qrSignIns.values) {
+      if (qr.status == 'pending') {
+        qr.status = 'expired';
+      }
+    }
+  }
+
+  /// `ChallengeService::request_device_push|request_device_qr` and their
+  /// polls (`loginflow_api/docs/api/oauth2/authorize-challenge-device-*.md`).
+  void _deviceSignIn(
+    FakeHttpResponse response,
+    _ChallengeSession session,
+    String method,
+  ) {
+    final isPoll = method.endsWith('_poll');
+    final step = isPoll ? method.substring(0, method.length - 5) : method;
+    if (!isPoll) {
+      if (!_allowedLoginMethods.contains(step)) {
+        return _oauthError(response, 400, 'unsupported_client');
+      }
+      if (step == 'device_push' && session.email == null) {
+        return _oauthError(response, 400, 'invalid_request');
+      }
+      _replaceDeviceRequest(session);
+      final now = DateTime.now().toUtc();
+      final requestId = _deviceRequestId();
+      session
+        ..deviceStep = step
+        ..deviceRequestId = requestId
+        ..pollInterval = deviceInterval;
+      if (step == 'device_push') {
+        // Anti-enumeration: an unknown email still gets a request nobody
+        // can see, with the same answer.
+        phoneApprovals[requestId] = FakePhoneApproval(
+          requestId: requestId,
+          subject: users[session.email]?.subject ?? '',
+          number: nextPhoneApprovalNumber,
+          choices: const <int>[17, 42, 85],
+          isAllowed: true,
+          createdAt: now,
+          expiresAt: now.add(const Duration(seconds: 120)),
+        );
+        return _step(
+          response,
+          session,
+          step,
+          device: <String, Object?>{
+            'number': nextPhoneApprovalNumber,
+            'expires_in': 120,
+            'interval': deviceInterval,
+          },
+        );
+      }
+      final secret = _token32();
+      qrSignIns[requestId] = FakeQrSignIn(
+        requestId: requestId,
+        secret: secret,
+        createdAt: now,
+        expiresAt: now.add(const Duration(seconds: 120)),
+      );
+      return _step(
+        response,
+        session,
+        step,
+        device: <String, Object?>{
+          'qr_uri': qrSignIns[requestId]?.uri,
+          'expires_in': 120,
+          'interval': deviceInterval,
+        },
+      );
+    }
+    if (session.deviceStep != step) {
+      return _oauthError(response, 400, 'invalid_request');
+    }
+    final requestId = session.deviceRequestId ?? '';
+    final (status, approver, isRedeemed) = switch (step) {
+      'device_push' => (
+        phoneApprovals[requestId]?.status,
+        phoneApprovals[requestId]?.approver,
+        phoneApprovals[requestId]?.isRedeemed ?? false,
+      ),
+      _ => (
+        qrSignIns[requestId]?.status,
+        qrSignIns[requestId]?.approver,
+        qrSignIns[requestId]?.isRedeemed ?? false,
+      ),
+    };
+    if (slowDownNextDevicePoll && status == 'pending') {
+      slowDownNextDevicePoll = false;
+      session.pollInterval += 5;
+      return _devicePending(response, session, 'slow_down');
+    }
+    switch (status) {
+      case 'pending':
+        return _devicePending(response, session, 'authorization_pending');
+      case 'denied':
+        return _oauthError(response, 400, 'access_denied');
+      case 'approved' when isRedeemed:
+        return _oauthError(response, 400, 'invalid_session');
+      case 'approved' when approver != null:
+        phoneApprovals[requestId]?.isRedeemed = true;
+        qrSignIns[requestId]?.isRedeemed = true;
+        session.email = approver.email;
+        final code = _issueChallengeCode(session, approver);
+        return _json(response, 200, <String, Object?>{
+          'authorization_code': code,
+        });
+      default:
+        return _oauthError(response, 400, 'expired_token');
+    }
+  }
+
+  /// A new request replaces the transaction's previous one, QR or push.
+  void _replaceDeviceRequest(_ChallengeSession session) {
+    final previous = session.deviceRequestId;
+    if (previous == null) {
+      return;
+    }
+    final approval = phoneApprovals[previous];
+    if (approval != null && approval.status == 'pending') {
+      approval.status = 'expired';
+    }
+    final qr = qrSignIns[previous];
+    if (qr != null && qr.status == 'pending') {
+      qr.status = 'expired';
+    }
+  }
+
+  /// An undecided poll: no rotation of `auth_session`.
+  void _devicePending(
+    FakeHttpResponse response,
+    _ChallengeSession session,
+    String error,
+  ) => _json(response, 403, <String, Object?>{
+    'error': error,
+    'next': session.deviceStep,
+    'auth_session': session.key,
+    session.deviceStep ?? '': <String, Object?>{
+      'expires_in': 100,
+      'interval': session.pollInterval,
+    },
+  });
+
+  /// The approver's routes of a sign-in by QR
+  /// (`loginflow_api/docs/api/v1/user/device-qr/`).
+  static const String deviceQrPath = '/v1/user/device-qr';
+
+  /// `authenticate_access` + `refuse_access_subject`, then the route — the
+  /// shapes `device_qr_handler.rs` and `DeviceQrApprovalService` answer.
+  void _deviceQr(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    deviceQrRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _liveAccess(header.substring(scheme.length))
+        : null;
+    if (access == null ||
+        (requiresDpop && _checkDpop(request, response) != null)) {
+      return _refuseToken(response, header);
+    }
+    final approver = _userBySubject(access.subject);
+    if (approver == null) {
+      return _denied(response, 403, 'not_available_for_access_subject');
+    }
+    final segments = route.split('/');
+    if (method != 'POST' || segments.length != 2) {
+      response.statusCode = 404;
+      return;
+    }
+    final [requestId, action] = segments;
+    final secret = (jsonDecode(request.body) as Map<String, Object?>)['secret'];
+    final qr = qrSignIns[requestId];
+    if (qr == null || qr.secret != secret) {
+      return _denied(response, 404, 'device_qr_not_found');
+    }
+    if (qr.status != 'pending' ||
+        !qr.expiresAt.isAfter(DateTime.now().toUtc())) {
+      return _denied(response, 410, 'device_qr_expired');
+    }
+    if (!qr.isAllowed) {
+      return _denied(response, 403, 'device_qr_not_allowed');
+    }
+    switch (action) {
+      case 'details':
+        _envelopeSuccess(response, 200, qr.toDetailsJson());
+      case 'deny':
+        qr.status = 'denied';
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'request_id': requestId,
+          'status': 'denied',
+        });
+      case 'approve':
+        final session = _deviceSessions[access.sid];
+        final isPasskeyRecent =
+            (session?.isPhishingResistant ?? false) &&
+            !_staleAuthentications.contains(access.sid);
+        if (!isPasskeyRecent) {
+          return _authenticationRequired(
+            response,
+            phoneApprovalStepUpChallenge,
+          );
+        }
+        qr
+          ..status = 'approved'
+          ..approver = approver;
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'request_id': requestId,
+          'status': 'approved',
+        });
+      default:
+        response.statusCode = 404;
+    }
   }
 
   /// LoginFlow's members API for a person (`doc/server-contract.md` §18).
@@ -2849,6 +3195,7 @@ class FakeLoginFlowServer {
     String? stepError,
     Map<String, Object?>? upstream,
     Map<String, Object?>? options,
+    Map<String, Object?>? device,
   }) {
     _rotate(session);
     final methods = _stepMethods(next, users[session.email]);
@@ -2862,6 +3209,7 @@ class FakeLoginFlowServer {
       'step_error': ?stepError,
       'upstream': ?upstream,
       'options': ?options,
+      next: ?device,
     });
   }
 
@@ -3003,6 +3351,12 @@ class _ChallengeSession {
   /// A passkey assertion was accepted: the session's `acr` is
   /// `urn:loginflow:acr:phr`.
   bool isPhishingResistant = false;
+
+  /// The phone approval or QR this transaction waits on: `device_push` or
+  /// `device_qr`, its request id, and the polling interval.
+  String? deviceStep;
+  String? deviceRequestId;
+  int pollInterval = 2;
 
   void openAuthorization({
     required String codeChallenge,
