@@ -1295,3 +1295,134 @@ recovery codes; ask for them right after.
 `StepUpRequired` (call `stepUp`, then ask again); `429` is `RateLimited`.
 A `400` (the state changed since it was read) is the account API's usual
 `ServerResponseInvalid`: read `totpStatus()` again.
+
+## 21. Sign-in on another device: QR and phone approval (LoginFlow extension)
+
+Two login methods of their own, checked against `loginflow_api` `main`
+`53ebcc2` (`docs/api/oauth2/authorize-challenge-device-{qr,push}.md`,
+`docs/api/v1/user/device-{qr,push}/`). A first-party **web page** (a client
+with `allowed_web_origins`, §5.1) signs a person in through a person already
+signed in to an **app** of the same company: the page is the *requester*
+(the authorization challenge, §5), the app is the *approver* (`/v1/user`,
+the scope, token and envelope of §15). A client lists `device_qr` and/or
+`device_push` in its `login_methods`; neither is in the default list
+(otherwise `400 unsupported_client`). Both need the company's passkeys
+(`503 temporarily_unavailable` otherwise), are refused inside a step-up
+(`400 invalid_request`), share one request store (one live request per
+transaction, at most 10 per transaction, `429 temporarily_unavailable`
+after that), and live 120 s.
+
+**The library implements the approver side of `device_push` only**
+(§21.3). The requester steps and the `device_qr` approver routes are
+documented here for completeness; a web client drives the requester side.
+
+### 21.1 Requester: the authorization challenge
+
+`method=device_qr` (any opening or continuation) and `method=device_push`
+(the transaction must name an email: `login_hint` on its opening, else
+`400 invalid_request`) answer `403`:
+
+```json
+{"error": "insufficient_authorization", "next": "device_qr", "auth_session": "…",
+ "device_qr": {"qr_uri": "https://<company passkey host>/qr/<request_id>#<secret>", "expires_in": 120, "interval": 2}}
+{"error": "insufficient_authorization", "next": "device_push", "auth_session": "…",
+ "device_push": {"number": 42, "expires_in": 120, "interval": 2}}
+```
+
+- `qr_uri`: what the QR encodes. The secret (256 bits, base64url) is in the
+  fragment, never sent by a browser; the server keeps only its SHA-256.
+- `number`: two digits (10–99) the page shows large ("open your app and
+  choose this number"). The answer is identical field for field whether the
+  email is a real, allowed person or not (anti-enumeration: a request with a
+  random number and no target is stored and simply expires); 10 requests
+  per company and email per hour.
+- Asking again (`method=device_qr|device_push` with the `auth_session`)
+  replaces the previous request, QR or push.
+
+`method=device_qr_poll` / `method=device_push_poll` with the
+`auth_session` (RFC 8628 §3.5; `auth_session` does not rotate while
+waiting):
+
+| State | Status | Body |
+|---|---|---|
+| Waiting | `403` | `{"error": "authorization_pending", "next": "device_qr"\|"device_push", "auth_session", "device_qr"\|"device_push": {"expires_in", "interval"}}` |
+| Polled sooner than `interval` (500 ms tolerance) | `403` | `slow_down`, `interval` + 5 s (max 30 s), kept |
+| Expired or replaced | `400` | `{"error": "expired_token"}` |
+| Denied, or a wrong number chosen | `400` | `{"error": "access_denied"}` |
+| Approved | `200` | `{"authorization_code": "…"}`, redeemed once (`invalid_session` after), within 120 s |
+
+The code is exchanged at the token endpoint like any challenge code (§7.1,
+PKCE, DPoP for a browser client). Its session: `sub` = the approver,
+`auth_time` = the approval, `amr` `["qr"]` or `["mca"]`, hence `acr`
+`urn:loginflow:acr:pwd` — **never phishing-resistant** (a phishing page can
+relay a QR or ask in the victim's name), so an operation that demands `phr`
+still needs a passkey on that device. No TOTP is asked on the page: the
+approver's passkey covers both factors.
+
+### 21.2 Approver: `/v1/user/device-qr` and `/v1/user/device-push`
+
+The session's own access token (`Authorization: Bearer` or `DPoP`, §13), of
+a company user: an access-code subject's token (§16) answers `403
+not_available_for_access_subject`. `ApiResponse` envelope (§15).
+
+| Route | Body | Answer (the envelope's `data`) |
+|---|---|---|
+| `POST /v1/user/device-qr/{request_id}/details` | `{"secret"}` | `200 {request_id, client_id, client_name, application_id, requester: {device, ip_address}, created_at, expires_at}` |
+| `POST /v1/user/device-qr/{request_id}/approve` | `{"secret"}` | `200 {request_id, status: "approved"}` |
+| `POST /v1/user/device-qr/{request_id}/deny` | `{"secret"}` | `200 {request_id, status: "denied"}` |
+| `GET /v1/user/device-push/pending` | — | `200 {requests: [{request_id, client_id, client_name, application_id, requester: {device, ip_address}, choices: [17, 42, 85], created_at, expires_at}]}`, oldest first, `[]` when none |
+| `POST /v1/user/device-push/{request_id}/approve` | `{"number": 42}` | `200 {request_id, status: "approved"}`, or `200 {request_id, status: "denied", reason: "wrong_number"}` |
+| `POST /v1/user/device-push/{request_id}/deny` | — | `200 {request_id, status: "denied"}` |
+
+- The QR's app checks that `qr_uri`'s origin is its own company's passkey
+  host, takes `request_id` from the path and the secret from the fragment,
+  and sends the secret only in the JSON body, never in a URL.
+- `choices`: three distinct two-digit numbers, the page's among them at a
+  random position, the same three in the same order on every read; the
+  page's number alone is never sent to the app. `requester.device` is
+  `"<browser> on <system>"` from the page's `User-Agent` (`null` when it
+  names neither); `ip_address` the page's address, `null` when unknown; no
+  geo-IP location. `created_at`/`expires_at` are UTC `NaiveDateTime`s
+  without an offset.
+- **Approve needs a passkey within the last 120 s**: the token's `acr` is
+  `urn:loginflow:acr:phr` and its `auth_time` within 120 s, else `401` and
+  `WWW-Authenticate: Bearer error="insufficient_user_authentication",
+  acr_values="urn:loginflow:acr:phr", max_age=120` — nothing is decided,
+  the one try of a push is not spent. The app runs a passkey step-up (§5.2
+  step-up opening with `acr_values=urn:loginflow:acr:phr`; an account with a
+  passkey and no TOTP on a `passwordless` company whose client takes
+  `passkey` is answered `next: webauthn_assertion` directly) and calls
+  again. Deny needs no recent sign-in.
+- **One try (push).** A number that is not the page's ends the request as
+  denied (`200 … wrong_number`); the page's poll answers `access_denied`.
+- Rules in order (push approve): the request is the caller's and pending →
+  recent passkey → the number → the client's sign-in gate → a
+  compare-and-swap (two decisions never both win).
+
+| Status | `error.code` | When |
+|---|---|---|
+| `404` | `device_qr_not_found` / `device_push_not_found` | No such request for the caller (or a wrong QR secret); someone else's request answers the same |
+| `410` | `device_qr_expired` / `device_push_expired` | Expired, replaced, already decided or used |
+| `403` | `device_qr_not_allowed` / `device_push_not_allowed` | The approver may not sign in to the request's client (required permission, deleted profile or membership); the push request stays pending |
+| `429` | `RATE_LIMITED` (`Retry-After`) | More than 20 reads (QR), approvals or denials per person in 15 minutes |
+
+### 21.3 Library behaviour (`device_push` approver)
+
+| Call | Wire | Result |
+|---|---|---|
+| `pendingPhoneApprovals()` | `GET …/device-push/pending` | `List<PhoneApprovalRequest>` (`requester` is a `PhoneApprovalRequester`; times read as UTC) |
+| `approvePhoneSignIn(requestId:, number:)` | `POST …/{id}/approve` | `PhoneApprovalOutcome.approved` / `.wrongNumber` |
+| `denyPhoneSignIn(requestId)` | `POST …/{id}/deny` (body `{}`) | `void` |
+
+`approvePhoneSignIn` runs `stepUp(LoginFlowAuth.phoneApprovalRequirement)`
+(`acr_values=urn:loginflow:acr:phr`, `max_age=120`) **before** the call
+when the session's ID token is not `phr` or its `auth_time` is older than
+110 s on the library's clock (10 s of margin), and **after** a `401`
+challenge on a session it believed recent; then it sends the approval
+exactly once more. A step-up that does not end signed in at once (the
+server asked for another step) leaves that step in progress and fails with
+`StepUpRequired`; a failed or cancelled passkey fails with its own error
+(`PasskeyFailed`, `PasskeyRejected`) and nothing is decided. A
+`device_push_*` code is `PhoneApprovalRefused(reason)` (`notFound`,
+`expired`, `notAllowed`); `429` is `RateLimited`; anything else is the
+account API's usual error (§15).

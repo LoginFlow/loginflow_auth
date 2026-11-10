@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.19.0
+
+Approver side of LoginFlow's sign-in by phone approval (`device_push`,
+number matching): a first-party web page asks to sign in as a person and
+shows a two-digit number; the person, signed in to the app, picks the same
+number among three and confirms with a passkey. Server contract:
+`doc/server-contract.md` §21 (new; documents `device_qr` and `device_push`,
+requester steps and approver routes).
+
+- New: `LoginFlowAuth.pendingPhoneApprovals()` →
+  `Result<List<PhoneApprovalRequest>, LoginFlowError>`
+  (`GET /v1/user/device-push/pending`). `PhoneApprovalRequest` (`requestId`,
+  `clientId`, `clientName`, `applicationId`, `requester`, `choices`,
+  `createdAt`, `expiresAt` in UTC) and `PhoneApprovalRequester` (`device`,
+  `ipAddress`), with `copyWith`, `==`, `hashCode`, `fromJson`/`toJson`.
+- New: `LoginFlowAuth.approvePhoneSignIn({requestId, number})` →
+  `Result<PhoneApprovalOutcome, LoginFlowError>`
+  (`POST /v1/user/device-push/{id}/approve`): `PhoneApprovalOutcome.approved`
+  or `.wrongNumber` (denied for good, one try). The server needs a passkey
+  within the last 120 s; the call runs the passkey step-up itself
+  (`LoginFlowAuth.phoneApprovalRequirement`: `acr_values`
+  `urn:loginflow:acr:phr`, `max_age` 120 s) before sending when the session's
+  last sign-in is not a recent passkey, or on the server's RFC 9470
+  challenge, then sends the approval exactly once more.
+- New: `LoginFlowAuth.denyPhoneSignIn(requestId)` → `Result<void, LoginFlowError>`
+  (`POST /v1/user/device-push/{id}/deny`), no step-up.
+- New: `PhoneApprovalRefused(reason)` with `PhoneApprovalRefusal.notFound`,
+  `.expired` and `.notAllowed` (`device_push_not_found`, `_expired`,
+  `_not_allowed`); `429` stays `RateLimited`.
+- New: `LoginFlowAuth.phishingResistantAcr` (`urn:loginflow:acr:phr`).
+- Breaking (exhaustive switches): `LoginFlowError` has a new subclass,
+  `PhoneApprovalRefused`; a `switch` over `LoginFlowError` without a
+  catch-all must add it.
+- No bundled approval screen in this release: the app renders the request
+  (client name, device, address, the three numbers, deny) itself.
+
 ## 0.18.0
 
 Email-code resend cooldown owned by the library. LoginFlow answers an

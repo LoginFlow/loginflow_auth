@@ -48,6 +48,9 @@ import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_token_type.dart';
+import 'package:loginflow_auth/src/core/protocol/device_push/device_push_client.dart';
+import 'package:loginflow_auth/src/core/protocol/device_push/phone_approval_outcome.dart';
+import 'package:loginflow_auth/src/core/protocol/device_push/phone_approval_request.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_client.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_confirmed.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_started.dart';
@@ -169,6 +172,7 @@ class LoginFlowAuth {
       transport: transport,
       issuer: config.issuer,
     );
+    _devicePush = DevicePushClient(transport: transport, issuer: config.issuer);
     _passwordChange = PasswordChangeClient(
       transport: transport,
       issuer: config.issuer,
@@ -231,6 +235,7 @@ class LoginFlowAuth {
   late final LoginOptionsClient _loginOptions;
   late final PasskeyAccountClient _passkeyAccount;
   late final TotpAccountClient _totpAccount;
+  late final DevicePushClient _devicePush;
   late final PasswordChangeClient _passwordChange;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
@@ -1209,6 +1214,132 @@ class LoginFlowAuth {
       return Err(error);
     }
     return _passkeyAccount.delete(bearerToken: tokenResult.data, id: id);
+  }
+
+  /// The `acr` of a passkey sign-in (phishing-resistant), the one an
+  /// approval by phone needs.
+  static const String phishingResistantAcr = 'urn:loginflow:acr:phr';
+
+  /// What `POST /v1/user/device-push/{id}/approve` requires: a passkey
+  /// within the last 120 s (`doc/server-contract.md` §21).
+  static const StepUpRequirement phoneApprovalRequirement = StepUpRequirement(
+    acrValues: <String>[phishingResistantAcr],
+    maxAge: Duration(seconds: 120),
+  );
+
+  /// How long before [phoneApprovalRequirement]'s `max_age` a passkey
+  /// sign-in is already treated as too old, so an approval never leaves
+  /// with an authentication that expires in flight.
+  static const Duration _phoneApprovalMargin = Duration(seconds: 10);
+
+  /// The sign-ins by phone approval waiting for the signed-in person
+  /// (`GET /v1/user/device-push/pending`, `doc/server-contract.md` §21),
+  /// oldest first; empty when nothing waits. LoginFlow sends no push
+  /// notification yet: read it when the app opens or comes to the
+  /// foreground, and every few seconds while a screen that shows it is
+  /// open. Reading never changes a request.
+  ///
+  /// An access-code session cannot approve: the server answers its `403`
+  /// (`not_available_for_access_subject`) as [ServerResponseInvalid].
+  Future<Result<List<PhoneApprovalRequest>, LoginFlowError>>
+  pendingPhoneApprovals() =>
+      _withSessionToken((token) => _devicePush.pending(bearerToken: token));
+
+  /// Approves the sign-in [requestId] with the [number] the person chose
+  /// among `PhoneApprovalRequest.choices`
+  /// (`POST /v1/user/device-push/{id}/approve`, `doc/server-contract.md`
+  /// §21). [PhoneApprovalOutcome.approved]: the page signs in as this
+  /// person. [PhoneApprovalOutcome.wrongNumber]: the request is denied for
+  /// good — one try.
+  ///
+  /// The server needs a passkey within the last 120 s
+  /// ([phoneApprovalRequirement]). When the session's last sign-in is not a
+  /// passkey or is older than that, or when the server answers the RFC 9470
+  /// challenge anyway, this runs the passkey step-up itself ([stepUp]: the
+  /// platform's passkey sheet) and sends the approval ONCE more — never a
+  /// loop. It fails with [StepUpRequired] when that step-up needs more than
+  /// a passkey (the server asked for another step: it stays in progress as
+  /// `ChallengeRequired` for the sign-in UI) or when the server still
+  /// refuses after it; with the step-up's own error when the passkey fails
+  /// or is cancelled (`PasskeyFailed`, `PasskeyRejected`).
+  ///
+  /// Refusals: [PhoneApprovalRefused] (`notFound`, `expired`, `notAllowed`),
+  /// [RateLimited] after 20 decisions in 15 minutes, [NotSignedIn].
+  Future<Result<PhoneApprovalOutcome, LoginFlowError>> approvePhoneSignIn({
+    required String requestId,
+    required int number,
+  }) async {
+    final session = _session;
+    if (session == null) {
+      return Err(const NotSignedIn());
+    }
+    final isPasskeyRecent = _isPasskeyRecent(session.identity);
+    if (!isPasskeyRecent) {
+      final steppedUp = await _passkeyStepUp(phoneApprovalRequirement);
+      if (steppedUp case Err(:final error)) {
+        return Err(error);
+      }
+    }
+    final approved = await _approvePhoneSignIn(requestId, number);
+    if (approved case Err(error: StepUpRequired(:final requirement))
+        when isPasskeyRecent) {
+      final steppedUp = await _passkeyStepUp(requirement);
+      if (steppedUp case Err(:final error)) {
+        return Err(error);
+      }
+      return _approvePhoneSignIn(requestId, number);
+    }
+    return approved;
+  }
+
+  /// Refuses the sign-in [requestId] ("this was not me",
+  /// `POST /v1/user/device-push/{id}/deny`, `doc/server-contract.md` §21):
+  /// the page's next poll answers `access_denied`. No recent sign-in needed.
+  /// Fails with [PhoneApprovalRefused] (`notFound`, `expired`) or
+  /// [RateLimited].
+  Future<Result<void, LoginFlowError>> denyPhoneSignIn(String requestId) =>
+      _withSessionToken(
+        (token) => _devicePush.deny(bearerToken: token, requestId: requestId),
+      );
+
+  Future<Result<PhoneApprovalOutcome, LoginFlowError>> _approvePhoneSignIn(
+    String requestId,
+    int number,
+  ) => _withSessionToken(
+    (token) => _devicePush.approve(
+      bearerToken: token,
+      requestId: requestId,
+      number: number,
+    ),
+  );
+
+  /// Whether [identity] signed in with a passkey recently enough for
+  /// [phoneApprovalRequirement], on the library's clock.
+  bool _isPasskeyRecent(UserIdentity identity) {
+    final authTime = identity.authTime;
+    final maxAge = phoneApprovalRequirement.maxAge;
+    if (identity.authenticationContext != phishingResistantAcr ||
+        authTime == null ||
+        maxAge == null) {
+      return false;
+    }
+    final age = _clock.now().difference(authTime);
+    return age < maxAge - _phoneApprovalMargin;
+  }
+
+  /// Runs [stepUp] for [requirement] and succeeds only when it ends signed
+  /// in again (the passkey ceremony completes it in one go). Any other
+  /// state is a step the person still has to answer: [StepUpRequired].
+  Future<Result<void, LoginFlowError>> _passkeyStepUp(
+    StepUpRequirement requirement,
+  ) async {
+    final steppedUp = await stepUp(requirement);
+    if (steppedUp case Err(:final error)) {
+      return Err(error);
+    }
+    return steppedUp.data is SignedIn
+        ? Ok(null)
+        : Err(StepUpRequired(requirement: requirement));
   }
 
   /// Whether the signed-in person has an authenticator app on

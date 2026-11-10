@@ -3,6 +3,7 @@ import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/delegation_denial_code.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
 import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
+import 'package:loginflow_auth/src/core/error/phone_approval_refusal.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_provider.dart';
@@ -780,6 +781,30 @@ final class ResetCodeExpired extends LoginFlowError {
 
   @override
   int get hashCode => (ResetCodeExpired).hashCode;
+}
+
+/// LoginFlow refused to approve or deny a sign-in by phone approval
+/// (`LoginFlowAuth.approvePhoneSignIn`, `LoginFlowAuth.denyPhoneSignIn`,
+/// `doc/server-contract.md` §21): [reason] says which rule, so the UI
+/// shows why without parsing text. Too many decisions in a short time are
+/// [RateLimited] instead.
+final class PhoneApprovalRefused extends LoginFlowError {
+  /// Creates a [PhoneApprovalRefused].
+  const PhoneApprovalRefused({required this.reason});
+
+  /// The rule that refused the call.
+  final PhoneApprovalRefusal reason;
+
+  @override
+  String get message => 'Phone approval refused: ${reason.wireName}';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PhoneApprovalRefused && reason == other.reason;
+
+  @override
+  int get hashCode => Object.hash(PhoneApprovalRefused, reason);
 }
 
 /// `LoginFlowAuth.startPasswordReset` was called with someone signed in. A

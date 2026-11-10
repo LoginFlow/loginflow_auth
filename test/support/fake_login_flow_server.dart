@@ -78,6 +78,56 @@ class FakeUser {
 /// A code the fake LoginFlow emailed for an email change, and where.
 typedef FakeSentCode = ({String address, String code});
 
+/// A sign-in by phone approval a web page asked for
+/// (`device_push_requests`), as the approver's routes see it.
+class FakePhoneApproval {
+  FakePhoneApproval({
+    required this.requestId,
+    required this.subject,
+    required this.number,
+    required this.choices,
+    required this.isAllowed,
+    required this.createdAt,
+    required this.expiresAt,
+  });
+
+  final String requestId;
+
+  /// The company user the page named (`login_hint`).
+  final String subject;
+
+  /// The number the page shows.
+  final int number;
+  final List<int> choices;
+
+  /// Whether the approver passes the client's sign-in gate.
+  final bool isAllowed;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+
+  /// `pending`, `approved` or `denied`.
+  String status = 'pending';
+
+  /// One entry of `GET /v1/user/device-push/pending`, timestamps as the
+  /// real server's `NaiveDateTime` (UTC, no offset).
+  Map<String, Object?> toPendingJson() => <String, Object?>{
+    'request_id': requestId,
+    'client_id': 'panel-web',
+    'client_name': 'Payments panel',
+    'application_id': FakeLoginFlowServer.applicationId,
+    'requester': <String, Object?>{
+      'device': 'Chrome on macOS',
+      'ip_address': '203.0.113.7',
+    },
+    'choices': choices,
+    'created_at': _naive(createdAt),
+    'expires_at': _naive(expiresAt),
+  };
+
+  static String _naive(DateTime instant) =>
+      instant.toUtc().toIso8601String().replaceFirst('Z', '');
+}
+
 /// An organization of the application where a [FakeUser] has an active
 /// assignment, with the permissions it gives per API audience
 /// (`doc/server-contract.md` §17).
@@ -672,6 +722,13 @@ class FakeLoginFlowServer {
       case (final method, final path)
           when path == membersPath || path.startsWith('$membersPath/'):
         _members(request, response, method, path.substring(membersPath.length));
+      case (final method, final path) when path.startsWith('$devicePushPath/'):
+        _devicePush(
+          request,
+          response,
+          method,
+          path.substring(devicePushPath.length + 1),
+        );
       case (final method, final path) when path.startsWith('$totpPath/'):
         _totp(request, response, method, path.substring(totpPath.length));
       case ('POST', changePasswordPath):
@@ -778,7 +835,11 @@ class FakeLoginFlowServer {
       session
         ..isPrimaryAuthenticated = false
         ..isSecondFactorDone = false
+        ..isPhishingResistant = false
         ..isIdentifiedByHint = true;
+      if (_answersPasskeyStepUp(response, session, form)) {
+        return;
+      }
     }
     if (form['prompt'] == 'create' || form['intent'] == 'password_reset') {
       return _redirectToWeb(response, session);
@@ -895,35 +956,7 @@ class FakeLoginFlowServer {
       session.isSecondFactorDone = true;
     }
     if (form['method'] == 'webauthn_identify') {
-      // `webauthn-rs`'s `RequestChallengeResponse`, as the real server
-      // sends it: the WebAuthn options under `publicKey`, plus `mediation:
-      // conditional` on a discoverable (no `login_hint`) request
-      // (`WebauthnService::start_discoverable_authentication`). A targeted
-      // request lists the account's passkeys as `{id, type}` with NO
-      // `transports`: the server asks for no attestation, so webauthn-rs never
-      // stores them (loginflow_api webauthn_identify_flow.rs:158-163).
-      final email = session.email;
-      final allowCredentials = <Object?>[
-        if (email != null)
-          for (final MapEntry(:key, :value) in passkeyCredentialOwners.entries)
-            if (value == email)
-              <String, Object?>{'id': key, 'type': 'public-key'},
-      ];
-      return _step(
-        response,
-        session,
-        'webauthn_assertion',
-        options: <String, Object?>{
-          'publicKey': <String, Object?>{
-            'challenge': _token32(),
-            'rpId': issuer.host,
-            'userVerification': 'required',
-            if (allowCredentials.isNotEmpty)
-              'allowCredentials': allowCredentials,
-          },
-          if (session.email == null) 'mediation': 'conditional',
-        },
-      );
+      return _webauthnAssertionStep(response, session);
     }
     final webauthnAssertion = form['webauthn_assertion'];
     if (webauthnAssertion != null) {
@@ -960,6 +993,7 @@ class FakeLoginFlowServer {
       // phishing-resistant on its own.
       session.isPrimaryAuthenticated = true;
       session.isSecondFactorDone = true;
+      session.isPhishingResistant = true;
     }
     final temporaryAccessPass = form['temporary_access_pass'];
     if (temporaryAccessPass != null) {
@@ -1238,6 +1272,7 @@ class FakeLoginFlowServer {
     _deviceSessions[sid] = _DeviceSession(
       subject: issued.user.subject,
       isStrong: issued.isStrong,
+      isPhishingResistant: issued.isPhishingResistant,
     );
     final familyId = _token32();
     _familyOrganizations[familyId] = organization.active?.id;
@@ -1414,6 +1449,7 @@ class FakeLoginFlowServer {
       sid: sid,
       nonce: nonce,
       deviceSecret: deviceSecret,
+      isPhishingResistant: _deviceSessions[sid]?.isPhishingResistant ?? false,
     );
     _json(response, 200, <String, Object?>{
       'access_token': accessToken,
@@ -1510,6 +1546,7 @@ class FakeLoginFlowServer {
     required String sid,
     required String? nonce,
     required String? deviceSecret,
+    required bool isPhishingResistant,
   }) {
     final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
     final claims = <String, Object?>{
@@ -1524,7 +1561,8 @@ class FakeLoginFlowServer {
       'iat': tampering == IdTokenTampering.expired ? now - 7200 : now,
       'auth_time': now,
       'sid': sid,
-      'amr': <String>['pwd'],
+      'amr': isPhishingResistant ? <String>['hwk', 'mfa'] : <String>['pwd'],
+      if (isPhishingResistant) 'acr': phishingResistantAcr,
       'company_id': companyId,
       'email': ?user.email,
       'email_verified': user.email != null,
@@ -1758,6 +1796,155 @@ class FakeLoginFlowServer {
     _enrolledPasskeys.remove(id);
     _envelopeSuccess(response, 200, <String, Object?>{
       'message': 'Passkey removed',
+    });
+  }
+
+  /// The approver's routes of a sign-in by phone approval
+  /// (`loginflow_api/docs/api/v1/user/device-push/`).
+  static const String devicePushPath = '/v1/user/device-push';
+
+  /// The `acr` of a passkey sign-in.
+  static const String phishingResistantAcr = 'urn:loginflow:acr:phr';
+
+  /// The challenge of an approval without a passkey in the last 120 s
+  /// (`device_qr_handler.rs::phishing_resistant_auth_required`).
+  static const String phoneApprovalStepUpChallenge =
+      'Bearer error="insufficient_user_authentication", '
+      'acr_values="urn:loginflow:acr:phr", max_age=120';
+
+  /// `device_push_approval`: approvals and denials per person in 15 min.
+  static const int phoneApprovalDecisionLimit = 20;
+
+  /// Push requests the web pages made, keyed by request id. Tests add them
+  /// with [askPhoneApproval]; decisions change their [FakePhoneApproval.status].
+  final Map<String, FakePhoneApproval> phoneApprovals =
+      <String, FakePhoneApproval>{};
+
+  /// Every request that reached the device-push routes, in order.
+  final List<FakeHttpRequest> devicePushRequests = <FakeHttpRequest>[];
+
+  final Map<String, int> _phoneApprovalDecisions = <String, int>{};
+
+  /// A web page asks [email] to approve a sign-in, showing [number] among
+  /// [choices] (`method=device_push`), like the requester side does.
+  FakePhoneApproval askPhoneApproval({
+    required String email,
+    String requestId = '0a1771df-1794-49ba-8dfc-6a3b32c910ff',
+    int number = 42,
+    List<int> choices = const <int>[17, 42, 85],
+    bool isAllowed = true,
+    DateTime? expiresAt,
+  }) {
+    final createdAt = DateTime.now().toUtc();
+    final approval = FakePhoneApproval(
+      requestId: requestId,
+      subject: users[email]!.subject,
+      number: number,
+      choices: choices,
+      isAllowed: isAllowed,
+      createdAt: createdAt,
+      expiresAt: expiresAt ?? createdAt.add(const Duration(seconds: 120)),
+    );
+    phoneApprovals[requestId] = approval;
+    return approval;
+  }
+
+  /// `authenticate_access` + `refuse_access_subject`, then the route — the
+  /// shapes `device_push_handler.rs` and `DevicePushApprovalService` answer.
+  void _devicePush(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    devicePushRequests.add(request);
+    final header = request.headers['authorization'] ?? '';
+    final scheme = requiresDpop ? 'DPoP ' : 'Bearer ';
+    final access = header.startsWith(scheme)
+        ? _liveAccess(header.substring(scheme.length))
+        : null;
+    if (access == null ||
+        (requiresDpop && _checkDpop(request, response) != null)) {
+      return _refuseToken(response, header);
+    }
+    if (_userBySubject(access.subject) == null) {
+      return _denied(response, 403, 'not_available_for_access_subject');
+    }
+    final segments = route.split('/');
+    switch ((method, segments)) {
+      case ('GET', ['pending']):
+        final now = DateTime.now().toUtc();
+        _envelopeSuccess(response, 200, <String, Object?>{
+          'requests': <Object?>[
+            for (final approval in phoneApprovals.values)
+              if (approval.subject == access.subject &&
+                  approval.status == 'pending' &&
+                  approval.expiresAt.isAfter(now))
+                approval.toPendingJson(),
+          ],
+        });
+      case ('POST', [final requestId, 'approve']):
+        _decidePhoneApproval(response, access, requestId, request.body);
+      case ('POST', [final requestId, 'deny']):
+        _decidePhoneApproval(response, access, requestId, null);
+      default:
+        response.statusCode = 404;
+    }
+  }
+
+  /// Approve ([body] is its JSON) or deny ([body] `null`), rules in the
+  /// order `DevicePushApprovalService` applies them.
+  void _decidePhoneApproval(
+    FakeHttpResponse response,
+    _AccessRecord access,
+    String requestId,
+    String? body,
+  ) {
+    final decisions = _phoneApprovalDecisions[access.subject] ?? 0;
+    if (decisions >= phoneApprovalDecisionLimit) {
+      response.headers['retry-after'] = '600';
+      return _denied(response, 429, 'RATE_LIMITED');
+    }
+    final approval = phoneApprovals[requestId];
+    if (approval == null || approval.subject != access.subject) {
+      return _denied(response, 404, 'device_push_not_found');
+    }
+    if (approval.status != 'pending' ||
+        !approval.expiresAt.isAfter(DateTime.now().toUtc())) {
+      return _denied(response, 410, 'device_push_expired');
+    }
+    if (body == null) {
+      _phoneApprovalDecisions[access.subject] = decisions + 1;
+      approval.status = 'denied';
+      return _envelopeSuccess(response, 200, <String, Object?>{
+        'request_id': requestId,
+        'status': 'denied',
+      });
+    }
+    final session = _deviceSessions[access.sid];
+    final isPasskeyRecent =
+        (session?.isPhishingResistant ?? false) &&
+        !_staleAuthentications.contains(access.sid);
+    if (!isPasskeyRecent) {
+      return _authenticationRequired(response, phoneApprovalStepUpChallenge);
+    }
+    final number = (jsonDecode(body) as Map<String, Object?>)['number'];
+    _phoneApprovalDecisions[access.subject] = decisions + 1;
+    if (number != approval.number) {
+      approval.status = 'denied';
+      return _envelopeSuccess(response, 200, <String, Object?>{
+        'request_id': requestId,
+        'status': 'denied',
+        'reason': 'wrong_number',
+      });
+    }
+    if (!approval.isAllowed) {
+      return _denied(response, 403, 'device_push_not_allowed');
+    }
+    approval.status = 'approved';
+    _envelopeSuccess(response, 200, <String, Object?>{
+      'request_id': requestId,
+      'status': 'approved',
     });
   }
 
@@ -2592,6 +2779,69 @@ class FakeLoginFlowServer {
     });
   }
 
+  /// The `webauthn_assertion` step of [session], with its WebAuthn
+  /// options.
+  void _webauthnAssertionStep(
+    FakeHttpResponse response,
+    _ChallengeSession session,
+  ) {
+    // `webauthn-rs`'s `RequestChallengeResponse`, as the real server
+    // sends it: the WebAuthn options under `publicKey`, plus `mediation:
+    // conditional` on a discoverable (no `login_hint`) request
+    // (`WebauthnService::start_discoverable_authentication`). A targeted
+    // request lists the account's passkeys as `{id, type}` with NO
+    // `transports`: the server asks for no attestation, so webauthn-rs never
+    // stores them (loginflow_api webauthn_identify_flow.rs:158-163).
+    final email = session.email;
+    final allowCredentials = <Object?>[
+      if (email != null)
+        for (final MapEntry(:key, :value) in passkeyCredentialOwners.entries)
+          if (value == email)
+            <String, Object?>{'id': key, 'type': 'public-key'},
+    ];
+    return _step(
+      response,
+      session,
+      'webauthn_assertion',
+      options: <String, Object?>{
+        'publicKey': <String, Object?>{
+          'challenge': _token32(),
+          'rpId': issuer.host,
+          'userVerification': 'required',
+          if (allowCredentials.isNotEmpty) 'allowCredentials': allowCredentials,
+        },
+        if (session.email == null) 'mediation': 'conditional',
+      },
+    );
+  }
+
+  /// A step-up opening asking for `urn:loginflow:acr:phr` alone (what
+  /// the device-push approval demands), answered with the passkey ceremony
+  /// directly (`ChallengeService::open_step_up`,
+  /// `loginflow_api/docs/api/oauth2/authorize-challenge-step-up.md`
+  /// "Multi-factor `acr_values`"): an account without TOTP, with a passkey,
+  /// on a client whose `login_methods` take `passkey`. `false` for any other
+  /// request, which the steps below answer as before — this fake does not
+  /// model the server's `unmet_authentication_requirements`.
+  bool _answersPasskeyStepUp(
+    FakeHttpResponse response,
+    _ChallengeSession session,
+    Map<String, String> form,
+  ) {
+    final user = users[session.email];
+    final isPasskeyStepUp =
+        form['acr_values'] == phishingResistantAcr &&
+        !_carriesStep(form) &&
+        user != null &&
+        !user.isTotpEnabled &&
+        passkeyCredentialOwners.containsValue(user.email) &&
+        _allowedLoginMethods.contains('passkey');
+    if (isPasskeyStepUp) {
+      _webauthnAssertionStep(response, session);
+    }
+    return isPasskeyStepUp;
+  }
+
   void _step(
     FakeHttpResponse response,
     _ChallengeSession session,
@@ -2684,6 +2934,7 @@ class FakeLoginFlowServer {
       redirectUri: redirectUri,
       organization: organization,
       isStrong: session.isSecondFactorDone,
+      isPhishingResistant: session.isPhishingResistant,
     );
     return code;
   }
@@ -2749,6 +3000,10 @@ class _ChallengeSession {
   bool isIdentifiedByHint = false;
   bool isSecondFactorDone = false;
 
+  /// A passkey assertion was accepted: the session's `acr` is
+  /// `urn:loginflow:acr:phr`.
+  bool isPhishingResistant = false;
+
   void openAuthorization({
     required String codeChallenge,
     required String? nonce,
@@ -2766,6 +3021,7 @@ class _ChallengeSession {
     this.acrValues = acrValues;
     this.organization = organization;
     isSecondFactorDone = false;
+    isPhishingResistant = false;
   }
 }
 
@@ -2779,6 +3035,7 @@ class _IssuedCode {
     required this.redirectUri,
     required this.organization,
     required this.isStrong,
+    required this.isPhishingResistant,
   });
 
   final String clientId;
@@ -2792,6 +3049,9 @@ class _IssuedCode {
   /// A second factor (TOTP, a recovery code, a passkey) was done: the
   /// session's `acr` is multi-factor or phishing-resistant.
   final bool isStrong;
+
+  /// A passkey was the factor: `acr` `urn:loginflow:acr:phr`.
+  final bool isPhishingResistant;
 }
 
 class _RefreshRecord {
@@ -2812,7 +3072,11 @@ class _RefreshRecord {
 }
 
 class _DeviceSession {
-  _DeviceSession({required this.subject, this.isStrong = false});
+  _DeviceSession({
+    required this.subject,
+    this.isStrong = false,
+    this.isPhishingResistant = false,
+  });
 
   final String subject;
 
@@ -2820,6 +3084,10 @@ class _DeviceSession {
   /// `urn:loginflow:acr:phr`), what `recent_auth::is_strong_and_recent`
   /// reads.
   final bool isStrong;
+
+  /// Signed in with a passkey: `acr` `urn:loginflow:acr:phr` (`amr`
+  /// `hwk` + `mfa`), what the device-push approval gate reads.
+  final bool isPhishingResistant;
   bool isActive = true;
 }
 

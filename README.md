@@ -1343,6 +1343,58 @@ tells which codes exist. The session is bound to the device's DPoP key, so
 a stolen refresh token is useless elsewhere. Wire details:
 `doc/server-contract.md` §16.
 
+### Sign-in by phone approval (approver side)
+
+A first-party **web page** of your company can sign a person in without a
+password: the page asks LoginFlow to sign in as an email
+(`method=device_push`) and shows a two-digit number; the person, already
+signed in to **your app**, sees the request, taps the same number among
+three and confirms with a passkey. This library is the app's half — the
+approver. The page's half is the authorization challenge
+(`doc/server-contract.md` §21).
+
+```dart
+// When the app opens or comes to the foreground — and every few seconds
+// while the approval screen is open: LoginFlow sends no push yet.
+final pending = await auth.pendingPhoneApprovals();
+for (final request in pending.data) {
+  // request.clientName, request.requester.device, request.requester.ipAddress
+  // request.choices: three two-digit numbers, shown as three buttons.
+}
+
+// The person tapped one of request.choices:
+final answered = await auth.approvePhoneSignIn(
+  requestId: request.requestId,
+  number: chosen,
+);
+switch (answered) {
+  case Ok(data: PhoneApprovalOutcome.approved):
+    // The page is signing in as this person.
+  case Ok(data: PhoneApprovalOutcome.wrongNumber):
+    // Denied for good (one try): the person asks again from the page.
+  case Err(error: PhoneApprovalRefused(:final reason)):
+    // notFound, expired (read the list again), notAllowed.
+  case Err(:final error):
+    // RateLimited, PasskeyFailed (cancelled the passkey sheet), ...
+}
+
+// "This was not me":
+await auth.denyPhoneSignIn(request.requestId);
+```
+
+The server takes an approval only from a passkey sign-in within the last
+120 s (`acr` `urn:loginflow:acr:phr`). `approvePhoneSignIn` handles it: when
+the session's last sign-in is not a recent passkey — or the server answers
+the RFC 9470 challenge anyway — it runs the passkey step-up itself (the
+platform's passkey sheet, `LoginFlowAuth.phoneApprovalRequirement`) and
+sends the approval once more. The app needs a configured
+`PasskeyAuthenticator`, a person with a passkey and no TOTP, and a client
+whose login methods include `passkey` (company policy `passwordless`);
+otherwise the step-up cannot be a passkey and the call fails with
+`StepUpRequired` or the server's `OAuthProtocolError`
+(`unmet_authentication_requirements`). Denying needs no step-up. An
+access-code session cannot approve.
+
 ## Security notes
 
 - PKCE S256 on every authorization; `plain` is never sent.
@@ -1389,6 +1441,10 @@ a stolen refresh token is useless elsewhere. Wire details:
   back in. A synced passkey used on another phone signs in with that
   phone's DPoP key: a backend that binds a subject to one device sees a
   different key.
+- Sign-in by phone approval: the library is only the approver (the app);
+  there is no bundled approval screen, no push notification (poll
+  `pendingPhoneApprovals`), and no requester (`method=device_push`) or
+  sign-in by QR (`/v1/user/device-qr`) API.
 - The bundled passkey manager (`LoginFlowPasskeys`) and the
   re-authentication it asks for need the sign-in UI installed
   (`LoginFlowSignInSetup.install`). A `LoginFlowSignIn` still mounted under
