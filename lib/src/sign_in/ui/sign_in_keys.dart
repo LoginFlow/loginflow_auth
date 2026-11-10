@@ -74,4 +74,22 @@ abstract final class SignInKeys {
   );
   static const ValueKey<String> passkeysCancelReauthentication =
       ValueKey<String>('loginflow.passkeys.reauthentication.cancel');
+  static const ValueKey<String> phoneApprovalEmailStep = ValueKey<String>(
+    'loginflow.step.phone_approval_email',
+  );
+  static const ValueKey<String> phoneApprovalStep = ValueKey<String>(
+    'loginflow.step.phone_approval',
+  );
+  static const ValueKey<String> phoneApprovalNumber = ValueKey<String>(
+    'loginflow.phone_approval.number',
+  );
+  static const ValueKey<String> qrSignInStep = ValueKey<String>(
+    'loginflow.step.qr_sign_in',
+  );
+  static const ValueKey<String> qrSignInCode = ValueKey<String>(
+    'loginflow.qr_sign_in.code',
+  );
+  static const ValueKey<String> deviceSignInAgainButton = ValueKey<String>(
+    'loginflow.button.device_sign_in_again',
+  );
 }

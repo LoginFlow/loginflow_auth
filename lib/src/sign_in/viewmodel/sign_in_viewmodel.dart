@@ -114,6 +114,42 @@ class SignInViewModel extends ViewModel<SignInState> {
         unawaited(_run((auth) => auth.signInWithApple()));
       case FacebookMethod():
         unawaited(_run((auth) => auth.signInWithFacebook()));
+      case PhoneApprovalMethod():
+        updateState(_methodState(method, data.withoutMessages()));
+      case QrSignInMethod():
+        unawaited(_run((auth) => auth.requestQrSignIn()));
+    }
+  }
+
+  /// "Send to my phone" on [SignInPhoneApprovalEmailEntry]: asks the app on
+  /// the person's phone to approve (`LoginFlowAuth.requestPhoneApproval`);
+  /// the number to pick shows next, and the core polls until it is decided.
+  Future<void> requestPhoneApproval(String email) async {
+    if (data.phase is! SignInPhoneApprovalEmailEntry) {
+      return;
+    }
+    final emailError = email.toEmailError();
+    if (emailError != FieldError.none) {
+      updateState(data.withoutMessages().copyWith(emailError: emailError));
+      return;
+    }
+    final loginHint = email.trim();
+    updateState(data.copyWith(rememberedEmail: loginHint));
+    await _run((auth) => auth.requestPhoneApproval(loginHint));
+  }
+
+  /// "Send a new request" / "Show a new code" once the phone approval or
+  /// the QR on screen was refused or expired: a new one, with a new number
+  /// or QR.
+  Future<void> tryDeviceSignInAgain() async {
+    switch (data.phase) {
+      case SignInPhoneApprovalWaiting(hasEnded: true):
+        final email = data.rememberedEmail;
+        await _run((auth) => auth.requestPhoneApproval(email));
+      case SignInQrWaiting(hasEnded: true):
+        await _run((auth) => auth.requestQrSignIn());
+      default:
+        return;
     }
   }
 
@@ -631,7 +667,9 @@ class SignInViewModel extends ViewModel<SignInState> {
     switch (next.phase) {
       // Its wait is read again from the core on every state (a resend
       // starts a new one), so the timer restarts with each.
-      case SignInOtpEntry():
+      case SignInOtpEntry() ||
+          SignInPhoneApprovalWaiting() ||
+          SignInQrWaiting():
         _startCountdown();
       case SignInResetCodeEntry() when previous is! SignInResetCodeEntry:
         _startCountdown();
@@ -648,6 +686,7 @@ class SignInViewModel extends ViewModel<SignInState> {
           SignInTotpEntry() ||
           SignInTemporaryAccessPassEntry() ||
           SignInAccessCodeEntry() ||
+          SignInPhoneApprovalEmailEntry() ||
           SignInAwaitingBrowser() ||
           SignInSsoConfirm() ||
           SignInCompleted():
@@ -758,6 +797,18 @@ class SignInViewModel extends ViewModel<SignInState> {
       ChallengeStep.temporaryAccessPass => withFeedback.copyWith(
         phase: const SignInTemporaryAccessPassEntry(isIdentifierLocked: true),
       ),
+      ChallengeStep.devicePush => withFeedback.copyWith(
+        phase: SignInPhoneApprovalWaiting(
+          number: prompt.phoneApproval?.number,
+          secondsLeft: _deviceSignInSecondsLeft,
+        ),
+      ),
+      ChallengeStep.deviceQr => withFeedback.copyWith(
+        phase: SignInQrWaiting(
+          qrUri: prompt.qrSignIn?.qrUri,
+          secondsLeft: _deviceSignInSecondsLeft,
+        ),
+      ),
       // Intercepted by `LoginFlowAuth` before it ever reaches a
       // `ChallengeRequired` state: `upstreamToken`/`webauthnAssertion` run
       // their native ceremony automatically, and `webauthnIdentify`/
@@ -808,10 +859,15 @@ class SignInViewModel extends ViewModel<SignInState> {
         phase: const SignInEmailEntry(),
         canGoBack: canGoBack,
       ),
+      PhoneApprovalMethod() => base.copyWith(
+        phase: const SignInPhoneApprovalEmailEntry(),
+        canGoBack: canGoBack,
+      ),
       GoogleMethod() ||
       MicrosoftMethod() ||
       AppleMethod() ||
-      FacebookMethod() => base.copyWith(
+      FacebookMethod() ||
+      QrSignInMethod() => base.copyWith(
         phase: SignInChoosingMethod(methods: <AuthMethod>[method]),
         canGoBack: false,
       ),
@@ -848,11 +904,17 @@ class SignInViewModel extends ViewModel<SignInState> {
 
   /// Whole seconds, rounded up, before the email-code step may resend:
   /// the core owns the rule and the clock (`LoginFlowAuth.emailOtpResendWait`).
-  int get _emailCodeResendSecondsLeft {
-    final wait = _environment.auth?.emailOtpResendWait ?? Duration.zero;
-    return (wait.inMicroseconds + Duration.microsecondsPerSecond - 1) ~/
-        Duration.microsecondsPerSecond;
-  }
+  int get _emailCodeResendSecondsLeft =>
+      _wholeSeconds(_environment.auth?.emailOtpResendWait ?? Duration.zero);
+
+  /// Whole seconds, rounded up, left on the phone approval or QR on
+  /// screen: the core owns the clock (`LoginFlowAuth.deviceSignInWait`).
+  int get _deviceSignInSecondsLeft =>
+      _wholeSeconds(_environment.auth?.deviceSignInWait ?? Duration.zero);
+
+  static int _wholeSeconds(Duration wait) =>
+      (wait.inMicroseconds + Duration.microsecondsPerSecond - 1) ~/
+      Duration.microsecondsPerSecond;
 
   /// The reset's code step counts its own wait, from the same configured
   /// cooldown as the email-code sign-in.
@@ -868,7 +930,9 @@ class SignInViewModel extends ViewModel<SignInState> {
     final hasSecondsLeft = switch (data.phase) {
       SignInOtpEntry(:final resendSecondsLeft) ||
       SignInResetCodeEntry(:final resendSecondsLeft) => resendSecondsLeft > 0,
-      SignInLockedOut(:final secondsLeft) => secondsLeft > 0,
+      SignInLockedOut(:final secondsLeft) ||
+      SignInPhoneApprovalWaiting(:final secondsLeft) ||
+      SignInQrWaiting(:final secondsLeft) => secondsLeft > 0,
       SignInNotConfigured() ||
       SignInLoadingOptions() ||
       SignInOptionsUnavailable() ||
@@ -880,6 +944,7 @@ class SignInViewModel extends ViewModel<SignInState> {
       SignInTotpEntry() ||
       SignInTemporaryAccessPassEntry() ||
       SignInAccessCodeEntry() ||
+      SignInPhoneApprovalEmailEntry() ||
       SignInAwaitingBrowser() ||
       SignInSsoConfirm() ||
       SignInCompleted() => false,
@@ -903,6 +968,17 @@ class SignInViewModel extends ViewModel<SignInState> {
     }
   }
 
+  /// The phone approval or QR on screen with its seconds left read from the
+  /// core's clock, like the email code: a timer paused in the background
+  /// never leaves it behind. The timer stops at 0.
+  void _countDeviceSignIn(SignInPhase Function(int secondsLeft) next) {
+    final secondsLeft = _deviceSignInSecondsLeft;
+    updateState(data.copyWith(phase: next(secondsLeft)));
+    if (secondsLeft == 0) {
+      _stopCountdown();
+    }
+  }
+
   void _tick() {
     final phase = data.phase;
     if (phase is SignInOtpEntry) {
@@ -915,6 +991,18 @@ class SignInViewModel extends ViewModel<SignInState> {
       if (secondsLeft == 0) {
         _stopCountdown();
       }
+      return;
+    }
+    if (phase is SignInPhoneApprovalWaiting) {
+      _countDeviceSignIn(
+        (secondsLeft) => phase.copyWith(secondsLeft: secondsLeft),
+      );
+      return;
+    }
+    if (phase is SignInQrWaiting) {
+      _countDeviceSignIn(
+        (secondsLeft) => phase.copyWith(secondsLeft: secondsLeft),
+      );
       return;
     }
     if (phase case SignInResetCodeEntry(:final resendSecondsLeft)

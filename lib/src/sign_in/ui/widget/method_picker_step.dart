@@ -80,7 +80,9 @@ class _MethodButton extends StatelessWidget {
       PasswordMethod() ||
       EmailOtpMethod() ||
       GoogleMethod() ||
-      MicrosoftMethod() => OutlinedButton.icon(
+      MicrosoftMethod() ||
+      PhoneApprovalMethod() ||
+      QrSignInMethod() => OutlinedButton.icon(
         style: OutlinedButton.styleFrom(
           minimumSize: Size.fromHeight(context.signInTheme.actionHeight),
         ),

@@ -754,6 +754,78 @@ abstract class LoginFlowLocalizations {
   /// In es, this message translates to:
   /// **'No se aceptó esa contraseña: es muy débil, apareció en una filtración de datos o es la actual. Prueba con otra.'**
   String get feedbackPasswordRejected;
+
+  /// Method button: sign in by approving on a phone already signed in (device_push).
+  ///
+  /// In es, this message translates to:
+  /// **'Aprobar desde mi teléfono'**
+  String get continueWithPhoneApproval;
+
+  /// Method button: sign in by scanning a QR with a phone already signed in (device_qr).
+  ///
+  /// In es, this message translates to:
+  /// **'Iniciar sesión con un código QR'**
+  String get continueWithQrCode;
+
+  /// Phone approval: what the email is for.
+  ///
+  /// In es, this message translates to:
+  /// **'Ingresa tu correo. Le pediremos a la aplicación de tu teléfono, donde ya iniciaste sesión, que lo apruebe.'**
+  String get phoneApprovalEmailInstructions;
+
+  /// Phone approval: sends the request to the phone.
+  ///
+  /// In es, this message translates to:
+  /// **'Enviar a mi teléfono'**
+  String get phoneApprovalSendButton;
+
+  /// Phone approval: shown with the big number while it waits.
+  ///
+  /// In es, this message translates to:
+  /// **'Abre la aplicación en tu teléfono y elige este número.'**
+  String get phoneApprovalInstructions;
+
+  /// QR sign-in: shown with the QR while it waits.
+  ///
+  /// In es, this message translates to:
+  /// **'Escanea este código con la aplicación de tu teléfono donde ya iniciaste sesión y confirma allí.'**
+  String get qrSignInInstructions;
+
+  /// Accessibility label of the sign-in QR.
+  ///
+  /// In es, this message translates to:
+  /// **'Código QR para iniciar sesión'**
+  String get qrCodeLabel;
+
+  /// Phone approval or QR: the time left as m:ss.
+  ///
+  /// In es, this message translates to:
+  /// **'Vence en {time}'**
+  String deviceSignInExpiresIn(String time);
+
+  /// Phone approval: asks again after it was refused or expired.
+  ///
+  /// In es, this message translates to:
+  /// **'Enviar una nueva solicitud'**
+  String get phoneApprovalAskAgain;
+
+  /// QR sign-in: shows a new QR after it was refused or expired.
+  ///
+  /// In es, this message translates to:
+  /// **'Mostrar un código nuevo'**
+  String get qrSignInNewCode;
+
+  /// Phone approval or QR refused on the phone (StepError.denied).
+  ///
+  /// In es, this message translates to:
+  /// **'El inicio de sesión fue rechazado en el teléfono.'**
+  String get feedbackDeviceSignInDenied;
+
+  /// Phone approval or QR not answered within 120 s (StepError.expired).
+  ///
+  /// In es, this message translates to:
+  /// **'Nadie respondió a tiempo. Inténtalo de nuevo.'**
+  String get feedbackDeviceSignInExpired;
 }
 
 class _LoginFlowLocalizationsDelegate

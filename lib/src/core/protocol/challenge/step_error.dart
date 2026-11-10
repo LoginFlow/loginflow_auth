@@ -8,7 +8,18 @@ enum StepError {
   invalidCredential('invalid_credential'),
 
   /// The email OTP expired or was burned after too many attempts.
-  codeExpired('code_expired');
+  codeExpired('code_expired'),
+
+  /// Set by the library, never sent by the server: the phone approval or
+  /// the sign-in QR on screen was refused on the phone (or, for a phone
+  /// approval, another number was chosen). The poll answered
+  /// `access_denied`; ask again to try once more.
+  denied('denied'),
+
+  /// Set by the library, never sent by the server: nobody answered the
+  /// phone approval or the sign-in QR in time (120 s), or it was replaced.
+  /// The poll answered `expired_token`; ask again for a new one.
+  expired('expired');
 
   const StepError(this.wireName);
 

@@ -4,6 +4,7 @@ import 'package:loginflow_auth/src/core/http/oauth_error_body.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_request.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/device_sign_in_details.dart';
 import 'package:result_controller/result_controller.dart';
 
 /// Talks to the Authorization Challenge Endpoint
@@ -32,6 +33,11 @@ class AuthorizationChallengeClient {
           (403, ChallengeStepRequired.errorCode) => Ok(
             ChallengeStepRequired.fromJson(json),
           ),
+          // A sign-in on another device still undecided (RFC 8628 §3.5,
+          // `doc/server-contract.md` §21): the step's shape, no rotation.
+          (403, final String error)
+              when DevicePollStatus.fromWireName(error) != null =>
+            Ok(ChallengeStepRequired.fromJson(json)),
           (403, ChallengeRedirectToWeb.errorCode) => Ok(
             ChallengeRedirectToWeb.fromJson(json),
           ),

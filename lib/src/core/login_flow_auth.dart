@@ -10,6 +10,7 @@ import 'package:loginflow_auth/src/core/browser/pending_authorization_store.dart
 import 'package:loginflow_auth/src/core/browser/pending_purpose.dart';
 import 'package:loginflow_auth/src/core/config/login_flow_clock.dart';
 import 'package:loginflow_auth/src/core/config/login_flow_config.dart';
+import 'package:loginflow_auth/src/core/config/login_flow_scheduler.dart';
 import 'package:loginflow_auth/src/core/crypto/secure_random_source.dart';
 import 'package:loginflow_auth/src/core/discovery/discovery_client.dart';
 import 'package:loginflow_auth/src/core/discovery/discovery_document.dart';
@@ -20,12 +21,14 @@ import 'package:loginflow_auth/src/core/error/browser_failure_reason.dart';
 import 'package:loginflow_auth/src/core/error/id_token_failure.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
 import 'package:loginflow_auth/src/core/error/passkey_failure_reason.dart';
+import 'package:loginflow_auth/src/core/error/sign_in_qr_problem.dart';
 import 'package:loginflow_auth/src/core/error/upstream_failure_reason.dart';
 import 'package:loginflow_auth/src/core/flow/active_session.dart';
 import 'package:loginflow_auth/src/core/flow/authorization_attempt.dart';
 import 'package:loginflow_auth/src/core/flow/flow_origin.dart';
 import 'package:loginflow_auth/src/core/flow/issued_access_token.dart';
 import 'package:loginflow_auth/src/core/flow/password_reset.dart';
+import 'package:loginflow_auth/src/core/flow/pending_device_sign_in.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/resource_authorization.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
@@ -43,6 +46,7 @@ import 'package:loginflow_auth/src/core/protocol/challenge/challenge_input.dart'
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_request.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_step.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/device_sign_in_details.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/step_error.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_flow.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/upstream_prompt.dart';
@@ -51,6 +55,9 @@ import 'package:loginflow_auth/src/core/protocol/challenge/upstream_token_type.d
 import 'package:loginflow_auth/src/core/protocol/device_push/device_push_client.dart';
 import 'package:loginflow_auth/src/core/protocol/device_push/phone_approval_outcome.dart';
 import 'package:loginflow_auth/src/core/protocol/device_push/phone_approval_request.dart';
+import 'package:loginflow_auth/src/core/protocol/device_qr/device_qr_client.dart';
+import 'package:loginflow_auth/src/core/protocol/device_qr/sign_in_qr.dart';
+import 'package:loginflow_auth/src/core/protocol/device_qr/sign_in_qr_details.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_client.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_confirmed.dart';
 import 'package:loginflow_auth/src/core/protocol/email_change/email_change_started.dart';
@@ -82,6 +89,8 @@ import 'package:loginflow_auth/src/core/sso/sso_store.dart';
 import 'package:loginflow_auth/src/core/state/auth_state.dart';
 import 'package:loginflow_auth/src/core/state/challenge_prompt.dart';
 import 'package:loginflow_auth/src/core/state/challenge_purpose.dart';
+import 'package:loginflow_auth/src/core/state/phone_approval.dart';
+import 'package:loginflow_auth/src/core/state/qr_sign_in.dart';
 import 'package:loginflow_auth/src/core/state/sign_out_reason.dart';
 import 'package:loginflow_auth/src/core/state/sign_out_scope.dart';
 import 'package:loginflow_auth/src/core/storage/session_store.dart';
@@ -110,7 +119,8 @@ class LoginFlowAuth {
   /// Creates the client. Apps use `LoginFlowPlatform.createAuth`, which wires
   /// the platform stores, browser and passkeys; this constructor is for tests
   /// and custom platforms. [dpopKeyStore] is only used with
-  /// [LoginFlowConfig.enableDpop].
+  /// [LoginFlowConfig.enableDpop]. [_scheduler] paces the polling of a phone
+  /// approval or a sign-in QR.
   LoginFlowAuth({
     required this.config,
     required http.Client httpClient,
@@ -125,6 +135,7 @@ class LoginFlowAuth {
     DpopKeyStore? dpopKeyStore,
     LoginFlowClock clock = const SystemLoginFlowClock(),
     this._randomSource = const PlatformSecureRandomSource(),
+    this._scheduler = const TimerLoginFlowScheduler(),
   }) : _pendingStore = pendingAuthorizationStore,
        _clock = clock {
     _dpop = config.enableDpop && dpopKeyStore != null
@@ -173,6 +184,7 @@ class LoginFlowAuth {
       issuer: config.issuer,
     );
     _devicePush = DevicePushClient(transport: transport, issuer: config.issuer);
+    _deviceQr = DeviceQrClient(transport: transport, issuer: config.issuer);
     _passwordChange = PasswordChangeClient(
       transport: transport,
       issuer: config.issuer,
@@ -196,6 +208,7 @@ class LoginFlowAuth {
   final UpstreamTokenSource? _facebookTokenSource;
   final PasskeyAuthenticator? _passkeyAuthenticator;
   final LoginFlowClock _clock;
+  final LoginFlowScheduler _scheduler;
   final SecureRandomSource _randomSource;
 
   /// One source per provider the app configured, keyed by the wire name the
@@ -236,6 +249,7 @@ class LoginFlowAuth {
   late final PasskeyAccountClient _passkeyAccount;
   late final TotpAccountClient _totpAccount;
   late final DevicePushClient _devicePush;
+  late final DeviceQrClient _deviceQr;
   late final PasswordChangeClient _passwordChange;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
@@ -247,6 +261,10 @@ class LoginFlowAuth {
   AuthState _state = const AuthInitializing();
   AuthorizationAttempt? _attempt;
   ActiveSession? _session;
+
+  /// Cancels the next poll of the phone approval or sign-in QR on screen;
+  /// `null` while none is scheduled.
+  void Function()? _cancelPoll;
 
   /// The in-app password reset in progress ([startPasswordReset]). While it
   /// holds a session, that session is in [_session] but never stored nor
@@ -457,17 +475,22 @@ class LoginFlowAuth {
   /// prompt, with no request; then call [submitPassword], [submitTotp],
   /// [submitRecoveryCode] or [submitTemporaryAccessPass]. The others act
   /// on the server and are sent as `method`: [ChallengeStep.emailOtp]
-  /// emails a code, [ChallengeStep.magicLink] a sign-in link, and
-  /// [ChallengeStep.webauthnIdentify] runs the passkey ceremony.
-  Future<Result<AuthState, LoginFlowError>> selectMethod(
-    ChallengeStep method,
-  ) => switch (method) {
-    ChallengeStep.password ||
-    ChallengeStep.totp ||
-    ChallengeStep.recoveryCode ||
-    ChallengeStep.temporaryAccessPass => _promptFor(method),
-    _ => _continueAttempt(MethodSelectionInput(method: method)),
-  };
+  /// emails a code, [ChallengeStep.magicLink] a sign-in link,
+  /// [ChallengeStep.webauthnIdentify] runs the passkey ceremony, and
+  /// [ChallengeStep.devicePush] / [ChallengeStep.deviceQr] ask for a phone
+  /// approval (the attempt must name an email) or a QR on this attempt, as
+  /// [requestPhoneApproval] / [requestQrSignIn] do. Any polling in progress
+  /// stops.
+  Future<Result<AuthState, LoginFlowError>> selectMethod(ChallengeStep method) {
+    _stopPolling();
+    return switch (method) {
+      ChallengeStep.password ||
+      ChallengeStep.totp ||
+      ChallengeStep.recoveryCode ||
+      ChallengeStep.temporaryAccessPass => _promptFor(method),
+      _ => _continueAttempt(MethodSelectionInput(method: method)),
+    };
+  }
 
   /// Re-emits the current challenge asking for [step], on the same
   /// `auth_session`, without a request.
@@ -491,6 +514,82 @@ class LoginFlowAuth {
         ),
       ),
     );
+  }
+
+  /// The lifetime of a phone approval or a sign-in QR when LoginFlow does
+  /// not say (it gives 120 s).
+  static const Duration _defaultDeviceSignInLifetime = Duration(seconds: 120);
+
+  /// RFC 8628 §3.2: the wait between two polls when LoginFlow gives none.
+  static const Duration _defaultPollInterval = Duration(seconds: 5);
+
+  /// RFC 8628 §3.5: every `slow_down` adds 5 s to the interval, for good.
+  static const Duration _slowDownStep = Duration(seconds: 5);
+
+  /// Signs in by approval on the person's phone (`device_push`, number
+  /// matching, `doc/server-contract.md` §21): LoginFlow asks the person
+  /// behind [email], in an app of the same company where they are already
+  /// signed in, to pick the number this app shows and confirm with a
+  /// passkey.
+  ///
+  /// Resolves once the request exists: [ChallengeRequired] on
+  /// [ChallengeStep.devicePush] whose `prompt.phoneApproval` carries the
+  /// `number` to show and its `expiresAt`. The library then polls on its
+  /// own, at LoginFlow's `interval` (5 s more after every `slow_down`), and
+  /// the outcome arrives on [states]: [SignedIn] once approved (the session
+  /// is stored as with any other method), or the same step with
+  /// `prompt.stepError` [StepError.denied] (refused, or another number
+  /// chosen) or [StepError.expired] (nobody answered in time) and no
+  /// `phoneApproval`; call this again to ask again. Waiting polls emit
+  /// nothing: count down from `expiresAt` ([deviceSignInWait]).
+  /// [cancelChallenge], another sign-in, [signOut] and [dispose] stop the
+  /// polling.
+  ///
+  /// LoginFlow answers the same whether or not [email] has an account (an
+  /// unknown one simply expires). Opt-in per client: without `device_push`
+  /// in its login methods this fails with [OAuthProtocolError]
+  /// `unsupported_client`.
+  Future<Result<AuthState, LoginFlowError>> requestPhoneApproval(
+    String email, {
+    String? organization,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    loginHint: email,
+    organization: organization,
+    input: IdentifierInput(loginHint: email, method: ChallengeStep.devicePush),
+  );
+
+  /// Signs in with a QR (`device_qr`, `doc/server-contract.md` §21): a
+  /// person signed in to an app of the same company scans it, confirms
+  /// with a passkey on the phone ([approveQrSignIn] there), and this app
+  /// signs in as that person. No email is typed.
+  ///
+  /// Resolves once the QR exists: [ChallengeRequired] on
+  /// [ChallengeStep.deviceQr] whose `prompt.qrSignIn` carries the `qrUri`
+  /// to render and its `expiresAt`. Then exactly like
+  /// [requestPhoneApproval]: polled by the library, [SignedIn] once
+  /// approved, or the same step with [StepError.denied] or
+  /// [StepError.expired] and no `qrSignIn`; call this again for a new QR.
+  /// Opt-in per client (`device_qr` in its login methods), otherwise
+  /// [OAuthProtocolError] `unsupported_client`.
+  Future<Result<AuthState, LoginFlowError>> requestQrSignIn({
+    String? organization,
+  }) => _startAttempt(
+    purpose: ChallengePurpose.signIn,
+    organization: organization,
+    input: const MethodSelectionInput(method: ChallengeStep.deviceQr),
+  );
+
+  /// The time left on the phone approval or sign-in QR on screen, on this
+  /// library's clock; [Duration.zero] once it expired and when none is
+  /// waiting.
+  Duration get deviceSignInWait {
+    final expiresAt = _attempt?.deviceSignIn?.expiresAt;
+    if (expiresAt == null) {
+      return Duration.zero;
+    }
+    final wait = expiresAt.difference(_clock.now());
+    return wait.isNegative ? Duration.zero : wait;
   }
 
   /// Passkey (WebAuthn L3) sign-in: targeted when [loginHint] is given,
@@ -939,8 +1038,10 @@ class LoginFlowAuth {
     );
   }
 
-  /// Abandons the challenge in progress.
+  /// Abandons the challenge in progress, and stops polling a phone approval
+  /// or a sign-in QR.
   Future<Result<AuthState, LoginFlowError>> cancelChallenge() async {
+    _stopPolling();
     _attempt = null;
     _settleReset();
     await _clearPending();
@@ -1220,8 +1321,9 @@ class LoginFlowAuth {
   /// approval by phone needs.
   static const String phishingResistantAcr = 'urn:loginflow:acr:phr';
 
-  /// What `POST /v1/user/device-push/{id}/approve` requires: a passkey
-  /// within the last 120 s (`doc/server-contract.md` §21).
+  /// What `POST /v1/user/device-push/{id}/approve` and
+  /// `POST /v1/user/device-qr/{id}/approve` require: a passkey within the
+  /// last 120 s (`doc/server-contract.md` §21).
   static const StepUpRequirement phoneApprovalRequirement = StepUpRequirement(
     acrValues: <String>[phishingResistantAcr],
     maxAge: Duration(seconds: 120),
@@ -1268,29 +1370,15 @@ class LoginFlowAuth {
   Future<Result<PhoneApprovalOutcome, LoginFlowError>> approvePhoneSignIn({
     required String requestId,
     required int number,
-  }) async {
-    final session = _session;
-    if (session == null) {
-      return Err(const NotSignedIn());
-    }
-    final isPasskeyRecent = _isPasskeyRecent(session.identity);
-    if (!isPasskeyRecent) {
-      final steppedUp = await _passkeyStepUp(phoneApprovalRequirement);
-      if (steppedUp case Err(:final error)) {
-        return Err(error);
-      }
-    }
-    final approved = await _approvePhoneSignIn(requestId, number);
-    if (approved case Err(error: StepUpRequired(:final requirement))
-        when isPasskeyRecent) {
-      final steppedUp = await _passkeyStepUp(requirement);
-      if (steppedUp case Err(:final error)) {
-        return Err(error);
-      }
-      return _approvePhoneSignIn(requestId, number);
-    }
-    return approved;
-  }
+  }) => _withRecentPasskey(
+    () => _withSessionToken(
+      (token) => _devicePush.approve(
+        bearerToken: token,
+        requestId: requestId,
+        number: number,
+      ),
+    ),
+  );
 
   /// Refuses the sign-in [requestId] ("this was not me",
   /// `POST /v1/user/device-push/{id}/deny`, `doc/server-contract.md` §21):
@@ -1302,16 +1390,113 @@ class LoginFlowAuth {
         (token) => _devicePush.deny(bearerToken: token, requestId: requestId),
       );
 
-  Future<Result<PhoneApprovalOutcome, LoginFlowError>> _approvePhoneSignIn(
-    String requestId,
-    int number,
-  ) => _withSessionToken(
-    (token) => _devicePush.approve(
-      bearerToken: token,
-      requestId: requestId,
-      number: number,
-    ),
+  /// Reads a scanned sign-in QR (`doc/server-contract.md` §21): the app
+  /// scans, this checks. The QR must be
+  /// `https://<LoginFlowConfig.passkeyRpId>/qr/<request_id>#<secret>`: a QR
+  /// of another company fails with [InvalidSignInQr]
+  /// ([SignInQrProblem.otherCompany]) and is never sent anywhere; any other
+  /// text with [SignInQrProblem.malformed]; an app without
+  /// [LoginFlowConfig.passkeyRpId] with [SignInQrProblem.notConfigured].
+  /// No request is made.
+  Result<SignInQr, LoginFlowError> parseSignInQr(String scanned) {
+    final rpId = config.passkeyRpId;
+    if (rpId == null) {
+      return Err(const InvalidSignInQr(problem: SignInQrProblem.notConfigured));
+    }
+    final uri = Uri.tryParse(scanned.trim());
+    final segments = uri?.pathSegments ?? const <String>[];
+    final isSignInQr =
+        uri != null &&
+        uri.scheme == 'https' &&
+        uri.userInfo.isEmpty &&
+        !uri.hasQuery &&
+        segments.length == 2 &&
+        segments.first == 'qr' &&
+        _qrRequestIdShape.hasMatch(segments.last) &&
+        _qrSecretShape.hasMatch(uri.fragment);
+    if (!isSignInQr) {
+      return Err(const InvalidSignInQr(problem: SignInQrProblem.malformed));
+    }
+    if (uri.host != rpId || uri.hasPort) {
+      return Err(const InvalidSignInQr(problem: SignInQrProblem.otherCompany));
+    }
+    return Ok(SignInQr(requestId: segments.last, secret: uri.fragment));
+  }
+
+  /// A UUID, the shape of a QR's request id.
+  static final RegExp _qrRequestIdShape = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
   );
+
+  /// Base64url without padding, the shape of a QR's secret.
+  static final RegExp _qrSecretShape = RegExp(r'^[A-Za-z0-9_-]{16,}$');
+
+  /// Who asks to sign in with [qr]
+  /// (`POST /v1/user/device-qr/{id}/details`, `doc/server-contract.md`
+  /// §21): show it before the person decides. Reading never changes the
+  /// QR. Fails with [SignInQrRefused] (`notFound`, `expired`,
+  /// `notAllowed`), [RateLimited] after 20 calls in 15 minutes, or
+  /// [NotSignedIn].
+  Future<Result<SignInQrDetails, LoginFlowError>> signInQrDetails(
+    SignInQr qr,
+  ) => _withSessionToken(
+    (token) => _deviceQr.details(bearerToken: token, qr: qr),
+  );
+
+  /// Approves the sign-in of [qr] (`POST /v1/user/device-qr/{id}/approve`,
+  /// `doc/server-contract.md` §21): the page that shows it signs in as this
+  /// person on its next poll.
+  ///
+  /// Like [approvePhoneSignIn], the server needs a passkey within the last
+  /// 120 s ([phoneApprovalRequirement]): the passkey step-up runs first
+  /// when the session's last sign-in is not a recent passkey, or after the
+  /// server's RFC 9470 challenge, and the approval is sent ONCE more —
+  /// never a loop. Fails with [StepUpRequired], the passkey's own error
+  /// (`PasskeyFailed`, `PasskeyRejected`), [SignInQrRefused] (`notFound`,
+  /// `expired`, `notAllowed`), [RateLimited] or [NotSignedIn].
+  Future<Result<void, LoginFlowError>> approveQrSignIn(SignInQr qr) =>
+      _withRecentPasskey(
+        () => _withSessionToken(
+          (token) => _deviceQr.approve(bearerToken: token, qr: qr),
+        ),
+      );
+
+  /// Refuses the sign-in of [qr] ("this was not me",
+  /// `POST /v1/user/device-qr/{id}/deny`): the page's next poll answers
+  /// `access_denied`. No recent sign-in needed. Fails with
+  /// [SignInQrRefused] or [RateLimited].
+  Future<Result<void, LoginFlowError>> denyQrSignIn(SignInQr qr) =>
+      _withSessionToken((token) => _deviceQr.deny(bearerToken: token, qr: qr));
+
+  /// Runs [call], which needs a passkey within [phoneApprovalRequirement]:
+  /// the passkey step-up first when the session's last sign-in is not a
+  /// recent passkey, or once after the server's challenge on a session
+  /// believed recent, then [call] exactly once more.
+  Future<Result<T, LoginFlowError>> _withRecentPasskey<T>(
+    Future<Result<T, LoginFlowError>> Function() call,
+  ) async {
+    final session = _session;
+    if (session == null) {
+      return Err(const NotSignedIn());
+    }
+    final isPasskeyRecent = _isPasskeyRecent(session.identity);
+    if (!isPasskeyRecent) {
+      final steppedUp = await _passkeyStepUp(phoneApprovalRequirement);
+      if (steppedUp case Err(:final error)) {
+        return Err(error);
+      }
+    }
+    final result = await call();
+    if (result case Err(error: StepUpRequired(:final requirement))
+        when isPasskeyRecent) {
+      final steppedUp = await _passkeyStepUp(requirement);
+      if (steppedUp case Err(:final error)) {
+        return Err(error);
+      }
+      return call();
+    }
+    return result;
+  }
 
   /// Whether [identity] signed in with a passkey recently enough for
   /// [phoneApprovalRequirement], on the library's clock.
@@ -1615,22 +1800,28 @@ class LoginFlowAuth {
   /// session (every app sharing it), the browser session (RP-initiated
   /// logout) or everywhere. The local session always ends; see
   /// `doc/server-contract.md` §9–§12.
-  Future<Result<AuthState, LoginFlowError>> signOut(SignOutScope scope) =>
-      switch (scope) {
-        SignOutScope.app => _signOutApp(),
-        SignOutScope.device => _signOutServerSessions(
-          (discovery) => discovery.deviceLogoutEndpoint,
-          'loginflow_device_logout_endpoint',
-        ),
-        SignOutScope.everywhere => _signOutServerSessions(
-          (discovery) => discovery.globalLogoutEndpoint,
-          'loginflow_global_logout_endpoint',
-        ),
-        SignOutScope.browser => _signOutBrowser(),
-      };
+  Future<Result<AuthState, LoginFlowError>> signOut(SignOutScope scope) {
+    _stopPolling();
+    return switch (scope) {
+      SignOutScope.app => _signOutApp(),
+      SignOutScope.device => _signOutServerSessions(
+        (discovery) => discovery.deviceLogoutEndpoint,
+        'loginflow_device_logout_endpoint',
+      ),
+      SignOutScope.everywhere => _signOutServerSessions(
+        (discovery) => discovery.globalLogoutEndpoint,
+        'loginflow_global_logout_endpoint',
+      ),
+      SignOutScope.browser => _signOutBrowser(),
+    };
+  }
 
-  /// Closes [states]. The instance is unusable afterwards.
-  Future<void> dispose() => _states.close();
+  /// Closes [states] and stops any polling. The instance is unusable
+  /// afterwards.
+  Future<void> dispose() {
+    _stopPolling();
+    return _states.close();
+  }
 
   /// Runs [step] only while the reset waits for its code.
   Future<Result<AuthState, LoginFlowError>> _whileAwaitingResetCode(
@@ -1876,6 +2067,7 @@ class LoginFlowAuth {
     String? idTokenHint,
     String? organization,
   }) async {
+    _stopPolling();
     if (purpose == ChallengePurpose.signIn) {
       await _leaveReset();
     }
@@ -1990,10 +2182,17 @@ class LoginFlowAuth {
     ChallengeInput? input,
   ) async {
     final resendAvailableAt = _emailCodeResendAvailableAt(sent, step, input);
+    final isDeviceSignIn =
+        step.next == ChallengeStep.devicePush ||
+        step.next == ChallengeStep.deviceQr;
     final attempt = sent
         .copyWith(authSession: step.authSession)
-        .withEmailCodeResendAvailableAt(resendAvailableAt);
+        .withEmailCodeResendAvailableAt(resendAvailableAt)
+        .withDeviceSignIn(isDeviceSignIn ? sent.deviceSignIn : null);
     _attempt = attempt;
+    if (isDeviceSignIn) {
+      return _onDeviceSignInStep(attempt, step);
+    }
     if (step.next == ChallengeStep.upstreamToken) {
       return _answerUpstream(step);
     }
@@ -2020,6 +2219,173 @@ class LoginFlowAuth {
         ),
       ),
     );
+  }
+
+  /// A `device_push` / `device_qr` step: a new request (it carries the
+  /// number or the QR to show, announced as [ChallengeRequired]) or a poll
+  /// still undecided (nothing the page shows changed: no state is
+  /// emitted). Either way the next poll is scheduled.
+  Future<Result<AuthState, LoginFlowError>> _onDeviceSignInStep(
+    AuthorizationAttempt attempt,
+    ChallengeStepRequired step,
+  ) async {
+    final details = step.device;
+    final current = attempt.deviceSignIn;
+    final pollStatus = step.pollStatus;
+    if (pollStatus == null) {
+      final pending = _newDeviceSignIn(step.next, details);
+      if (pending == null) {
+        return _abandon(
+          ServerResponseInvalid(
+            statusCode: 403,
+            description: '${step.next.wireName} step without its number or QR',
+          ),
+        );
+      }
+      final waiting = attempt.withDeviceSignIn(pending);
+      _attempt = waiting;
+      final state = _emit(
+        ChallengeRequired(
+          prompt: ChallengePrompt.fromResponse(
+            step,
+            loginHint: waiting.loginHint,
+            phoneApproval: pending.phoneApproval,
+            qrSignIn: pending.qrSignIn,
+          ),
+          purpose: waiting.purpose,
+        ),
+      );
+      _schedulePoll(waiting);
+      return Ok(state);
+    }
+    if (current == null || current.step != step.next) {
+      return _abandon(
+        ServerResponseInvalid(
+          statusCode: 403,
+          description: 'a ${step.next.wireName} poll with nothing on screen',
+        ),
+      );
+    }
+    final interval = switch (pollStatus) {
+      DevicePollStatus.pending => details?.interval ?? current.interval,
+      DevicePollStatus.slowDown => _longest(
+        details?.interval ?? Duration.zero,
+        current.interval + _slowDownStep,
+      ),
+    };
+    final waiting = attempt.withDeviceSignIn(
+      current.copyWith(interval: interval),
+    );
+    _attempt = waiting;
+    _schedulePoll(waiting);
+    return Ok(_state);
+  }
+
+  /// What a new phone approval or QR shows, or `null` when the answer lacks
+  /// its number or QR.
+  PendingDeviceSignIn? _newDeviceSignIn(
+    ChallengeStep step,
+    DeviceSignInDetails? details,
+  ) {
+    final expiresAt = _clock.now().add(
+      details?.expiresIn ?? _defaultDeviceSignInLifetime,
+    );
+    final interval = details?.interval ?? _defaultPollInterval;
+    return switch ((step, details?.number, details?.qrUri)) {
+      (ChallengeStep.devicePush, final int number, _) => PendingDeviceSignIn(
+        step: step,
+        expiresAt: expiresAt,
+        interval: interval,
+        phoneApproval: PhoneApproval(number: number, expiresAt: expiresAt),
+      ),
+      (ChallengeStep.deviceQr, _, final Uri qrUri) => PendingDeviceSignIn(
+        step: step,
+        expiresAt: expiresAt,
+        interval: interval,
+        qrSignIn: QrSignIn(qrUri: qrUri, expiresAt: expiresAt),
+      ),
+      _ => null,
+    };
+  }
+
+  static Duration _longest(Duration a, Duration b) => a > b ? a : b;
+
+  /// Schedules the next poll of [attempt]'s phone approval or QR, after its
+  /// interval or [delay]; replaces any poll already scheduled.
+  void _schedulePoll(AuthorizationAttempt attempt, {Duration? delay}) {
+    _stopPolling();
+    final pending = attempt.deviceSignIn;
+    if (pending == null) {
+      return;
+    }
+    _cancelPoll = _scheduler.schedule(
+      delay ?? pending.interval,
+      () => unawaited(_pollDeviceSignIn(attempt)),
+    );
+  }
+
+  void _stopPolling() {
+    _cancelPoll?.call();
+    _cancelPoll = null;
+  }
+
+  /// One `device_push_poll` / `device_qr_poll`. Does nothing once the
+  /// attempt was cancelled or replaced. Approved: signed in by
+  /// [_continueAttempt]. Pending: the next poll is scheduled there. Denied
+  /// or expired: the step stays, without its number or QR, with the
+  /// reason. A network failure or a rate limit polls again later until the
+  /// request expires; anything else ends the attempt.
+  Future<void> _pollDeviceSignIn(AuthorizationAttempt attempt) async {
+    final pending = attempt.deviceSignIn;
+    if (!identical(_attempt, attempt) || pending == null) {
+      return;
+    }
+    _cancelPoll = null;
+    final polled = await _continueAttempt(
+      DeviceSignInPollInput(step: pending.step),
+    );
+    if (polled case Err(:final error) when identical(_attempt, attempt)) {
+      switch (error) {
+        case OAuthProtocolError(statusCode: 400, code: 'access_denied'):
+          _endDeviceSignIn(attempt, StepError.denied);
+        case OAuthProtocolError(statusCode: 400, code: 'expired_token'):
+          _endDeviceSignIn(attempt, StepError.expired);
+        case NetworkFailure() || RateLimited()
+            when !_clock.now().isBefore(pending.expiresAt):
+          _endDeviceSignIn(attempt, StepError.expired);
+        case RateLimited(:final retryAfter):
+          _schedulePoll(
+            attempt,
+            delay: _longest(retryAfter ?? Duration.zero, pending.interval),
+          );
+        case NetworkFailure():
+          _schedulePoll(attempt);
+        default:
+          await _abandon(error);
+      }
+    }
+  }
+
+  /// The phone approval or QR ended ([StepError.denied] or
+  /// [StepError.expired]): the step stays, without its number or QR, with
+  /// the reason. Asking again starts a new one.
+  void _endDeviceSignIn(AuthorizationAttempt attempt, StepError outcome) {
+    _stopPolling();
+    _attempt = attempt.withDeviceSignIn(null);
+    final current = _state;
+    if (current is ChallengeRequired) {
+      _emit(
+        ChallengeRequired(
+          prompt: ChallengePrompt(
+            step: current.prompt.step,
+            alternatives: current.prompt.alternatives,
+            stepError: outcome,
+            loginHint: current.prompt.loginHint,
+          ),
+          purpose: current.purpose,
+        ),
+      );
+    }
   }
 
   /// When another email code may be asked for after [step]: one
@@ -2053,8 +2419,10 @@ class LoginFlowAuth {
     }
     return switch (refusal) {
       null => Ok(awaiting),
-      StepError.invalidCredential => Err(const InvalidResetCode()),
-      StepError.codeExpired => Err(const ResetCodeExpired()),
+      StepError.invalidCredential ||
+      StepError.denied => Err(const InvalidResetCode()),
+      StepError.codeExpired ||
+      StepError.expired => Err(const ResetCodeExpired()),
     };
   }
 
@@ -2149,6 +2517,7 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> _onSessionInvalid(
     AuthorizationAttempt sent,
   ) async {
+    _stopPolling();
     _attempt = null;
     if (sent.purpose == ChallengePurpose.signIn ||
         sent.purpose == ChallengePurpose.passwordReset) {
@@ -2962,6 +3331,7 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> _abandon(
     LoginFlowError error,
   ) async {
+    _stopPolling();
     _attempt = null;
     _settleReset();
     _emit(_restingState());

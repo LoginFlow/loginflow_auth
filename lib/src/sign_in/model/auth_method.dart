@@ -17,6 +17,8 @@ sealed class AuthMethod {
       MicrosoftMethod.methodName => const MicrosoftMethod(),
       AppleMethod.methodName => const AppleMethod(),
       FacebookMethod.methodName => const FacebookMethod(),
+      PhoneApprovalMethod.methodName => const PhoneApprovalMethod(),
+      QrSignInMethod.methodName => const QrSignInMethod(),
       _ => throw FormatException('Unknown sign-in method "$method".'),
     };
   }
@@ -191,6 +193,60 @@ final class FacebookMethod extends AuthMethod {
 
   @override
   bool operator ==(Object other) => other is FacebookMethod;
+
+  @override
+  int get hashCode => methodName.hashCode;
+}
+
+/// Approval on the person's phone (`device_push`, number matching): the
+/// person types their email, this app shows a two-digit number, and they
+/// pick it in an app of the same company where they are already signed in
+/// (`LoginFlowAuth.requestPhoneApproval`). Shown only when the client's
+/// login methods list `device_push`.
+final class PhoneApprovalMethod extends AuthMethod {
+  /// Creates a [PhoneApprovalMethod].
+  const PhoneApprovalMethod();
+
+  /// The wire name of this method in the login options.
+  static const String methodName = 'device_push';
+
+  @override
+  String get wireName => methodName;
+
+  /// A copy of this [PhoneApprovalMethod] with the given fields replaced.
+  PhoneApprovalMethod copyWith() => const PhoneApprovalMethod();
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{'method': methodName};
+
+  @override
+  bool operator ==(Object other) => other is PhoneApprovalMethod;
+
+  @override
+  int get hashCode => methodName.hashCode;
+}
+
+/// A QR scanned by a phone already signed in to an app of the same company
+/// (`device_qr`, `LoginFlowAuth.requestQrSignIn`). No email is typed. Shown
+/// only when the client's login methods list `device_qr`.
+final class QrSignInMethod extends AuthMethod {
+  /// Creates a [QrSignInMethod].
+  const QrSignInMethod();
+
+  /// The wire name of this method in the login options.
+  static const String methodName = 'device_qr';
+
+  @override
+  String get wireName => methodName;
+
+  /// A copy of this [QrSignInMethod] with the given fields replaced.
+  QrSignInMethod copyWith() => const QrSignInMethod();
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{'method': methodName};
+
+  @override
+  bool operator ==(Object other) => other is QrSignInMethod;
 
   @override
   int get hashCode => methodName.hashCode;

@@ -383,4 +383,47 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
   @override
   String get feedbackPasswordRejected =>
       'That password was not accepted: it is too weak, appeared in a data breach or is your current one. Try another.';
+
+  @override
+  String get continueWithPhoneApproval => 'Approve on my phone';
+
+  @override
+  String get continueWithQrCode => 'Sign in with a QR code';
+
+  @override
+  String get phoneApprovalEmailInstructions =>
+      'Enter your email. We will ask the app on your phone, where you are already signed in, to approve.';
+
+  @override
+  String get phoneApprovalSendButton => 'Send to my phone';
+
+  @override
+  String get phoneApprovalInstructions =>
+      'Open the app on your phone and choose this number.';
+
+  @override
+  String get qrSignInInstructions =>
+      'Scan this code with the app on your phone where you are already signed in, and confirm there.';
+
+  @override
+  String get qrCodeLabel => 'QR code to sign in';
+
+  @override
+  String deviceSignInExpiresIn(String time) {
+    return 'Expires in $time';
+  }
+
+  @override
+  String get phoneApprovalAskAgain => 'Send a new request';
+
+  @override
+  String get qrSignInNewCode => 'Show a new code';
+
+  @override
+  String get feedbackDeviceSignInDenied =>
+      'The sign-in was refused on the phone.';
+
+  @override
+  String get feedbackDeviceSignInExpired =>
+      'Nobody answered in time. Try again.';
 }

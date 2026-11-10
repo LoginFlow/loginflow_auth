@@ -1,5 +1,6 @@
 import 'package:loginflow_auth/src/core/crypto/pkce_pair.dart';
 import 'package:loginflow_auth/src/core/crypto/secure_random_source.dart';
+import 'package:loginflow_auth/src/core/flow/pending_device_sign_in.dart';
 import 'package:loginflow_auth/src/core/json/list_equality.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_authorization_parameters.dart';
 import 'package:loginflow_auth/src/core/state/challenge_purpose.dart';
@@ -23,6 +24,7 @@ class AuthorizationAttempt {
     this.idTokenHint,
     this.organization,
     this.emailCodeResendAvailableAt,
+    this.deviceSignIn,
   });
 
   factory AuthorizationAttempt.start({
@@ -75,6 +77,30 @@ class AuthorizationAttempt {
   /// `email_otp` step; `null` while the step is another one.
   final DateTime? emailCodeResendAvailableAt;
 
+  /// The phone approval or sign-in QR being polled; `null` on any other
+  /// step and once it is decided.
+  final PendingDeviceSignIn? deviceSignIn;
+
+  /// This attempt with [deviceSignIn] set to [pending], `null` included
+  /// ([copyWith] cannot clear a field).
+  AuthorizationAttempt withDeviceSignIn(PendingDeviceSignIn? pending) =>
+      AuthorizationAttempt(
+        purpose: purpose,
+        pkce: pkce,
+        nonce: nonce,
+        state: state,
+        authSession: authSession,
+        isAuthorizationSent: isAuthorizationSent,
+        loginHint: loginHint,
+        prompt: prompt,
+        acrValues: acrValues,
+        maxAge: maxAge,
+        idTokenHint: idTokenHint,
+        organization: organization,
+        emailCodeResendAvailableAt: emailCodeResendAvailableAt,
+        deviceSignIn: pending,
+      );
+
   /// This attempt with [emailCodeResendAvailableAt] set to [availableAt],
   /// `null` included ([copyWith] cannot clear a field).
   AuthorizationAttempt withEmailCodeResendAvailableAt(DateTime? availableAt) =>
@@ -92,6 +118,7 @@ class AuthorizationAttempt {
         idTokenHint: idTokenHint,
         organization: organization,
         emailCodeResendAvailableAt: availableAt,
+        deviceSignIn: deviceSignIn,
       );
 
   ChallengeAuthorizationParameters toParameters({
@@ -126,6 +153,7 @@ class AuthorizationAttempt {
     String? idTokenHint,
     String? organization,
     DateTime? emailCodeResendAvailableAt,
+    PendingDeviceSignIn? deviceSignIn,
   }) => AuthorizationAttempt(
     purpose: purpose ?? this.purpose,
     pkce: pkce ?? this.pkce,
@@ -141,6 +169,7 @@ class AuthorizationAttempt {
     organization: organization ?? this.organization,
     emailCodeResendAvailableAt:
         emailCodeResendAvailableAt ?? this.emailCodeResendAvailableAt,
+    deviceSignIn: deviceSignIn ?? this.deviceSignIn,
   );
 
   @override
@@ -159,7 +188,8 @@ class AuthorizationAttempt {
           maxAge == other.maxAge &&
           idTokenHint == other.idTokenHint &&
           organization == other.organization &&
-          emailCodeResendAvailableAt == other.emailCodeResendAvailableAt;
+          emailCodeResendAvailableAt == other.emailCodeResendAvailableAt &&
+          deviceSignIn == other.deviceSignIn;
 
   @override
   int get hashCode => Object.hash(
@@ -176,6 +206,7 @@ class AuthorizationAttempt {
     idTokenHint,
     organization,
     emailCodeResendAvailableAt,
+    deviceSignIn,
   );
 
   @override

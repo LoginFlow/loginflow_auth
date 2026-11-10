@@ -43,6 +43,20 @@ enum ChallengeStep {
   /// — never its own `next` value.
   magicLink('magic_link'),
 
+  /// A sign-in approved on a phone (number matching,
+  /// `doc/server-contract.md` §21): sent as `method=device_push` on a
+  /// transaction that names an email (`LoginFlowAuth.requestPhoneApproval`),
+  /// answered `next: device_push` with the number to show, then polled by
+  /// the library until it is decided. Opt-in per client.
+  devicePush('device_push'),
+
+  /// A sign-in by QR (`doc/server-contract.md` §21): sent as
+  /// `method=device_qr` (`LoginFlowAuth.requestQrSignIn`), answered
+  /// `next: device_qr` with the QR to show, then polled by the library
+  /// until a signed-in app of the same company approves it. Opt-in per
+  /// client.
+  deviceQr('device_qr'),
+
   /// Client-initiated only (`method=access_code`): redeems a single-use
   /// code a tenant backend issued for one of its own subjects
   /// (`AccessCodeInput`, `doc/server-contract.md` §16). One leg: the server

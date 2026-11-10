@@ -68,6 +68,18 @@ extension LoginFlowEnvelope on TransportReply {
     );
   }
 
+  /// [toAccountApiError], unless [coded] reads the envelope's `error.code`
+  /// as a typed refusal of the route (e.g. `device_qr_expired`).
+  LoginFlowError toAccountApiErrorOr(
+    LoginFlowError? Function(String code) coded,
+  ) {
+    final code = jsonObject().when(
+      ok: (json) => json.optionalObject('error')?.optionalString('code'),
+      err: (_) => null,
+    );
+    return (code == null ? null : coded(code)) ?? toAccountApiError();
+  }
+
   Result<Map<String, Object?>, LoginFlowError> _dataObject(
     Map<String, Object?> envelope,
   ) {

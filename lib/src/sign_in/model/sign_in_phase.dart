@@ -273,6 +273,83 @@ final class SignInAccessCodeEntry extends SignInPhase {
   int get hashCode => (SignInAccessCodeEntry).hashCode;
 }
 
+/// Email form before a phone approval is asked for
+/// (`SignInViewModel.requestPhoneApproval`).
+final class SignInPhoneApprovalEmailEntry extends SignInPhase {
+  const SignInPhoneApprovalEmailEntry();
+
+  @override
+  bool operator ==(Object other) => other is SignInPhoneApprovalEmailEntry;
+
+  @override
+  int get hashCode => (SignInPhoneApprovalEmailEntry).hashCode;
+}
+
+/// A phone approval waits on the person's phone: [number] shown large,
+/// [secondsLeft] counted down. [number] is `null` once it ended (refused or
+/// expired, the feedback says which): then "Send a new request".
+final class SignInPhoneApprovalWaiting extends SignInPhase {
+  const SignInPhoneApprovalWaiting({
+    required this.number,
+    required this.secondsLeft,
+  });
+
+  final int? number;
+
+  /// 0 once it expired.
+  final int secondsLeft;
+
+  /// It was refused or expired: only asking again is left.
+  bool get hasEnded => number == null;
+
+  SignInPhoneApprovalWaiting copyWith({int? number, int? secondsLeft}) =>
+      SignInPhoneApprovalWaiting(
+        number: number ?? this.number,
+        secondsLeft: secondsLeft ?? this.secondsLeft,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInPhoneApprovalWaiting &&
+          number == other.number &&
+          secondsLeft == other.secondsLeft;
+
+  @override
+  int get hashCode =>
+      Object.hash(SignInPhoneApprovalWaiting, number, secondsLeft);
+}
+
+/// A sign-in QR waits to be scanned: [qrUri] rendered as a QR,
+/// [secondsLeft] counted down. [qrUri] is `null` once it ended (refused or
+/// expired, the feedback says which): then "Show a new code".
+final class SignInQrWaiting extends SignInPhase {
+  const SignInQrWaiting({required this.qrUri, required this.secondsLeft});
+
+  final Uri? qrUri;
+
+  /// 0 once it expired.
+  final int secondsLeft;
+
+  /// It was refused or expired: only a new QR is left.
+  bool get hasEnded => qrUri == null;
+
+  SignInQrWaiting copyWith({Uri? qrUri, int? secondsLeft}) => SignInQrWaiting(
+    qrUri: qrUri ?? this.qrUri,
+    secondsLeft: secondsLeft ?? this.secondsLeft,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInQrWaiting &&
+          qrUri == other.qrUri &&
+          secondsLeft == other.secondsLeft;
+
+  @override
+  int get hashCode => Object.hash(SignInQrWaiting, qrUri, secondsLeft);
+}
+
 /// The system browser is open.
 final class SignInAwaitingBrowser extends SignInPhase {
   const SignInAwaitingBrowser();

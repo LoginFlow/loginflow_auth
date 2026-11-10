@@ -1299,7 +1299,7 @@ A `400` (the state changed since it was read) is the account API's usual
 ## 21. Sign-in on another device: QR and phone approval (LoginFlow extension)
 
 Two login methods of their own, checked against `loginflow_api` `main`
-`53ebcc2` (`docs/api/oauth2/authorize-challenge-device-{qr,push}.md`,
+`681c72b` (0.20.0) (`docs/api/oauth2/authorize-challenge-device-{qr,push}.md`,
 `docs/api/v1/user/device-{qr,push}/`). A first-party **web page** (a client
 with `allowed_web_origins`, §5.1) signs a person in through a person already
 signed in to an **app** of the same company: the page is the *requester*
@@ -1312,9 +1312,10 @@ the scope, token and envelope of §15). A client lists `device_qr` and/or
 transaction, at most 10 per transaction, `429 temporarily_unavailable`
 after that), and live 120 s.
 
-**The library implements the approver side of `device_push` only**
-(§21.3). The requester steps and the `device_qr` approver routes are
-documented here for completeness; a web client drives the requester side.
+**The library implements both sides of both methods** (§21.3–§21.5): the
+requester (an app or a Flutter web page signing in) and the approver (an
+app approving a page). Any client may be the requester: LoginFlow does not
+restrict the methods to web clients.
 
 ### 21.1 Requester: the authorization challenge
 
@@ -1426,3 +1427,53 @@ server asked for another step) leaves that step in progress and fails with
 `device_push_*` code is `PhoneApprovalRefused(reason)` (`notFound`,
 `expired`, `notAllowed`); `429` is `RateLimited`; anything else is the
 account API's usual error (§15).
+
+### 21.4 Library behaviour (requester)
+
+| Call | Wire | Result |
+|---|---|---|
+| `requestPhoneApproval(email)` | opening with `login_hint` + `method=device_push` | `ChallengeRequired` on `ChallengeStep.devicePush`, `prompt.phoneApproval` = `PhoneApproval(number, expiresAt)` |
+| `requestQrSignIn()` | opening with `method=device_qr` | `ChallengeRequired` on `ChallengeStep.deviceQr`, `prompt.qrSignIn` = `QrSignIn(qrUri, expiresAt)` |
+| `selectMethod(ChallengeStep.devicePush \| deviceQr)` | `method=…` on the attempt in progress | the same, on that `auth_session` |
+| (automatic) | `auth_session` + `method=device_push_poll` / `device_qr_poll` | see below |
+
+- `expiresAt` = the library's clock + `expires_in` (120 s when absent);
+  `deviceSignInWait` is the time left. The first poll waits `interval`
+  (5 s when absent), scheduled on `LoginFlowScheduler`.
+- `403 authorization_pending`: next poll after the `interval` the answer
+  carries (else the current one); no state is emitted.
+- `403 slow_down`: interval = max(the answer's `interval`, current + 5 s),
+  kept for the rest of the request; no state is emitted.
+- `200 authorization_code`: redeemed like any challenge code (§7.1);
+  `SignedIn`, the session stored.
+- `400 access_denied` / `400 expired_token`: polling stops; the same step
+  is emitted again without `phoneApproval` / `qrSignIn` and with
+  `stepError` `StepError.denied` / `StepError.expired` (values the library
+  sets; the server never sends them as `step_error`).
+- Network failure or `429`: polled again after the interval (or
+  `Retry-After` when longer) until `expiresAt`, then `StepError.expired`.
+  `400 invalid_session` ends the attempt like any challenge (§5.2). Any
+  other error abandons the attempt and is reported.
+- `cancelChallenge`, any new attempt, `selectMethod`, `signOut` and
+  `dispose` cancel the scheduled poll; a poll whose attempt was replaced
+  meanwhile is dropped.
+
+### 21.5 Library behaviour (`device_qr` approver)
+
+| Call | Wire | Result |
+|---|---|---|
+| `parseSignInQr(text)` | none | `SignInQr(requestId, secret)`, or `InvalidSignInQr(problem)` |
+| `signInQrDetails(qr)` | `POST …/device-qr/{id}/details` `{"secret"}` | `SignInQrDetails` (`requester` is a `PhoneApprovalRequester`; times read as UTC) |
+| `approveQrSignIn(qr)` | `POST …/device-qr/{id}/approve` `{"secret"}` | `void` (the envelope's `status` must be `approved`) |
+| `denyQrSignIn(qr)` | `POST …/device-qr/{id}/deny` `{"secret"}` | `void` (`status` `denied`) |
+
+`parseSignInQr` accepts `https://<LoginFlowConfig.passkeyRpId>/qr/<uuid>#<secret>`
+(base64url secret, no query, no user info, no explicit port) and nothing
+else: another host is `SignInQrProblem.otherCompany`, any other shape
+`.malformed`, a config without `passkeyRpId` `.notConfigured`; nothing is
+sent in any of those cases. `approveQrSignIn` shares `approvePhoneSignIn`'s
+passkey step-up (§21.3: before the call when the session is not a passkey
+within 110 s, once after a `401` challenge, then exactly one more call). A
+`device_qr_*` code is `SignInQrRefused(reason)` (`notFound`, `expired`,
+`notAllowed`); `429` is `RateLimited`; anything else is the account API's
+usual error (§15).

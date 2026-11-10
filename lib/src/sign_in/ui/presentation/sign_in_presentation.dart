@@ -18,6 +18,8 @@ extension AuthMethodPresentation on AuthMethod {
     MicrosoftMethod() => strings.continueWithMicrosoft,
     AppleMethod() => strings.continueWithApple,
     FacebookMethod() => strings.continueWithFacebook,
+    PhoneApprovalMethod() => strings.continueWithPhoneApproval,
+    QrSignInMethod() => strings.continueWithQrCode,
   };
 
   /// Stable key of the method's button, for tests and integration drivers.
@@ -31,6 +33,8 @@ extension AuthMethodPresentation on AuthMethod {
   IconData? toIcon() => switch (this) {
     PasswordMethod() => Icons.password,
     EmailOtpMethod() => Icons.mail_outline,
+    PhoneApprovalMethod() => Icons.phonelink_lock_outlined,
+    QrSignInMethod() => Icons.qr_code_2,
     GoogleMethod() ||
     MicrosoftMethod() ||
     AppleMethod() ||
@@ -56,6 +60,8 @@ extension SignInFeedbackPresentation on SignInFeedback {
     SignInFeedback.accessCodeNotConfigured =>
       strings.feedbackAccessCodeNotConfigured,
     SignInFeedback.passwordRejected => strings.feedbackPasswordRejected,
+    SignInFeedback.deviceSignInDenied => strings.feedbackDeviceSignInDenied,
+    SignInFeedback.deviceSignInExpired => strings.feedbackDeviceSignInExpired,
   };
 }
 
@@ -107,11 +113,27 @@ extension SignInOtpEntryPresentation on SignInOtpEntry {
   /// "Resend code", or "Resend code (0:42)" while its wait runs.
   String toResendLabel(LoginFlowStrings strings) => canResend
       ? strings.resendCode
-      : strings.resendCodeCountdown(_resendWaitText);
+      : strings.resendCodeCountdown(resendSecondsLeft.toClockText());
+}
 
-  /// [resendSecondsLeft] as `m:ss`.
-  String get _resendWaitText {
-    final seconds = (resendSecondsLeft % 60).toString().padLeft(2, '0');
-    return '${resendSecondsLeft ~/ 60}:$seconds';
+/// Texts of the phone-approval step.
+extension SignInPhoneApprovalWaitingPresentation on SignInPhoneApprovalWaiting {
+  /// "Expires in 1:42".
+  String toExpiryLabel(LoginFlowStrings strings) =>
+      strings.deviceSignInExpiresIn(secondsLeft.toClockText());
+}
+
+/// Texts of the QR step.
+extension SignInQrWaitingPresentation on SignInQrWaiting {
+  /// "Expires in 1:42".
+  String toExpiryLabel(LoginFlowStrings strings) =>
+      strings.deviceSignInExpiresIn(secondsLeft.toClockText());
+}
+
+/// A countdown in whole seconds as `m:ss`.
+extension CountdownClockText on int {
+  String toClockText() {
+    final seconds = (this % 60).toString().padLeft(2, '0');
+    return '${this ~/ 60}:$seconds';
   }
 }

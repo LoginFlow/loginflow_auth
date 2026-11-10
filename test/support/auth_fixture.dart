@@ -36,6 +36,8 @@ class AuthFixture {
     bool hasBrowser = true,
     bool enableDpop = false,
     DpopKeyStore? dpopKeyStore,
+    LoginFlowScheduler? scheduler,
+    bool knowsPasskeyRpId = true,
   }) {
     final store = sessionStore ?? InMemorySessionStore();
     final browser = FakeBrowser(server);
@@ -53,6 +55,7 @@ class AuthFixture {
         postLogoutRedirectUri: Uri.parse('https://app.example.com/signed-out'),
         uiLocales: const <String>['es', 'en'],
         enableDpop: enableDpop,
+        passkeyRpId: knowsPasskeyRpId ? FakeLoginFlowServer.passkeyRpId : null,
       ),
       httpClient: http.Client(),
       sessionStore: store,
@@ -65,6 +68,7 @@ class AuthFixture {
       passkeyAuthenticator: passkey,
       dpopKeyStore: enableDpop ? dpopKeyStore ?? TestDpopKeyStore() : null,
       clock: clock,
+      scheduler: scheduler ?? const TimerLoginFlowScheduler(),
     );
     return AuthFixture._(
       auth: auth,

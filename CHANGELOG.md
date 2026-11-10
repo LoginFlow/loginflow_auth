@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.20.0
+
+Both sides of LoginFlow's two sign-ins on another device: approval on a
+phone (`device_push`, number matching) and QR (`device_qr`). Server
+contract: `doc/server-contract.md` §21.
+
+**Versioning.** From this release the library shares its `major.minor`
+with the LoginFlow API and the web library: API `0.20.x` ↔ `loginflow_auth`
+`0.20.x` ↔ `loginflow_auth_web` `0.20.x`. Patch numbers move on their own;
+versions stay `0.x.y`.
+
+Requester (this app signs in, approved on another device), same concepts
+and names as `loginflow_auth_web`:
+
+- New: `LoginFlowAuth.requestPhoneApproval(email, {organization})` →
+  `Result<AuthState, LoginFlowError>` (`method=device_push`). Resolves once
+  the request exists: `ChallengeRequired` on `ChallengeStep.devicePush`
+  whose `prompt.phoneApproval` (`PhoneApproval`: `number`, `expiresAt`)
+  says what to show.
+- New: `LoginFlowAuth.requestQrSignIn({organization})` (`method=device_qr`,
+  no email): `ChallengeStep.deviceQr` with `prompt.qrSignIn` (`QrSignIn`:
+  `qrUri`, `expiresAt`).
+- Both are then polled by the library (`method=device_push_poll` /
+  `device_qr_poll`) at LoginFlow's `interval`, 5 s more after every
+  `slow_down` (RFC 8628), through network failures until the request
+  expires. Approved: `SignedIn`, the session stored as with any other
+  method. Refused or expired: the same step with `prompt.stepError`
+  `StepError.denied` / `StepError.expired` and no number or QR; ask again
+  for a new one. Waiting polls emit no state. `cancelChallenge`, another
+  sign-in, `selectMethod`, `signOut` and `dispose` stop the polling.
+  `selectMethod(ChallengeStep.devicePush | deviceQr)` asks on the attempt in
+  progress.
+- New: `LoginFlowAuth.deviceSignInWait` (`Duration`), the time left on the
+  phone approval or QR on screen, on the library's clock.
+- New: `LoginFlowScheduler` / `TimerLoginFlowScheduler`, the
+  `LoginFlowAuth(scheduler:)` that paces the polling (tests replace it).
+- New: `ChallengeStep.devicePush`, `ChallengeStep.deviceQr`,
+  `StepError.denied`, `StepError.expired`, `DeviceSignInDetails`,
+  `DevicePollStatus`; `ChallengeStepRequired.device` / `.pollStatus`;
+  `ChallengePrompt.phoneApproval` / `.qrSignIn`.
+
+Approver, QR (this app, signed in, approves a page's QR):
+
+- New: `LoginFlowConfig.passkeyRpId` — the company's passkey host (the one
+  the app's `webcredentials:` / `assetlinks.json` already name, e.g.
+  `acme-id.loginflow.dev`). The library has no other source for it: the
+  server publishes it nowhere an app can read before a passkey ceremony.
+- New: `LoginFlowAuth.parseSignInQr(scanned)` →
+  `Result<SignInQr, LoginFlowError>`: accepts only
+  `https://<passkeyRpId>/qr/<uuid>#<secret>`, no request. Otherwise
+  `InvalidSignInQr(problem)`: `SignInQrProblem.otherCompany` (another
+  host, never sent), `.malformed`, `.notConfigured` (no `passkeyRpId`).
+  The library has no camera dependency: the app scans and passes the text.
+- New: `LoginFlowAuth.signInQrDetails(qr)` → `SignInQrDetails`
+  (`POST /v1/user/device-qr/{id}/details`), `approveQrSignIn(qr)` (passkey
+  step-up first or after the RFC 9470 challenge, then one retry — the same
+  helper as `approvePhoneSignIn`), `denyQrSignIn(qr)`. The secret only
+  travels in the JSON body.
+- New: `SignInQrRefused(reason)` with `SignInQrRefusal.notFound`,
+  `.expired`, `.notAllowed` (`device_qr_not_found`, `_expired`,
+  `_not_allowed`); `429` stays `RateLimited`.
+
+Built-in sign-in UI:
+
+- New methods `PhoneApprovalMethod` (`device_push`) and `QrSignInMethod`
+  (`device_qr`) for `SignInConfiguration.methods`, shown only when the
+  client's login options list them. "Approve on my phone" asks for the
+  email, then shows the number large with "Expires in m:ss"; "Sign in with a
+  QR code" renders the QR with its countdown. Refused or expired: the reason
+  and "Send a new request" / "Show a new code". English and Spanish texts.
+- New dependency: `qr` ^4.0.0 (pure Dart, BSD-3, no transitive dependency
+  but `meta`) to encode the QR; drawn by the library's own `CustomPainter`
+  (black on white with the 4-module quiet zone, whatever the theme).
+
+Breaking (exhaustive switches): new cases in `ChallengeStep`, `StepError`,
+`AuthMethod`, and two new `LoginFlowError` subclasses (`SignInQrRefused`,
+`InvalidSignInQr`); a `switch` over them without a catch-all must add them.
+
 ## 0.19.0
 
 Approver side of LoginFlow's sign-in by phone approval (`device_push`,

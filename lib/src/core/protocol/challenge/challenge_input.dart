@@ -477,3 +477,28 @@ final class AccessCodeInput extends ChallengeInput {
   @override
   int get hashCode => code.hashCode;
 }
+
+/// One poll of a sign-in on another device ([ChallengeStep.devicePush] or
+/// [ChallengeStep.deviceQr]): `method=device_push_poll` or
+/// `method=device_qr_poll` (`doc/server-contract.md` §21).
+final class DeviceSignInPollInput extends ChallengeInput {
+  const DeviceSignInPollInput({required this.step});
+
+  final ChallengeStep step;
+
+  DeviceSignInPollInput copyWith({ChallengeStep? step}) =>
+      DeviceSignInPollInput(step: step ?? this.step);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'method': '${step.wireName}_poll',
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DeviceSignInPollInput && step == other.step;
+
+  @override
+  int get hashCode => Object.hash(DeviceSignInPollInput, step);
+}

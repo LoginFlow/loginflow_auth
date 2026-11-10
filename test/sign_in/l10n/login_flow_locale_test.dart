@@ -106,6 +106,17 @@ final _plainKeys = <String Function(LoginFlowLocalizations)>[
   (l) => l.savePasswordButton,
   (l) => l.passwordMismatch,
   (l) => l.feedbackPasswordRejected,
+  (l) => l.continueWithPhoneApproval,
+  (l) => l.continueWithQrCode,
+  (l) => l.phoneApprovalEmailInstructions,
+  (l) => l.phoneApprovalSendButton,
+  (l) => l.phoneApprovalInstructions,
+  (l) => l.qrSignInInstructions,
+  (l) => l.qrCodeLabel,
+  (l) => l.phoneApprovalAskAgain,
+  (l) => l.qrSignInNewCode,
+  (l) => l.feedbackDeviceSignInDenied,
+  (l) => l.feedbackDeviceSignInExpired,
 ];
 
 void main() {
@@ -145,6 +156,7 @@ void main() {
         expect(l10n.resetCodeSentTo('a@b.com'), contains('a@b.com'));
         expect(l10n.resendIn(7), contains('7'));
         expect(l10n.resendCodeCountdown('0:42'), contains('(0:42)'));
+        expect(l10n.deviceSignInExpiresIn('1:42'), contains('1:42'));
         expect(l10n.continueAs('Ana'), contains('Ana'));
         expect(l10n.lockedOutMessage(30), contains('30'));
         expect(l10n.accessCodeIncomplete(8), contains('8'));
