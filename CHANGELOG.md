@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.22.0
+
+Shares `major.minor` with LoginFlow API `0.22.x`.
+
+- New: `ClientLoginOptions.isAccountRecoveryEnabled` — the
+  `account_recovery` LoginFlow publishes in `GET /oauth2/login-options`
+  (whether `POST /v1/public/auth/request-account-recovery` is offered;
+  `403 account_recovery_disabled` when off). `false` when the server omits
+  it. In the constructor (optional, default `false`), `fromJson`,
+  `toJson`, `copyWith`, `==` and `hashCode`.
+- Docs: `password_reset` is off for a newly created client until the
+  company turns it on; hide "Forgot password?" when
+  `isPasswordResetEnabled` is `false`. Passkey host examples use the
+  one-level form (`turnosqr-id.loginflow.dev`); the library still reads
+  the host, never hard-codes it.
+- Docs/tests: a code flow refused with `429` + `Retry-After` (the server's
+  held email slots full) is `RateLimited`; a `startPasswordReset` refused
+  that way leaves no reset half open (covered by a new test).
+
 ## 0.21.0
 
 Shares `major.minor` with LoginFlow API `0.21.x`.

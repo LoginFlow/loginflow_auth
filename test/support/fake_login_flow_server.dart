@@ -433,6 +433,10 @@ class FakeLoginFlowServer {
 
   bool isPasswordResetEnabled = true;
 
+  /// The application's `account_recovery` switch (`GET /oauth2/login-options`,
+  /// `doc/server-contract.md` §4). Off by default, as on a new application.
+  bool isAccountRecoveryEnabled = false;
+
   /// The company's passkey policy (`GET /oauth2/login-options`,
   /// `doc/server-contract.md` §4): `true` + [passkeyMode] by default, so
   /// tests that do not care about this keep seeing the passkey button they
@@ -727,6 +731,7 @@ class FakeLoginFlowServer {
           'login_methods': _allowedLoginMethods,
           'self_signup': isSelfSignUpEnabled,
           'password_reset': isPasswordResetEnabled,
+          'account_recovery': isAccountRecoveryEnabled,
           'passkey': hasPasskey,
           if (hasPasskey) 'passkey_mode': passkeyMode?.wireName,
           if (publishedPasskeyRpId != null)
@@ -741,7 +746,9 @@ class FakeLoginFlowServer {
         rateLimitNextChallenge = null;
         if (retryAfter != null) {
           response.headers['retry-after'] = '${retryAfter.inSeconds}';
-          _oauthError(response, 429, 'rate_limited');
+          // The real server's body for a 429 on this endpoint (held email
+          // slots full, per-IP governor): RFC 6749 has no `rate_limited`.
+          _oauthError(response, 429, 'temporarily_unavailable');
         } else {
           _challenge(response, form ?? <String, String>{});
           await challengeResponseGate?.future;
