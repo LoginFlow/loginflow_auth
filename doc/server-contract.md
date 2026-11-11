@@ -63,7 +63,12 @@ reads every endpoint from discovery and never builds a path itself.
    (delta-seconds form). The library shows a lockout countdown from it; when
    the header is missing it waits 30 s. The 429 body may be any JSON object.
    Lockouts per account use the same 429, so the response does not reveal
-   whether the account exists (RFC6749 §10.10, FIPA §9.3).
+   whether the account exists (RFC6749 §10.10, FIPA §9.3). From LoginFlow
+   0.22 a flow that emails a code (email code, password reset) may also
+   answer 429 + `Retry-After` at once when the server's held email slots
+   are full — `{"error":"temporarily_unavailable"}` on the authorization
+   challenge, `RATE_LIMITED` on REST; the library reports it as
+   `RateLimited`, and a refused `startPasswordReset` leaves no reset open.
 7. CORS: allowed on discovery, JWKS, token, revocation, the login options
    endpoint, device logout and global logout, and on the REST scopes `/v1/user`, `/v1/app` and the panel's,
    for the server's configured origins (`CORS_ALLOWED_ORIGINS`); never on
@@ -152,9 +157,10 @@ the server does not allow is never shown.
   "login_methods": ["password", "email_otp", "google", "microsoft", "apple", "facebook"],
   "self_signup": true,
   "password_reset": true,
+  "account_recovery": false,
   "passkey": true,
   "passkey_mode": "passwordless",
-  "passkey_rp_id": "turnosqr.id.loginflow.dev",
+  "passkey_rp_id": "turnosqr-id.loginflow.dev",
   "google_server_client_id": "1234567890-abc.apps.googleusercontent.com",
   "facebook_app_id": "1234567890123456",
   "policy_uri": "https://acme.example/privacy",
@@ -179,10 +185,20 @@ the server does not allow is never shown.
   Access Pass is never advertised here — it is admin-issued, not
   client-selected.
 - `self_signup`: the application's `allow_self_signup` flag.
-- `password_reset`: whether password reset is enabled for the client. The
+- `password_reset`: whether password reset is enabled for the client
+  (`ClientLoginOptions.isPasswordResetEnabled`). It sends a code by email,
+  so it is a switch the company turns on: **off for a newly created
+  client** (clients created before LoginFlow 0.22 keep it on). The
   library's reset is in-app (the `email_otp` challenge plus
   `POST /v1/user/change-password`), so it also needs `email_otp` in
   `login_methods`.
+- `account_recovery` (LoginFlow 0.22+, always present): the application's
+  `account_recovery_enabled` flag — whether
+  `POST /v1/public/auth/request-account-recovery` (lost access to the old
+  email) is offered. `ClientLoginOptions.isAccountRecoveryEnabled`; an app
+  shows its own recovery entry only when it is `true`. When off, that
+  request answers `403 {"error":{"code":"account_recovery_disabled",...}}`.
+  Absent (an older server) reads as `false`.
 - `passkey`: `true` when the company's passkey policy (company-wide, set by
   the company's admin or by LoginFlow's operators — never per end user) is
   `mfa_only`, or `passwordless` with `passkey` in this client's
@@ -196,7 +212,11 @@ the server does not allow is never shown.
   a passkey" as a first-factor option.
 - `passkey_rp_id` (present whenever the company's passkey policy is not
   disabled, independent of `passkey` for this client): the company's
-  passkey relying-party ID, the host of its sign-in QRs (§21).
+  passkey relying-party ID, the host of its sign-in QRs (§21). Companies
+  created from LoginFlow 0.22 get a one-level host,
+  `<slug>-id.<base domain>` (`turnosqr-id.loginflow.dev`); the library
+  never hard-codes it, it only reads this field or
+  `LoginFlowConfig.passkeyRpId`.
   `ClientLoginOptions.passkeyRpId`; `parseSignInQr` reads it when the app
   did not configure `LoginFlowConfig.passkeyRpId`.
 - `google_server_client_id` (present only when `google` is configured and

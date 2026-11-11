@@ -5,7 +5,8 @@ import 'package:loginflow_auth/src/core/protocol/login_options/passkey_mode.dart
 
 /// What the server allows for this client (LoginFlow extension
 /// `loginflow_login_options_endpoint`, `doc/server-contract.md` §4): the
-/// primary login methods, self sign-up, password reset, the company's
+/// primary login methods, self sign-up, password reset, account recovery,
+/// the company's
 /// passkey policy and, when Google is configured, the client ID a native
 /// app needs for it.
 class ClientLoginOptions {
@@ -15,6 +16,7 @@ class ClientLoginOptions {
     required this.loginMethods,
     required this.isSelfSignUpEnabled,
     required this.isPasswordResetEnabled,
+    this.isAccountRecoveryEnabled = false,
     this.hasPasskey = false,
     this.passkeyMode,
     this.passkeyRpId,
@@ -33,6 +35,10 @@ class ClientLoginOptions {
       isSelfSignUpEnabled: json.optionalBool('self_signup', absent: false),
       isPasswordResetEnabled: json.optionalBool(
         'password_reset',
+        absent: false,
+      ),
+      isAccountRecoveryEnabled: json.optionalBool(
+        'account_recovery',
         absent: false,
       ),
       hasPasskey: hasPasskey,
@@ -93,6 +99,14 @@ class ClientLoginOptions {
   /// (`LoginFlowAuth.startPasswordReset`) is built on the email code, so
   /// it also needs `email_otp` among the login methods ([allows]).
   final bool isPasswordResetEnabled;
+
+  /// Whether the application offers account recovery (`account_recovery`),
+  /// so the app's own "Lost access to your email?" entry (which calls
+  /// `POST /v1/public/auth/request-account-recovery`) may be shown. When
+  /// off, the server refuses that request with
+  /// `403 account_recovery_disabled`.
+  /// `false` when the server does not publish the field.
+  final bool isAccountRecoveryEnabled;
 
   /// `true` when the company's passkey policy is `mfa_only`, or
   /// `passwordless` with `passkey` among this client's methods. `false`
@@ -155,6 +169,7 @@ class ClientLoginOptions {
     List<String>? loginMethods,
     bool? isSelfSignUpEnabled,
     bool? isPasswordResetEnabled,
+    bool? isAccountRecoveryEnabled,
     bool? hasPasskey,
     PasskeyMode? passkeyMode,
     String? passkeyRpId,
@@ -168,6 +183,8 @@ class ClientLoginOptions {
     isSelfSignUpEnabled: isSelfSignUpEnabled ?? this.isSelfSignUpEnabled,
     isPasswordResetEnabled:
         isPasswordResetEnabled ?? this.isPasswordResetEnabled,
+    isAccountRecoveryEnabled:
+        isAccountRecoveryEnabled ?? this.isAccountRecoveryEnabled,
     hasPasskey: hasPasskey ?? this.hasPasskey,
     passkeyMode: passkeyMode ?? this.passkeyMode,
     passkeyRpId: passkeyRpId ?? this.passkeyRpId,
@@ -183,6 +200,7 @@ class ClientLoginOptions {
     'login_methods': loginMethods,
     'self_signup': isSelfSignUpEnabled,
     'password_reset': isPasswordResetEnabled,
+    'account_recovery': isAccountRecoveryEnabled,
     'passkey': hasPasskey,
     if (passkeyMode != null) 'passkey_mode': passkeyMode!.wireName,
     if (passkeyRpId != null) 'passkey_rp_id': passkeyRpId,
@@ -201,6 +219,7 @@ class ClientLoginOptions {
           loginMethods.hasSameValues(other.loginMethods) &&
           isSelfSignUpEnabled == other.isSelfSignUpEnabled &&
           isPasswordResetEnabled == other.isPasswordResetEnabled &&
+          isAccountRecoveryEnabled == other.isAccountRecoveryEnabled &&
           hasPasskey == other.hasPasskey &&
           passkeyMode == other.passkeyMode &&
           passkeyRpId == other.passkeyRpId &&
@@ -215,6 +234,7 @@ class ClientLoginOptions {
     loginMethods.valuesHash,
     isSelfSignUpEnabled,
     isPasswordResetEnabled,
+    isAccountRecoveryEnabled,
     hasPasskey,
     passkeyMode,
     passkeyRpId,

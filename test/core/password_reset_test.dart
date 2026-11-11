@@ -255,6 +255,36 @@ void main() {
   });
 
   // TEST_CHARTER
+  // Requirement: a reset refused at its start with `429` (the server's held
+  // email slots full: `temporarily_unavailable` + `Retry-After`) is a typed
+  // `RateLimited` and leaves no reset half open: nothing a later call could
+  // continue.
+  // Oracle: the public `Result` and state, and no challenge request sent by
+  // a later `submitEmailOtp`.
+  // Risk edge: the refused reset's attempt left behind, so a later code is
+  // sent on it.
+  // Layer: integration against the fake LoginFlow.
+  // Counterfactual: keeping the reset and its attempt after the refusal.
+  test('a rate-limited start -> RateLimited, no reset left open', () async {
+    final (fixture, _) = await started();
+    server.rateLimitNextChallenge = const Duration(seconds: 3);
+
+    final limited = await fixture.auth.startPasswordReset(_luz);
+
+    expect(
+      limited.errorOrNull,
+      const RateLimited(retryAfter: Duration(seconds: 3)),
+    );
+    expect(fixture.auth.state, const SignedOut());
+    final requestsBefore = server.challengeRequests.length;
+    final later = await fixture.auth.submitEmailOtp(
+      FakeLoginFlowServer.emailOtpCode,
+    );
+    expect(later.errorOrNull, const NoChallengeInProgress());
+    expect(server.challengeRequests, hasLength(requestsBefore));
+  });
+
+  // TEST_CHARTER
   // Requirement: an account with TOTP answers its second factor inside the
   // reset (the code alone does not sign it in), then sets the password.
   // Oracle: the published states and the final `SignedIn`.
