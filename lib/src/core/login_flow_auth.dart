@@ -42,6 +42,7 @@ import 'package:loginflow_auth/src/core/protocol/browser/authorization_prompt.da
 import 'package:loginflow_auth/src/core/protocol/browser/authorization_request.dart';
 import 'package:loginflow_auth/src/core/protocol/browser/end_session_request.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/authorization_challenge_client.dart';
+import 'package:loginflow_auth/src/core/protocol/challenge/authorization_intent.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_input.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_request.dart';
 import 'package:loginflow_auth/src/core/protocol/challenge/challenge_response.dart';
@@ -766,10 +767,11 @@ class LoginFlowAuth {
       );
 
   /// Starts an in-app password reset for [email]: the server emails a
-  /// one-time code (the email-code sign-in of the authorization challenge,
-  /// `method=email_otp`) and the state becomes [AwaitingResetCode]. It
-  /// answers the same for an address with no account, and sends nothing
-  /// then. No browser is involved, so no `redirectUri` is needed; the
+  /// one-time code (the email-code step of the authorization challenge,
+  /// `method=email_otp`, opened with `intent=password_reset` so the server
+  /// tells it from a sign-in and never creates nor activates an account for
+  /// it) and the state becomes [AwaitingResetCode]. It answers the same for
+  /// an address with no account, and sends nothing then. No browser is involved, so no `redirectUri` is needed; the
   /// client's login methods must include `email_otp`.
   ///
   /// Then [submitResetCode] with the code, and [setNewPassword]. The
@@ -794,6 +796,7 @@ class LoginFlowAuth {
     final started = await _startAttempt(
       purpose: ChallengePurpose.passwordReset,
       loginHint: address,
+      intent: AuthorizationIntent.passwordReset.wireName,
       organization: organization,
       input: IdentifierInput(
         loginHint: address,
@@ -2086,6 +2089,7 @@ class LoginFlowAuth {
     ChallengeInput? input,
     String? loginHint,
     String? prompt,
+    String? intent,
     String? authSession,
     List<String> acrValues = const <String>[],
     Duration? maxAge,
@@ -2102,6 +2106,7 @@ class LoginFlowAuth {
       authSession: authSession,
       loginHint: loginHint,
       prompt: prompt,
+      intent: intent,
       acrValues: acrValues,
       maxAge: maxAge,
       idTokenHint: idTokenHint,

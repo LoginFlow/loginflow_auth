@@ -916,7 +916,12 @@ class FakeLoginFlowServer {
         return;
       }
     }
-    if (form['prompt'] == 'create' || form['intent'] == 'password_reset') {
+    // `method=email_otp` is dispatched before `intent`
+    // (`challenge_handler.rs::continue_with_step`), so the in-app reset
+    // (`intent=password_reset` together with `method=email_otp`) stays in
+    // the app; `intent` alone is the hosted reset.
+    if (form['prompt'] == 'create' ||
+        (form['intent'] == 'password_reset' && form['method'] != 'email_otp')) {
       return _redirectToWeb(response, session);
     }
     if (form['method'] == 'access_code' && implementsAccessCodes) {

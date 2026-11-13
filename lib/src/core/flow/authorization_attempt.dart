@@ -19,6 +19,7 @@ class AuthorizationAttempt {
     this.isAuthorizationSent = false,
     this.loginHint,
     this.prompt,
+    this.intent,
     this.acrValues = const <String>[],
     this.maxAge,
     this.idTokenHint,
@@ -33,6 +34,7 @@ class AuthorizationAttempt {
     String? authSession,
     String? loginHint,
     String? prompt,
+    String? intent,
     List<String> acrValues = const <String>[],
     Duration? maxAge,
     String? idTokenHint,
@@ -45,6 +47,7 @@ class AuthorizationAttempt {
     authSession: authSession,
     loginHint: loginHint,
     prompt: prompt,
+    intent: intent,
     acrValues: acrValues,
     maxAge: maxAge,
     idTokenHint: idTokenHint,
@@ -62,6 +65,10 @@ class AuthorizationAttempt {
   final bool isAuthorizationSent;
   final String? loginHint;
   final String? prompt;
+
+  /// The opening request's `intent` (`AuthorizationIntent`), sent once with
+  /// the authorization parameters.
+  final String? intent;
   final List<String> acrValues;
   final Duration? maxAge;
 
@@ -93,6 +100,7 @@ class AuthorizationAttempt {
         isAuthorizationSent: isAuthorizationSent,
         loginHint: loginHint,
         prompt: prompt,
+        intent: intent,
         acrValues: acrValues,
         maxAge: maxAge,
         idTokenHint: idTokenHint,
@@ -113,6 +121,7 @@ class AuthorizationAttempt {
         isAuthorizationSent: isAuthorizationSent,
         loginHint: loginHint,
         prompt: prompt,
+        intent: intent,
         acrValues: acrValues,
         maxAge: maxAge,
         idTokenHint: idTokenHint,
@@ -134,6 +143,7 @@ class AuthorizationAttempt {
     redirectUri: redirectUri,
     state: redirectUri == null ? null : state,
     prompt: prompt,
+    intent: intent,
     uiLocales: uiLocales,
     idTokenHint: idTokenHint,
     organization: organization,
@@ -148,6 +158,7 @@ class AuthorizationAttempt {
     bool? isAuthorizationSent,
     String? loginHint,
     String? prompt,
+    String? intent,
     List<String>? acrValues,
     Duration? maxAge,
     String? idTokenHint,
@@ -163,6 +174,7 @@ class AuthorizationAttempt {
     isAuthorizationSent: isAuthorizationSent ?? this.isAuthorizationSent,
     loginHint: loginHint ?? this.loginHint,
     prompt: prompt ?? this.prompt,
+    intent: intent ?? this.intent,
     acrValues: acrValues ?? this.acrValues,
     maxAge: maxAge ?? this.maxAge,
     idTokenHint: idTokenHint ?? this.idTokenHint,
@@ -184,6 +196,7 @@ class AuthorizationAttempt {
           isAuthorizationSent == other.isAuthorizationSent &&
           loginHint == other.loginHint &&
           prompt == other.prompt &&
+          intent == other.intent &&
           acrValues.hasSameValues(other.acrValues) &&
           maxAge == other.maxAge &&
           idTokenHint == other.idTokenHint &&
@@ -201,6 +214,7 @@ class AuthorizationAttempt {
     isAuthorizationSent,
     loginHint,
     prompt,
+    intent,
     acrValues.valuesHash,
     maxAge,
     idTokenHint,

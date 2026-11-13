@@ -97,8 +97,8 @@ void main() {
   // types it, sets a new password, and only then is signed in — all in the
   // app.
   // Oracle: the published states in order, the session store (empty until
-  // the password is set), the browser never opened, no `intent` on any
-  // challenge request, and the new password signing in on another app.
+  // the password is set), the browser never opened, `intent` only on the
+  // opening request, and the new password signing in on another app.
   // Risk edge: the emailed code surfacing a normal `SignedIn` (the app
   // would open its home screen with the old password still in place), or
   // the held session persisted before the password changes.
@@ -135,12 +135,56 @@ void main() {
     expect(await fixture.storedSession(), isNotNull);
     expect(server.changePasswordRequests, hasLength(1));
     expect(fixture.browser.openedUrls, isEmpty);
+    expect(server.challengeRequests.first['intent'], 'password_reset');
     expect(
-      server.challengeRequests.where((form) => form.containsKey('intent')),
+      server.challengeRequests.skip(1).where((f) => f.containsKey('intent')),
       isEmpty,
     );
     expect(await signsIn(_luz, _newPassword), isTrue);
     expect(await signsIn(_luz, _luzPassword), isFalse);
+  });
+
+  // TEST_CHARTER
+  // Requirement: the server tells the in-app reset from an email-code
+  // sign-in only by `intent=password_reset` together with `method=email_otp`
+  // on the opening request: a reset never creates nor activates an account,
+  // a sign-in may (`doc/server-contract.md` §5.4).
+  // Oracle: the form fields of the challenge requests the fake LoginFlow
+  // received.
+  // Risk edge: the reset opened as a plain email-code sign-in (the server
+  // would create an account for an address with no account), or the intent
+  // leaking onto a sign-in or onto the reset's later requests.
+  // Layer: integration against the fake LoginFlow (real HTTP, real DPoP).
+  // Counterfactual: dropping the intent from the reset opening fails the
+  // first block; sending it on every opening fails the sign-in block.
+  test('the reset opening carries intent=password_reset with '
+      'method=email_otp; an email-code sign-in carries no intent', () async {
+    final (reset, _) = await started();
+
+    await reset.auth.startPasswordReset(_luz);
+    await reset.auth.submitResetCode(FakeLoginFlowServer.emailOtpCode);
+
+    final resetOpening = server.challengeRequests.first;
+    expect(resetOpening['intent'], 'password_reset');
+    expect(resetOpening['method'], 'email_otp');
+    expect(resetOpening['login_hint'], _luz);
+    expect(resetOpening, contains('code_challenge'));
+    expect(
+      server.challengeRequests.skip(1).where((f) => f.containsKey('intent')),
+      isEmpty,
+    );
+    expect(reset.browser.openedUrls, isEmpty);
+
+    final signIn = AuthFixture.create(server, enableDpop: true);
+    await signIn.auth.initialize();
+    final requestsBefore = server.challengeRequests.length;
+
+    await signIn.auth.requestEmailOtp(loginHint: _luz);
+
+    final signInOpening = server.challengeRequests[requestsBefore];
+    expect(signInOpening['method'], 'email_otp');
+    expect(signInOpening['login_hint'], _luz);
+    expect(signInOpening, isNot(contains('intent')));
   });
 
   // TEST_CHARTER
@@ -648,7 +692,9 @@ void main() {
 
   // TEST_CHARTER
   // Requirement: the browser-based reset is gone from the library: no
-  // `resetPassword`, no `intent=password_reset` request anywhere in `lib/`.
+  // `resetPassword`, no `PasswordResetInput` anywhere in `lib/`. The
+  // `intent=password_reset` the in-app reset sends with `method=email_otp`
+  // stays in the app (covered above: the browser never opens).
   // Oracle: the library sources.
   // Risk edge: a legacy path left behind that still opens the browser.
   // Layer: source check (the removed API cannot be called from a test).
@@ -663,7 +709,6 @@ void main() {
     for (final source in sources) {
       expect(source, isNot(contains('resetPassword(')));
       expect(source, isNot(contains('PasswordResetInput')));
-      expect(source, isNot(contains("'intent'")));
     }
   });
 }

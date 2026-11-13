@@ -284,11 +284,11 @@ Every request carries:
 | `code_challenge` | REQUIRED in the LoginFlow profile (FIPA §5.1 makes it optional; RFC9700 §2.1.1); 43 chars base64url |
 | `code_challenge_method` | REQUIRED, `S256` only; `plain` → `invalid_request` |
 | `nonce` | REQUIRED when `openid` is requested; echoed in the ID token (OIDC-CORE §3.1.2.1) |
-| `redirect_uri` | OPTIONAL; sent when the app has a browser fallback. Exact match against the client's registered URIs (RFC9700 §4.1.3). Used **only** if the server answers `redirect_to_web` with a `request_uri`; it is then part of the pushed request |
+| `redirect_uri` | OPTIONAL; sent when the app has a browser fallback. Used **only** if the server answers `redirect_to_web`; it is then part of the pushed request. Every hand-off (§5.5) REQUIRES it to exactly match one of the client's registered `redirect_uris` (RFC9700 §4.1.3), checked when the pushed request is minted and again when `/oauth2/authorize` redeems it (§6): a missing or unregistered one → `400 invalid_request` (since API 0.24.1) |
 | `state` | OPTIONAL; sent with `redirect_uri`; returned on the browser redirect |
 | `acr_values` | OPTIONAL; step-up requirement (RFC9470 §4) |
 | `max_age` | OPTIONAL; seconds (OIDC-CORE §3.1.2.1) |
-| `prompt` | OPTIONAL; `create` = sign-up (OIDC-CREATE), always answered with `redirect_to_web` |
+| `prompt` | OPTIONAL; `create` = sign-up (OIDC-CREATE). Answered with `redirect_to_web` only when the client and its application admit a sign-up: no sign-in gate on the client, `email_otp` among the client's `login_methods`, and the application's `allow_self_signup`; then a missing or unregistered `redirect_uri` → `400 invalid_request`. Otherwise `create` is ignored and the opening is answered as without it (`next: select_method`, §5.5). Any other value is ignored (since API 0.24.1) |
 | `ui_locales` | OPTIONAL; e.g. `es en`; language of the email OTP and hosted pages |
 | `id_token_hint` | OPTIONAL; identifies the user for a step-up without `auth_session` (OIDC-CORE §3.1.2.1). It **only identifies** the user and is never a primary factor: the server answers the primary step that applies (e.g. `next: password`), never an authorization code |
 | `organization` | OPTIONAL; **LoginFlow extension**, the organization id the session starts in (§17). An organization of another application → `400 invalid_request`. A step-up sends the session's organization |
@@ -302,8 +302,8 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 |---|---|
 | `login_hint` | The identifier (email). MAY come together with `password` or `method` in the same request |
 | `password` | Password for `login_hint` (or for the session's user) |
-| `method` | `email_otp` → the server sends the code as a side effect and answers `next: email_otp` (FIPA App. A.4). The server dispatches every step on the **field present** (`password`, `totp`, ...), so a value the user types has no `method`: a continuation carrying only `method=password` or `method=totp` is `400 invalid_request` ("No recognized step parameter"), and an opening one is answered `select_method`. The library therefore switches to such a step locally (`selectMethod`) and sends only the typed value |
-| `method` (magic link) | `magic_link` → one email carrying both a fresh email OTP and a sign-in link bound to this `auth_session`; answers `next: email_otp` (§5.8) |
+| `method` | `email_otp` → the server sends the code as a side effect and answers `next: email_otp` (FIPA App. A.4). On a sign-in, a valid code for an address with no account creates the account when self sign-up is permitted (§5.5, "Address with no account"); a password reset (`intent=password_reset`) never does. The server dispatches every step on the **field present** (`password`, `totp`, ...), so a value the user types has no `method`: a continuation carrying only `method=password` or `method=totp` is `400 invalid_request` ("No recognized step parameter"), and an opening one is answered `select_method`. The library therefore switches to such a step locally (`selectMethod`) and sends only the typed value |
+| `method` (magic link) | `magic_link` → one email carrying both a fresh email OTP and a sign-in link bound to this `auth_session`; answers `next: email_otp` (§5.8). Its link creates an account like the code does (§5.5, "Address with no account") |
 | `magic_link_token` | **LoginFlow extension.** The `token` of the intercepted magic link, on the `auth_session` that requested it (§5.8) |
 | `email_otp` | The emailed code |
 | `resend` | `email_otp` → send a new code, answer `next: email_otp` |
@@ -314,7 +314,7 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `upstream_token` | The provider token (with the matching `upstream_provider`), typed by `upstream_token_type` |
 | `upstream_token_type` | `id_token` (Google always; Apple always; Facebook iOS Limited Login) or `access_token` (Facebook Android classic login) — **LoginFlow extension**, generalizing the single implicit `id_token` Google used before Apple/Facebook existed |
 | `upstream_user_name` | **LoginFlow extension.** Apple's given/family name (e.g. `"Ana Ruiz"`), sent only on the first authorization for that Apple ID + app pair — Apple omits it from every later `identityToken`, so the library forwards whatever it received instead of caching it client-side |
-| `intent` | `password_reset` → `redirect_to_web` to the hosted reset flow (FIPA App. A.2); MAY carry `login_hint`. The library no longer sends it (0.17.0): its reset is in-app |
+| `intent` | `password_reset` (FIPA App. A.2), read on the opening request and stored with the authorization; any other value is ignored. **Together with `method=email_otp`** it is the in-app password reset (the library's `startPasswordReset` sends exactly that since 0.23.1): `method=email_otp` is dispatched first, so the code is sent and the reset stays in the app (`next: email_otp`), and the code's proof never creates nor activates an account — for an address with no account the answer stays the uniform refusal (§5.5). Without a `method`, → `redirect_to_web` to the hosted reset flow (a registered `redirect_uri` required, §5.3); MAY carry `login_hint` |
 | `method` (passkeys) | `webauthn_identify` → starts a passkey ceremony: targeted when sent together with `login_hint`, discoverable/conditional otherwise. Answers `next: webauthn_assertion` with `options` (§5.7) |
 | `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
 | `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |
@@ -396,6 +396,18 @@ with `login_hint` + wrong `password` always answers `next: password` with
 `step_error: invalid_credential`, including for unknown accounts (with a dummy
 password hash so timing does not leak).
 
+**Address with no account** (since API 0.24.1). On a sign-in, a valid
+email code (`email_otp`) or magic link (`magic_link_token`, §5.8) for an
+address with no account in the client's company creates the account — or
+activates that address's pending self sign-up — when self sign-up is
+permitted (the `prompt=create` admission of §5.3, and an address that is
+not a disposable mailbox), and the sign-in continues as for an existing
+account. Without self sign-up no code is sent to such an address (the
+answer is the same). A password reset (`intent=password_reset` with
+`method=email_otp`, §5.4) never creates nor activates an account: when self
+sign-up is allowed the address does get a code, and its valid code is
+refused. Any refusal after a valid code is `400 invalid_session`.
+
 TOTP: when the account has TOTP enabled, or the authorization's `acr_values`
 requires it, a correct first factor is followed by `next: totp`. The library
 shows the TOTP screen automatically.
@@ -421,8 +433,13 @@ client never learns it, so its step-up identifies the user with
 ```
 
 Used for Microsoft (always), Google/Apple/Facebook with
-`upstream_flow=browser`, `prompt=create`, `intent=password_reset`, and any
-risk-based decision (FIPA §9.2). A client sends `upstream_flow=browser`
+`upstream_flow=browser`, `prompt=create` when the client admits a sign-up
+(§5.3), `intent=password_reset` without `method=email_otp` (the hosted
+reset; with it the reset stays in the app, §5.4), the federated passkey leg
+below, and any risk-based decision (FIPA §9.2). Every one of them requires
+the opening's `redirect_uri` to exactly match one of the client's
+registered URIs, at minting and again at `/oauth2/authorize`; a missing or
+unregistered one → `400 invalid_request` instead of the hand-off. A client sends `upstream_flow=browser`
 for a provider whenever it has no native source registered for it, or that
 source reports itself unavailable on the current platform (e.g. Apple on
 Android) — the client decision, not a server one; the server does not

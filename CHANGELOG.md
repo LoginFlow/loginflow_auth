@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.23.1
+
+Aligned with LoginFlow API `0.24.1`.
+
+- Fix: `startPasswordReset` now opens with `intent=password_reset` together
+  with `method=email_otp`, so the server tells the in-app reset from an
+  email-code sign-in. API 0.24.1 creates the account (or activates a
+  pending self sign-up) on a sign-in's valid email code or magic link for
+  an address with no account when self sign-up is permitted; a reset never
+  does. Every other request of the reset (`submitResetCode`,
+  `resendResetCode`, `setNewPassword`, `cancelPasswordReset`) and every
+  sign-in is unchanged; an email-code sign-in carries no `intent`.
+- Docs: `doc/server-contract.md`, `README.md` and
+  `doc/integration-guide.md` describe API 0.24.1: `prompt=create` is
+  answered with `redirect_to_web` only when the client and its application
+  admit a sign-up (no sign-in gate, `email_otp`, `allow_self_signup`) and is
+  ignored otherwise; every `redirect_to_web` hand-off requires a
+  `redirect_uri` that exactly matches one of the client's registered URIs
+  (`400 invalid_request` otherwise), so the app's `redirectUri` must equal
+  one exactly.
+
 ## 0.23.0
 
 Shares `major.minor` with LoginFlow API `0.23.x`. Aligned with API 0.23; no
