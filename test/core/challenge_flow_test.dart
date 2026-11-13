@@ -178,6 +178,51 @@ void main() {
       expect(signedIn.data, isA<SignedIn>());
     });
 
+    // TEST_CHARTER
+    // Requirement: on a sign-in, a valid email code for an address with no
+    // account creates the account when self sign-up is permitted (API
+    // 0.24.1); without self sign-up no code is sent and none works.
+    // Oracle: the published state, the emails the fake LoginFlow sent, and
+    // its accounts.
+    // Risk edge: the fake refusing a sign-up the server admits (tests built
+    // on it would pass against a server that behaves otherwise).
+    // Layer: integration against the fake LoginFlow.
+    // Counterfactual: never creating the account fails `SignedIn`; sending
+    // the code regardless of self sign-up fails the empty `sentEmailOtps`.
+    test('email OTP for an address with no account signs it up when self '
+        'sign-up is permitted', () async {
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+
+      await fixture.auth.requestEmailOtp(loginHint: 'new@example.com');
+      final signedIn = await fixture.auth.submitEmailOtp(
+        FakeLoginFlowServer.emailOtpCode,
+      );
+
+      expect(server.sentEmailOtps, <String>['new@example.com']);
+      expect(signedIn.data, isA<SignedIn>());
+      expect(server.users['new@example.com']?.email, 'new@example.com');
+    });
+
+    test('email OTP for an address with no account sends nothing and '
+        'refuses any code without self sign-up', () async {
+      server.isSelfSignUpEnabled = false;
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+
+      await fixture.auth.requestEmailOtp(loginHint: 'new@example.com');
+      final refused = await fixture.auth.submitEmailOtp(
+        FakeLoginFlowServer.emailOtpCode,
+      );
+
+      expect(server.sentEmailOtps, isEmpty);
+      expect(
+        (refused.data as ChallengeRequired).prompt.stepError,
+        StepError.invalidCredential,
+      );
+      expect(server.users, isNot(contains('new@example.com')));
+    });
+
     test('magic link: request sends the OTP email and the token signs in, a '
         'wrong token does not', () async {
       final fixture = AuthFixture.create(server);

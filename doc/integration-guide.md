@@ -32,8 +32,9 @@ one web).
    - `application_type: "native"` for Android, iOS, macOS and Linux;
      `"web"` for a Flutter web app;
    - `redirect_uris`: the browser-step callback of each platform (see
-     section 3); `post_logout_redirect_uris` only if the app uses
-     `SignOutScope.browser`;
+     section 3), each exactly as the app sends it in `redirectUri` (the
+     server compares them byte for byte); `post_logout_redirect_uris` only
+     if the app uses `SignOutScope.browser`;
    - `login_methods`: any of `password`, `email_otp`, `magic_link`,
      `passkey`, `access_code`, `google`, `microsoft`, `apple`, `facebook`
      (the default is `password`, `email_otp`, `passkey`). The built-in UI
@@ -108,9 +109,15 @@ LoginFlowAuth createAuth() => LoginFlowPlatform.createAuth(
 - `apis`: the audiences of the APIs the app calls; any other is refused
   locally before a request.
 - `redirectUri`: needed only for browser steps (Microsoft, sign-up,
-  Google/Apple/Facebook without a native source, the web's
-  authorization-code redirect). The password reset is in-app (section 4.2). An app without it — like the driver app —
-  simply never offers them.
+  Google/Apple/Facebook without a native source, a passkey enrolled at a
+  federated company, the web's authorization-code redirect). The password
+  reset is in-app (section 4.2). It must **exactly** equal one of the
+  client's registered `redirect_uris` (section 1): when the server answers
+  a browser hand-off, a missing or unregistered one is refused with
+  `OAuthProtocolError(code: 'invalid_request')` and no browser opens; when
+  the browser opens the pushed request it is checked again, and a URI the
+  client dropped in between gets an error page in that browser. An app
+  without it — like the driver app — simply never offers them.
 - `enableDpop: true` for every first-party native client and every client
   with browser origins (section 1): the server refuses their tokens without
   a proof. Leave it off only for a client the server does not require DPoP
@@ -315,6 +322,18 @@ if (redeemed case Err(:final error)) {
 Every sign-in method but `signInWithAccessCode` takes `organization:` to
 start the session in one organization (section 6).
 
+**Sign-up.** `signUp()` (`prompt=create`) continues in the browser only
+when the client admits a sign-up: no sign-in gate on the client, `email_otp`
+among its `login_methods`, and `allow_self_signup` on the application
+(`ClientLoginOptions.isSelfSignUpEnabled`); it then needs a registered
+`redirectUri`. Otherwise the server ignores `prompt=create` and `signUp`
+answers a `ChallengeRequired` on the `select_method` step. When self
+sign-up is permitted, a valid email code or magic link for an address with
+no account also creates the account on that sign-in (or activates a
+pending self sign-up); when it is not, no code is sent to such an address.
+Any refusal after a valid code (an inactive membership, a sign-up no
+longer admitted) ends the attempt in `SignedOut(reason: challengeExpired)`.
+
 ### 4.1 Code once, then passkey (device and person apps)
 
 For an app whose subjects live in your backend (a driver, a recorder, a
@@ -378,9 +397,11 @@ it there; keep that check.
 ### 4.2 Password reset (in-app)
 
 A person who forgot the password resets it in the app; the library owns
-the whole flow, the app only shows its screens. It is the email-code
-sign-in plus `POST /v1/user/change-password`, so the client's login methods
-must include `email_otp`. A repository:
+the whole flow, the app only shows its screens. It is the email-code step,
+opened with `intent=password_reset` together with `method=email_otp` so the
+server tells it from a sign-in, plus `POST /v1/user/change-password`; the
+client's login methods must include `email_otp`. A reset never creates nor
+activates an account. A repository:
 
 ```dart
 Future<Result<AuthState, LoginFlowError>> start(String email) =>
@@ -404,9 +425,10 @@ Future<Result<AuthState, LoginFlowError>> cancel() =>
   held by the library, unstored, until the password is set. Route on
   `SignedIn` exactly as after any sign-in.
 - The server answers an address with no account like one with an account
-  (and sends nothing); its codes are `InvalidResetCode`. An expired or
-  burned code is `ResetCodeExpired`. A resend inside the server's interval
-  is answered as sent and emails nothing.
+  (`AwaitingResetCode`) and sends it no code, whatever the self sign-up
+  config; any code typed is `InvalidResetCode`. An expired or burned code
+  is `ResetCodeExpired`. A resend inside the server's interval is answered
+  as sent and emails nothing.
 - A second factor of the account shows up as `ChallengeRequired` with
   `ChallengePurpose.passwordReset`: the TOTP after the code, or the strong
   step-up the password change needs for an account with a passkey. Answer

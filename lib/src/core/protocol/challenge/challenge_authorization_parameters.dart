@@ -19,6 +19,7 @@ class ChallengeAuthorizationParameters {
     this.redirectUri,
     this.state,
     this.prompt,
+    this.intent,
     this.uiLocales = const <String>[],
     this.idTokenHint,
     this.organization,
@@ -36,6 +37,7 @@ class ChallengeAuthorizationParameters {
       redirectUri: redirectUri == null ? null : Uri.parse(redirectUri),
       state: json.optionalString('state'),
       prompt: json.optionalString('prompt'),
+      intent: json.optionalString('intent'),
       uiLocales: json.stringList('ui_locales'),
       idTokenHint: json.optionalString('id_token_hint'),
       organization: json.optionalString('organization'),
@@ -64,6 +66,10 @@ class ChallengeAuthorizationParameters {
 
   /// `create` for sign-up (OpenID Connect Prompt Create 1.0).
   final String? prompt;
+
+  /// `password_reset` for the in-app reset, sent with `method=email_otp`
+  /// (`AuthorizationIntent`, `doc/server-contract.md` §5.4).
+  final String? intent;
   final List<String> uiLocales;
 
   /// Identifies the user when a step-up has no `auth_session`
@@ -84,6 +90,7 @@ class ChallengeAuthorizationParameters {
     'redirect_uri': ?redirectUri?.toString(),
     'state': ?state,
     'prompt': ?prompt,
+    'intent': ?intent,
     if (uiLocales.isNotEmpty) 'ui_locales': uiLocales.join(' '),
     'id_token_hint': ?idTokenHint,
     'organization': ?organization,
@@ -98,6 +105,7 @@ class ChallengeAuthorizationParameters {
     Uri? redirectUri,
     String? state,
     String? prompt,
+    String? intent,
     List<String>? uiLocales,
     String? idTokenHint,
     String? organization,
@@ -110,6 +118,7 @@ class ChallengeAuthorizationParameters {
     redirectUri: redirectUri ?? this.redirectUri,
     state: state ?? this.state,
     prompt: prompt ?? this.prompt,
+    intent: intent ?? this.intent,
     uiLocales: uiLocales ?? this.uiLocales,
     idTokenHint: idTokenHint ?? this.idTokenHint,
     organization: organization ?? this.organization,
@@ -124,6 +133,7 @@ class ChallengeAuthorizationParameters {
     'redirect_uri': ?redirectUri?.toString(),
     'state': ?state,
     'prompt': ?prompt,
+    'intent': ?intent,
     'ui_locales': uiLocales,
     'id_token_hint': ?idTokenHint,
     'organization': ?organization,
@@ -141,6 +151,7 @@ class ChallengeAuthorizationParameters {
           redirectUri == other.redirectUri &&
           state == other.state &&
           prompt == other.prompt &&
+          intent == other.intent &&
           uiLocales.hasSameValues(other.uiLocales) &&
           idTokenHint == other.idTokenHint &&
           organization == other.organization;
@@ -155,6 +166,7 @@ class ChallengeAuthorizationParameters {
     redirectUri,
     state,
     prompt,
+    intent,
     uiLocales.valuesHash,
     idTokenHint,
     organization,

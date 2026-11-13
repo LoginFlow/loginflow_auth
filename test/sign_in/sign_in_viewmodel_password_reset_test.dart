@@ -84,8 +84,9 @@ void main() {
   // step for the email typed, the new password typed twice, then the
   // sign-in completes — never through the browser, never signed in before
   // the password is saved.
-  // Oracle: the phases, the auth states, the change-password request and no
-  // `intent` on any challenge request.
+  // Oracle: the phases, the auth states, the change-password request and
+  // `intent=password_reset` on the opening request only, with
+  // `method=email_otp`.
   // Risk edge: the old browser hand-off (`SignInAwaitingBrowser`), or the
   // code's session completing the sign-in screen.
   // Layer: ViewModel over a real `LoginFlowAuth` and the fake LoginFlow.
@@ -108,10 +109,13 @@ void main() {
 
     await phaseOf<SignInCompleted>();
     expect(server.changePasswordRequests, hasLength(1));
-    expect(
-      server.challengeRequests.where((form) => form.containsKey('intent')),
-      isEmpty,
+    final withIntent = server.challengeRequests.where(
+      (form) => form.containsKey('intent'),
     );
+    expect(withIntent, hasLength(1));
+    expect(withIntent.single, same(server.challengeRequests.first));
+    expect(withIntent.single['intent'], 'password_reset');
+    expect(withIntent.single['method'], 'email_otp');
   });
 
   // TEST_CHARTER

@@ -20,7 +20,9 @@ provider. It gives first-party apps:
   ([Password reset (in-app)](#password-reset-in-app)). No browser.
 - **System-browser fallback** (ASWebAuthenticationSession, Custom Tabs, a
   top-level redirect on the web) whenever the server answers
-  `redirect_to_web`: Microsoft, sign-up. Never a WebView.
+  `redirect_to_web`: Microsoft, sign-up. Never a WebView. The config's
+  `redirectUri` must exactly equal one of the client's registered redirect
+  URIs ([`redirectUri`](#redirecturi-must-be-registered)).
 - **ID token validation** (signature through the issuer JWKS, `iss`, `aud`,
   `azp`, `nonce`, `exp`, `iat`) before any claim is trusted.
 - **Token lifecycle**: in-memory access tokens, refresh with rotation,
@@ -164,6 +166,30 @@ final token = await auth.accessTokenFor('APP-ACME0RDERS'); // refreshes when nee
 
 Every operation returns `Result<T, LoginFlowError>`; `LoginFlowError` is a
 sealed hierarchy, so a `switch` over it is exhaustive.
+
+#### `redirectUri` must be registered
+
+Every browser hand-off (`redirect_to_web`: Microsoft, Google/Apple/Facebook
+in the browser, sign-up, a passkey enrolled at a federated company) needs
+the config's `redirectUri` to equal **exactly** — scheme, host, port, path —
+one of the client's registered `redirect_uris`. The server checks it twice.
+When it answers the hand-off, a missing or unregistered one is refused with
+`OAuthProtocolError(code: 'invalid_request')` and no browser opens. It
+checks it again when the browser opens the pushed request: a URI the client
+dropped in between gets an error page in that browser, never a redirect
+back to the app. The in-app methods (password,
+email code, passkey, the [in-app password reset](#password-reset-in-app))
+never use it.
+
+Sign-up (`signUp`, `prompt=create`) continues in the browser only when the
+client admits it: no sign-in gate on the client, `email_otp` among its login
+methods, and self sign-up allowed on the application
+(`ClientLoginOptions.isSelfSignUpEnabled`). Otherwise the server ignores
+`prompt=create` and `signUp` answers a `ChallengeRequired` on the
+`select_method` step, like an opening with no method. A person can also
+sign up without the browser: when self sign-up is permitted, a valid email
+code or magic link for an address with no account creates the account on
+that sign-in.
 
 Challenge steps: `requestEmailOtp`, `submitEmailOtp`, `resendEmailOtp`,
 `submitPassword`, `submitTotp`, `submitRecoveryCode`, `selectMethod`,
@@ -439,6 +465,12 @@ no `redirectUri`; the app composes nothing but the screens.
   server answers the same either way, so say "if this email has an account,
   we sent it a code". `AlreadySignedIn` when someone is signed in (they use
   `changePassword`). The client's login methods must include `email_otp`.
+  The opening request carries `intent=password_reset` with
+  `method=email_otp`: that is how the server tells the reset from an
+  email-code sign-in, and a reset never creates nor activates an account.
+  An address with no account gets no code, whatever the self sign-up
+  config; the answer is the same `AwaitingResetCode`, and any code typed is
+  `InvalidResetCode`.
 - `submitResetCode(code)` → `AwaitingNewPassword(email)`. A refused code is
   `InvalidResetCode` (wrong, or any code for an unknown address) or
   `ResetCodeExpired` (expired or burned); the reset stays on the code.
@@ -577,7 +609,9 @@ class AcmeApp extends StatelessWidget {
 - **TOTP** → shown automatically whenever the server answers `next: totp`,
   with "use a recovery code" when the server offers it.
 - **Sign-up** → "Create an account" only if `isSelfSignUpOffered` **and** the
-  server enables self sign-up.
+  server enables self sign-up. The server hands it to the browser only when
+  the client also has no sign-in gate and lists `email_otp`, and only with a
+  registered `redirectUri` ([`redirectUri`](#redirecturi-must-be-registered)).
 - **Forgot password** → only if `PasswordMethod.isForgotPasswordShown` **and**
   the server enables password reset **and** the client's login methods
   include `email_otp` (the reset is built on the email code). It runs the
