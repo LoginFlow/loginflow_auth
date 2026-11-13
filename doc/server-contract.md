@@ -284,7 +284,7 @@ Every request carries:
 | `code_challenge` | REQUIRED in the LoginFlow profile (FIPA §5.1 makes it optional; RFC9700 §2.1.1); 43 chars base64url |
 | `code_challenge_method` | REQUIRED, `S256` only; `plain` → `invalid_request` |
 | `nonce` | REQUIRED when `openid` is requested; echoed in the ID token (OIDC-CORE §3.1.2.1) |
-| `redirect_uri` | OPTIONAL; sent when the app has a browser fallback. Used **only** if the server answers `redirect_to_web`; it is then part of the pushed request. Every hand-off (§5.5) REQUIRES it to exactly match one of the client's registered `redirect_uris` (RFC9700 §4.1.3), checked when the pushed request is minted and again when `/oauth2/authorize` redeems it (§6): a missing or unregistered one → `400 invalid_request` (since API 0.24.1) |
+| `redirect_uri` | OPTIONAL; sent when the app has a browser fallback. Used **only** if the server answers `redirect_to_web`; it is then part of the pushed request. Every hand-off (§5.5) REQUIRES it to exactly match one of the client's registered `redirect_uris` (RFC9700 §4.1.3), since API 0.24.1. Checked twice: when the pushed request is minted, a missing or unregistered one → `400 invalid_request` on this endpoint (the error the library sees); when `/oauth2/authorize` redeems it (§6), one the client no longer registers → an HTML error page in the already-open browser, never a redirect |
 | `state` | OPTIONAL; sent with `redirect_uri`; returned on the browser redirect |
 | `acr_values` | OPTIONAL; step-up requirement (RFC9470 §4) |
 | `max_age` | OPTIONAL; seconds (OIDC-CORE §3.1.2.1) |
@@ -314,7 +314,7 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `upstream_token` | The provider token (with the matching `upstream_provider`), typed by `upstream_token_type` |
 | `upstream_token_type` | `id_token` (Google always; Apple always; Facebook iOS Limited Login) or `access_token` (Facebook Android classic login) — **LoginFlow extension**, generalizing the single implicit `id_token` Google used before Apple/Facebook existed |
 | `upstream_user_name` | **LoginFlow extension.** Apple's given/family name (e.g. `"Ana Ruiz"`), sent only on the first authorization for that Apple ID + app pair — Apple omits it from every later `identityToken`, so the library forwards whatever it received instead of caching it client-side |
-| `intent` | `password_reset` (FIPA App. A.2), read on the opening request and stored with the authorization; any other value is ignored. **Together with `method=email_otp`** it is the in-app password reset (the library's `startPasswordReset` sends exactly that since 0.23.1): `method=email_otp` is dispatched first, so the code is sent and the reset stays in the app (`next: email_otp`), and the code's proof never creates nor activates an account — for an address with no account the answer stays the uniform refusal (§5.5). Without a `method`, → `redirect_to_web` to the hosted reset flow (a registered `redirect_uri` required, §5.3); MAY carry `login_hint` |
+| `intent` | `password_reset` (FIPA App. A.2), read on the opening request and stored with the authorization; any other value is ignored. **Together with `method=email_otp`** it is the in-app password reset (the library's `startPasswordReset` sends exactly that since 0.24.0): `method=email_otp` is dispatched first, so the reset stays in the app (`next: email_otp`) and the code goes to the account, and the code's proof never creates nor activates an account — for an address with no account no code is issued, whatever the self sign-up config (API 0.24.2, §5.5). Without `method=email_otp` (or another step dispatched first), → `redirect_to_web` to the hosted reset flow (a registered `redirect_uri` required, §5.3); MAY carry `login_hint` |
 | `method` (passkeys) | `webauthn_identify` → starts a passkey ceremony: targeted when sent together with `login_hint`, discoverable/conditional otherwise. Answers `next: webauthn_assertion` with `options` (§5.7) |
 | `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
 | `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |
@@ -404,9 +404,12 @@ permitted (the `prompt=create` admission of §5.3, and an address that is
 not a disposable mailbox), and the sign-in continues as for an existing
 account. Without self sign-up no code is sent to such an address (the
 answer is the same). A password reset (`intent=password_reset` with
-`method=email_otp`, §5.4) never creates nor activates an account: when self
-sign-up is allowed the address does get a code, and its valid code is
-refused. Any refusal after a valid code is `400 invalid_session`.
+`method=email_otp`, §5.4) never creates nor activates an account, and
+(since API 0.24.2) never issues a code to an address with no account,
+whatever the self sign-up config: nothing is stored or sent, the answer
+(`next: email_otp`) and its timing are the same, the refusal is recorded,
+and any code typed answers `step_error: invalid_credential`. Any refusal
+after a valid code is `400 invalid_session`.
 
 TOTP: when the account has TOTP enabled, or the authorization's `acr_values`
 requires it, a correct first factor is followed by `next: totp`. The library
@@ -438,8 +441,9 @@ Used for Microsoft (always), Google/Apple/Facebook with
 reset; with it the reset stays in the app, §5.4), the federated passkey leg
 below, and any risk-based decision (FIPA §9.2). Every one of them requires
 the opening's `redirect_uri` to exactly match one of the client's
-registered URIs, at minting and again at `/oauth2/authorize`; a missing or
-unregistered one → `400 invalid_request` instead of the hand-off. A client sends `upstream_flow=browser`
+registered URIs: a missing or unregistered one → `400 invalid_request`
+instead of the hand-off; the re-check at `/oauth2/authorize` shows an error
+page in the browser (§5.3). A client sends `upstream_flow=browser`
 for a provider whenever it has no native source registered for it, or that
 source reports itself unavailable on the current platform (e.g. Apple on
 Android) — the client decision, not a server one; the server does not

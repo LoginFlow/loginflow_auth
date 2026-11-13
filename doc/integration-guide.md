@@ -112,10 +112,11 @@ LoginFlowAuth createAuth() => LoginFlowPlatform.createAuth(
   Google/Apple/Facebook without a native source, a passkey enrolled at a
   federated company, the web's authorization-code redirect). The password
   reset is in-app (section 4.2). It must **exactly** equal one of the
-  client's registered `redirect_uris` (section 1): the server checks it on
-  every browser hand-off, when it answers it and again when the browser
-  opens it, and refuses a missing or unregistered one with
-  `OAuthProtocolError(code: 'invalid_request')` — no browser opens. An app
+  client's registered `redirect_uris` (section 1): when the server answers
+  a browser hand-off, a missing or unregistered one is refused with
+  `OAuthProtocolError(code: 'invalid_request')` and no browser opens; when
+  the browser opens the pushed request it is checked again, and a URI the
+  client dropped in between gets an error page in that browser. An app
   without it — like the driver app — simply never offers them.
 - `enableDpop: true` for every first-party native client and every client
   with browser origins (section 1): the server refuses their tokens without
@@ -424,11 +425,10 @@ Future<Result<AuthState, LoginFlowError>> cancel() =>
   held by the library, unstored, until the password is set. Route on
   `SignedIn` exactly as after any sign-in.
 - The server answers an address with no account like one with an account
-  (and sends nothing); its codes are `InvalidResetCode`. When the
-  application allows self sign-up, such an address does get a code, and
-  that valid code is refused: `SignedOut(reason: challengeExpired)`. An
-  expired or burned code is `ResetCodeExpired`. A resend inside the
-  server's interval is answered as sent and emails nothing.
+  (`AwaitingResetCode`) and sends it no code, whatever the self sign-up
+  config; any code typed is `InvalidResetCode`. An expired or burned code
+  is `ResetCodeExpired`. A resend inside the server's interval is answered
+  as sent and emails nothing.
 - A second factor of the account shows up as `ChallengeRequired` with
   `ChallengePurpose.passwordReset`: the TOTP after the code, or the strong
   step-up the password change needs for an account with a passkey. Answer

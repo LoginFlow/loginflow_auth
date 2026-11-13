@@ -172,10 +172,12 @@ sealed hierarchy, so a `switch` over it is exhaustive.
 Every browser hand-off (`redirect_to_web`: Microsoft, Google/Apple/Facebook
 in the browser, sign-up, a passkey enrolled at a federated company) needs
 the config's `redirectUri` to equal **exactly** — scheme, host, port, path —
-one of the client's registered `redirect_uris`. The server checks it when it
-answers the hand-off and again when the browser opens it; a missing or
-unregistered one is refused with `OAuthProtocolError(code:
-'invalid_request')` and no browser opens. The in-app methods (password,
+one of the client's registered `redirect_uris`. The server checks it twice.
+When it answers the hand-off, a missing or unregistered one is refused with
+`OAuthProtocolError(code: 'invalid_request')` and no browser opens. It
+checks it again when the browser opens the pushed request: a URI the client
+dropped in between gets an error page in that browser, never a redirect
+back to the app. The in-app methods (password,
 email code, passkey, the [in-app password reset](#password-reset-in-app))
 never use it.
 
@@ -466,10 +468,9 @@ no `redirectUri`; the app composes nothing but the screens.
   The opening request carries `intent=password_reset` with
   `method=email_otp`: that is how the server tells the reset from an
   email-code sign-in, and a reset never creates nor activates an account.
-  When the application allows self sign-up, an address with no account does
-  get a code (the server cannot send it only to sign-ins), and its valid
-  code is refused like any refusal after a valid code: the reset ends in
-  `SignedOut(reason: challengeExpired)`.
+  An address with no account gets no code, whatever the self sign-up
+  config; the answer is the same `AwaitingResetCode`, and any code typed is
+  `InvalidResetCode`.
 - `submitResetCode(code)` → `AwaitingNewPassword(email)`. A refused code is
   `InvalidResetCode` (wrong, or any code for an unknown address) or
   `ResetCodeExpired` (expired or burned); the reset stays on the code.

@@ -882,6 +882,7 @@ class FakeLoginFlowServer {
         state: form['state'],
         acrValues: form['acr_values'],
         organization: form['organization'],
+        isPasswordReset: form['intent'] == 'password_reset',
       );
     }
     if (session.codeChallenge == null) {
@@ -916,11 +917,13 @@ class FakeLoginFlowServer {
         return;
       }
     }
-    // `method=email_otp` is dispatched before `intent`
-    // (`challenge_handler.rs::continue_with_step`), so the in-app reset
-    // (`intent=password_reset` together with `method=email_otp`) stays in
-    // the app; `intent` alone is the hosted reset.
-    if (form['prompt'] == 'create' ||
+    // `prompt=create` is honoured only when the client admits a sign-up,
+    // and ignored otherwise (`OpenChallenge`, API 0.24.1). `method=email_otp`
+    // is dispatched before `intent` (`challenge_handler.rs::continue_with_step`),
+    // so the in-app reset (`intent=password_reset` together with
+    // `method=email_otp`) stays in the app; `intent` alone is the hosted
+    // reset.
+    if ((form['prompt'] == 'create' && _admitsSignUp) ||
         (form['intent'] == 'password_reset' && form['method'] != 'email_otp')) {
       return _redirectToWeb(response, session);
     }
@@ -987,14 +990,18 @@ class FakeLoginFlowServer {
       session.isPrimaryAuthenticated = true;
     }
     if (form['method'] == 'email_otp' || form['resend'] == 'email_otp') {
-      sentEmailOtps.add(session.email ?? '');
+      if (_mayReceiveCode(session, user)) {
+        sentEmailOtps.add(session.email ?? '');
+      }
       return _step(response, session, 'email_otp');
     }
     if (form['method'] == 'magic_link') {
       // Contract: magic link — one request, one email carrying both the
       // OTP code and the link; the server still answers `next: email_otp`.
-      sentEmailOtps.add(session.email ?? '');
-      sentMagicLinks.add(session.email ?? '');
+      if (_mayReceiveCode(session, user)) {
+        sentEmailOtps.add(session.email ?? '');
+        sentMagicLinks.add(session.email ?? '');
+      }
       return _step(response, session, 'email_otp');
     }
     final otp = form['email_otp'];
@@ -1002,6 +1009,9 @@ class FakeLoginFlowServer {
       return _step(response, session, 'email_otp', stepError: 'code_expired');
     }
     if (otp != null) {
+      if (otp == emailOtpCode) {
+        user ??= _signUpByProof(session);
+      }
       if (user == null || otp != emailOtpCode) {
         return _step(
           response,
@@ -1014,6 +1024,9 @@ class FakeLoginFlowServer {
     }
     final magicLinkTokenPresented = form['magic_link_token'];
     if (magicLinkTokenPresented != null) {
+      if (magicLinkTokenPresented == magicLinkToken) {
+        user ??= _signUpByProof(session);
+      }
       if (user == null || magicLinkTokenPresented != magicLinkToken) {
         return _step(
           response,
@@ -1288,6 +1301,7 @@ class FakeLoginFlowServer {
             state: query['state'],
             acrValues: null,
             organization: query['organization'],
+            isPasswordReset: false,
           )
           ..email = 'ana@example.com';
     final code = _issueCode(
@@ -3258,6 +3272,32 @@ class FakeLoginFlowServer {
       if (_allowedLoginMethods.contains(allowedBy)) wireName,
   ];
 
+  /// Whether this client admits a self sign-up (`client_admits_sign_up`):
+  /// the application allows it and the client lists `email_otp`. The fake
+  /// models no sign-in gate on the challenge.
+  bool get _admitsSignUp =>
+      isSelfSignUpEnabled && _allowedLoginMethods.contains('email_otp');
+
+  /// Whether a code (or magic link) is issued to [session]'s address: always
+  /// for an account; for an address with no account only on a sign-in that
+  /// may create it — a password reset never issues one (API 0.24.2,
+  /// `OtpLoginService::store_code` with `ProofPurpose::PasswordReset`).
+  bool _mayReceiveCode(_ChallengeSession session, FakeUser? user) =>
+      user != null || (!session.isPasswordReset && _admitsSignUp);
+
+  /// The account a valid proof of the mailbox creates for an address with
+  /// no account: only on a sign-in that admits a sign-up, never on a reset
+  /// (`self_sign_up::account_for_proven_email`). `null` otherwise.
+  FakeUser? _signUpByProof(_ChallengeSession session) {
+    final email = session.email;
+    if (email == null || session.isPasswordReset || !_admitsSignUp) {
+      return null;
+    }
+    final created = FakeUser(subject: 'cu_signup_${_token32()}', email: email);
+    users[email] = created;
+    return created;
+  }
+
   /// The client's [loginMethods] as the real server resolves them: `passkey`
   /// stays only while the company policy is [PasskeyMode.passwordless], the
   /// one policy under which a passkey is a first factor
@@ -3363,6 +3403,10 @@ class _ChallengeSession {
   String? organization;
   String? email;
   String? upstreamNonce;
+
+  /// The opening carried `intent=password_reset`: a proof of the mailbox
+  /// never creates an account, and no code goes to an address without one.
+  bool isPasswordReset = false;
   bool isPrimaryAuthenticated = false;
   bool isIdentifiedByHint = false;
   bool isSecondFactorDone = false;
@@ -3385,6 +3429,7 @@ class _ChallengeSession {
     required String? state,
     required String? acrValues,
     required String? organization,
+    required bool isPasswordReset,
   }) {
     this.codeChallenge = codeChallenge;
     this.nonce = nonce;
@@ -3393,6 +3438,7 @@ class _ChallengeSession {
     this.state = state;
     this.acrValues = acrValues;
     this.organization = organization;
+    this.isPasswordReset = isPasswordReset;
     isSecondFactorDone = false;
     isPhishingResistant = false;
   }

@@ -63,6 +63,30 @@ void main() {
       expect(server.challengeRequests.single['prompt'], 'create');
     });
 
+    // TEST_CHARTER
+    // Requirement: `prompt=create` is ignored when the client admits no
+    // sign-up (API 0.24.1): the opening is answered `select_method`, and no
+    // browser opens.
+    // Oracle: the published state and the browser's opened URLs.
+    // Risk edge: a sign-up the server refuses still opening the browser.
+    // Layer: integration against the fake LoginFlow.
+    // Counterfactual: honouring `prompt=create` regardless fails both.
+    test('sign-up is ignored when the client admits none: select_method, no '
+        'browser', () async {
+      server.isSelfSignUpEnabled = false;
+      final fixture = AuthFixture.create(server);
+      await fixture.auth.initialize();
+
+      final result = await fixture.auth.signUp();
+
+      expect(
+        (result.data as ChallengeRequired).prompt.step,
+        ChallengeStep.selectMethod,
+      );
+      expect(fixture.browser.openedUrls, isEmpty);
+      expect(server.challengeRequests.single['prompt'], 'create');
+    });
+
     test('a cancelled browser sheet returns to the resting state', () async {
       final fixture = AuthFixture.create(server);
       fixture.browser.shouldCancel = true;

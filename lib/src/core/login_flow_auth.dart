@@ -771,8 +771,9 @@ class LoginFlowAuth {
   /// `method=email_otp`, opened with `intent=password_reset` so the server
   /// tells it from a sign-in and never creates nor activates an account for
   /// it) and the state becomes [AwaitingResetCode]. It answers the same for
-  /// an address with no account, and sends nothing then. No browser is involved, so no `redirectUri` is needed; the
-  /// client's login methods must include `email_otp`.
+  /// an address with no account, and sends nothing then. No browser is
+  /// involved, so no `redirectUri` is needed; the client's login methods
+  /// must include `email_otp`.
   ///
   /// Then [submitResetCode] with the code, and [setNewPassword]. The
   /// session the code opens is held, never stored nor surfaced as

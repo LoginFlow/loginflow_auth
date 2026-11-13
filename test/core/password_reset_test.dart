@@ -258,12 +258,19 @@ void main() {
 
   // TEST_CHARTER
   // Requirement: an address with no account looks exactly like one with an
-  // account (anti-enumeration); no code ever works for it.
-  // Oracle: the public `Result` of the start and of a code.
-  // Risk edge: an error or a different state for an unknown address.
+  // account (anti-enumeration); a reset sends it no code and creates no
+  // account, whatever the self sign-up config (API 0.24.2), so any code
+  // typed is refused.
+  // Oracle: the public `Result` of the start and of a code, the emails the
+  // fake LoginFlow sent, and its accounts.
+  // Risk edge: an error or a different state for an unknown address, a
+  // code mailed to it, or the reset's code creating the account.
   // Layer: integration against the fake LoginFlow.
-  // Counterfactual: refusing the start for an unknown address.
-  test('an unknown address starts the same; its code is refused', () async {
+  // Counterfactual: issuing the code to any address fails the empty
+  // `sentEmailOtps`; refusing the start fails the first state.
+  test('an unknown address starts the same, gets no code, and any code is '
+      'refused, even with self sign-up allowed', () async {
+    server.isSelfSignUpEnabled = true;
     final (fixture, _) = await started();
 
     final opened = await fixture.auth.startPasswordReset('nobody@x.com');
@@ -273,6 +280,8 @@ void main() {
 
     expect(opened.data, const AwaitingResetCode(email: 'nobody@x.com'));
     expect(code.errorOrNull, const InvalidResetCode());
+    expect(server.sentEmailOtps, isEmpty);
+    expect(server.users, isNot(contains('nobody@x.com')));
   });
 
   // TEST_CHARTER

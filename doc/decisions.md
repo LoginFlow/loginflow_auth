@@ -75,7 +75,7 @@ Password reset does NOT (0.17.0): every authentication of a first-party app
 happens in the app through this library, so the reset is the email-code
 sign-in held back until `POST /v1/user/change-password` succeeds
 (`LoginFlowAuth.startPasswordReset`), with the usual step-up when the
-account needs a strong sign-in. Since 0.23.1 its opening carries
+account needs a strong sign-in. Since 0.24.0 its opening carries
 `intent=password_reset` (FIPA App. A.2) together with `method=email_otp`:
 the server keeps it in the app and, unlike a sign-in, never creates nor
 activates an account for it. Only providers that force a browser keep one.
