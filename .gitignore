@@ -31,3 +31,6 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Golden test failure output (flutter_test writes it next to the goldens)
+**/goldens/failures/
