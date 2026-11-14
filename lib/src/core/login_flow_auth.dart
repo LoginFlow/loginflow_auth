@@ -1180,6 +1180,45 @@ class LoginFlowAuth {
     );
   }
 
+  /// Drops the cached access token of [api] (an audience listed in
+  /// [LoginFlowConfig.apis]): the next [accessTokenFor] or
+  /// [authorizedHeadersFor] for it asks LoginFlow for a new one.
+  ///
+  /// Call it when your API refused the token itself: a `401` that is not
+  /// the DPoP nonce challenge [shouldRetryResourceRequest] answers `true`
+  /// for, such as `error="invalid_token"` (the token was revoked, or is
+  /// signed with a key the API does not trust yet). Then send the request
+  /// once more with a NEW [authorizedHeadersFor]; when LoginFlow ended the
+  /// session, that call fails with [SessionRevoked] and the state becomes
+  /// [SignedOut].
+  ///
+  /// Takes effect at once, and again after any refresh already in flight,
+  /// which would otherwise hand the dropped token back when it completes.
+  /// Other APIs keep their tokens; [LoginFlowSession.accessClaims] keeps the
+  /// claims of [api] until a new token replaces them. Nothing cached is a
+  /// no-op. Fails with [ConfigurationInvalid] for an API missing from
+  /// [LoginFlowConfig.apis] (no request is sent).
+  Future<Result<void, LoginFlowError>> discardAccessToken(String api) async {
+    if (!config.apis.contains(api)) {
+      return Err(
+        ConfigurationInvalid(
+          description: 'the API "$api" is not in LoginFlowConfig.apis',
+        ),
+      );
+    }
+    final generation = _generation;
+    void discard() {
+      final session = _session;
+      if (session != null && _isCurrent(generation)) {
+        _session = session.withoutApiToken(api);
+      }
+    }
+
+    discard();
+    await _queued<void>(() async => discard());
+    return Ok(null);
+  }
+
   /// The organizations of this application where the signed-in user has
   /// an active assignment, and the one the session has active
   /// (`GET {organizations_endpoint}`, `doc/server-contract.md` §17).
@@ -2866,11 +2905,10 @@ class LoginFlowAuth {
     return refresh;
   }
 
-  /// Runs [refresh] after every refresh queued before it.
-  Future<Result<String, LoginFlowError>> _queued(
-    Future<Result<String, LoginFlowError>> Function() refresh,
-  ) {
-    final queued = _refreshQueue.then((_) => refresh());
+  /// Runs [task] (a refresh, or a change it must not undo) after every
+  /// refresh queued before it.
+  Future<T> _queued<T>(Future<T> Function() task) {
+    final queued = _refreshQueue.then((_) => task());
     _refreshQueue = queued.then<void>((_) {}, onError: (Object _) {});
     return queued;
   }

@@ -1167,6 +1167,7 @@ when there are zero or several. With none, `org_id` is absent and
 | any sign-in method with `organization:` (all but `signInWithAccessCode`, §16) | `organization` on the opening request (§5.3) or the authorization URL (§6) | the session starts in it |
 | `accessTokenFor(api)` | refresh with `resource=<api>`, same DPoP key; cached per API until 30 s before `expires_in` | the token; `InvalidTarget(api)` on `invalid_target` (session kept); `ConfigurationInvalid` for an API missing from `LoginFlowConfig.apis` (no request) |
 | `authorizedHeadersFor(api, method:, uri:)` | — | `Authorization` + `DPoP` for that API's token (§13.3) |
+| `discardAccessToken(api)` | none; the next `accessTokenFor(api)` refreshes with `resource=<api>` | the cached token of that API dropped, at once and again after any refresh in flight; other APIs keep theirs; `ConfigurationInvalid` for an API missing from `LoginFlowConfig.apis` |
 | `listOrganizations()` | `GET {organizations_endpoint}` | `OrganizationList`; `UnsupportedByServer('organizations_endpoint')` without it in discovery |
 | `switchOrganization(id)` | refresh with `organization=<id>`, no `resource` | every cached API token dropped, `accessClaims` emptied; `OrganizationUnavailable(id)` on `invalid_grant` (session kept) |
 | `session.accessClaims[api]` | the four claims above, decoded **without verification** | for the UI only; the API decides access |
