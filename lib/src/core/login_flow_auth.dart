@@ -277,6 +277,11 @@ class LoginFlowAuth {
   final Map<String?, Future<Result<String, LoginFlowError>>> _refreshing =
       <String?, Future<Result<String, LoginFlowError>>>{};
 
+  /// Per API, the token the app discarded ([discardAccessToken]): never
+  /// handed out again, even when a refresh that started before the discard
+  /// writes it back into the session.
+  final Map<String, String> _refusedTokens = <String, String>{};
+
   /// Every refresh rotates the refresh token, so refreshes run one after
   /// another: two in flight would present the same token and the server
   /// would revoke the family as reused (RFC 9700 §4.14.2).
@@ -1146,7 +1151,7 @@ class LoginFlowAuth {
       return Err(const NotSignedIn());
     }
     final fresh = session.freshApiToken(api, _clock.now());
-    if (fresh != null) {
+    if (fresh != null && fresh != _refusedTokens[api]) {
       return Ok(fresh);
     }
     return _refreshFor(api);
@@ -1178,6 +1183,39 @@ class LoginFlowAuth {
       uri: uri,
       accessToken: tokenResult.data,
     );
+  }
+
+  /// Stops handing out the cached access token of [api] (an audience listed
+  /// in [LoginFlowConfig.apis]): the next [accessTokenFor] or
+  /// [authorizedHeadersFor] for it asks LoginFlow for a new one.
+  ///
+  /// Call it when your API refused the token itself: a `401` that is not
+  /// the DPoP nonce challenge [shouldRetryResourceRequest] answers `true`
+  /// for, such as `error="invalid_token"` (the token was revoked, or is
+  /// signed with a key the API does not trust yet). Then send the request
+  /// once more with a NEW [authorizedHeadersFor]; when LoginFlow ended the
+  /// session, that call fails with [SessionRevoked] and the state becomes
+  /// [SignedOut].
+  ///
+  /// Takes effect at once: that token is never handed out again, even when
+  /// a refresh already in flight writes it back. Other APIs keep their
+  /// tokens, nothing is published, and [LoginFlowSession.accessClaims]
+  /// keeps the claims of [api] until a new token replaces them. A no-op when
+  /// nothing is cached for [api] or nobody is signed in. Fails with
+  /// [ConfigurationInvalid] for an API missing from [LoginFlowConfig.apis].
+  Result<void, LoginFlowError> discardAccessToken(String api) {
+    if (!config.apis.contains(api)) {
+      return Err(
+        ConfigurationInvalid(
+          description: 'the API "$api" is not in LoginFlowConfig.apis',
+        ),
+      );
+    }
+    final cached = _session?.apiTokens[api]?.value;
+    if (cached != null) {
+      _refusedTokens[api] = cached;
+    }
+    return Ok(null);
   }
 
   /// The organizations of this application where the signed-in user has
@@ -2777,6 +2815,7 @@ class LoginFlowAuth {
     );
     _generation++;
     _refreshing.clear();
+    _refusedTokens.clear();
     _refreshQueue = Future<void>.value();
     final reset = _reset;
     if (reset != null) {
@@ -3265,6 +3304,7 @@ class LoginFlowAuth {
   Future<void> _endLocalSession(SignOutReason reason) async {
     _generation++;
     _refreshing.clear();
+    _refusedTokens.clear();
     _refreshQueue = Future<void>.value();
     final cleared = await _sessionStore.clear();
     if (cleared case Err(:final error)) {

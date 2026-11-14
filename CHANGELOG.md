@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.24.2
+
+- Feature: `discardAccessToken(api)` stops handing out the cached access
+  token of one API, so the next `accessTokenFor` / `authorizedHeadersFor`
+  asks LoginFlow for a new one. Call it when your API refused the token itself (a `401`
+  that is not the DPoP nonce challenge, such as `error="invalid_token"`),
+  then retry the request once with new headers: until now the retry sent
+  the very token that was refused until it neared expiry, and a session
+  LoginFlow had ended was not noticed on that path. Now that retry fails
+  with `SessionRevoked` and signs out. The discarded token is never handed
+  out again, even when a refresh already in flight writes it back into the
+  session. Synchronous, publishes nothing (`accessClaims` keeps the API's
+  claims until a new token replaces them); other APIs keep their tokens.
+  Additive: nothing else changes.
+
 ## 0.24.1
 
 - Fix: depend on `qr` ^3.0.2 instead of ^4.0.0. `pdf` depends on `barcode`,
