@@ -9,10 +9,11 @@
   then retry the request once with new headers: until now the retry sent
   the very token that was refused until it neared expiry, and a session
   LoginFlow had ended was not noticed on that path. Now that retry fails
-  with `SessionRevoked` and signs out. The discard takes effect at once and
-  again after any refresh already in flight, which would otherwise hand the
-  dropped token back. Other APIs keep their tokens. Additive: nothing else
-  changes.
+  with `SessionRevoked` and signs out. The discarded token is never handed
+  out again, even when a refresh already in flight writes it back into the
+  session. Synchronous, publishes nothing (`accessClaims` keeps the API's
+  claims until a new token replaces them); other APIs keep their tokens.
+  Additive: nothing else changes.
 
 ## 0.24.1
 

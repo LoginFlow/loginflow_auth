@@ -481,7 +481,7 @@ included, a proof is single use — and, when `shouldRetryRequest` answers
 When your API refuses the token itself — a `401` that `shouldRetryRequest`
 does not answer `true` for, such as `error="invalid_token"` — the cached
 token may be revoked or signed with a key the API does not trust yet. Call
-`await _auth.discardAccessToken(RfEnv.loginFlowApi)` and send the request
+`_auth.discardAccessToken(RfEnv.loginFlowApi)` and send the request
 once more with new headers: the library asks LoginFlow for a new token, and
 when LoginFlow ended the session `authorizedHeadersFor` fails with
 `SessionRevoked` and the state becomes `SignedOut`. Retry once, never more.

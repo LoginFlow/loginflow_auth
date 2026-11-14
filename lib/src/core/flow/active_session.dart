@@ -47,13 +47,6 @@ class ActiveSession {
     ),
   );
 
-  /// This session with no token cached for [api].
-  ActiveSession withoutApiToken(String api) => copyWith(
-    apiTokens: Map<String, IssuedAccessToken>.unmodifiable(
-      <String, IssuedAccessToken>{...apiTokens}..remove(api),
-    ),
-  );
-
   LoginFlowSession toPublic() => LoginFlowSession(
     identity: identity,
     scope: stored.scope,

@@ -277,6 +277,11 @@ class LoginFlowAuth {
   final Map<String?, Future<Result<String, LoginFlowError>>> _refreshing =
       <String?, Future<Result<String, LoginFlowError>>>{};
 
+  /// Per API, the token the app discarded ([discardAccessToken]): never
+  /// handed out again, even when a refresh that started before the discard
+  /// writes it back into the session.
+  final Map<String, String> _refusedTokens = <String, String>{};
+
   /// Every refresh rotates the refresh token, so refreshes run one after
   /// another: two in flight would present the same token and the server
   /// would revoke the family as reused (RFC 9700 §4.14.2).
@@ -1146,7 +1151,7 @@ class LoginFlowAuth {
       return Err(const NotSignedIn());
     }
     final fresh = session.freshApiToken(api, _clock.now());
-    if (fresh != null) {
+    if (fresh != null && fresh != _refusedTokens[api]) {
       return Ok(fresh);
     }
     return _refreshFor(api);
@@ -1192,13 +1197,13 @@ class LoginFlowAuth {
   /// session, that call fails with [SessionRevoked] and the state becomes
   /// [SignedOut].
   ///
-  /// Takes effect at once, and again after any refresh already in flight,
-  /// which would otherwise hand the dropped token back when it completes.
-  /// Other APIs keep their tokens; [LoginFlowSession.accessClaims] keeps the
-  /// claims of [api] until a new token replaces them. Nothing cached is a
-  /// no-op. Fails with [ConfigurationInvalid] for an API missing from
-  /// [LoginFlowConfig.apis] (no request is sent).
-  Future<Result<void, LoginFlowError>> discardAccessToken(String api) async {
+  /// Takes effect at once: that token is never handed out again, even when
+  /// a refresh already in flight writes it back. Other APIs keep their
+  /// tokens, nothing is published, and [LoginFlowSession.accessClaims]
+  /// keeps the claims of [api] until a new token replaces them. A no-op when
+  /// nothing is cached for [api] or nobody is signed in. Fails with
+  /// [ConfigurationInvalid] for an API missing from [LoginFlowConfig.apis].
+  Result<void, LoginFlowError> discardAccessToken(String api) {
     if (!config.apis.contains(api)) {
       return Err(
         ConfigurationInvalid(
@@ -1206,16 +1211,10 @@ class LoginFlowAuth {
         ),
       );
     }
-    final generation = _generation;
-    void discard() {
-      final session = _session;
-      if (session != null && _isCurrent(generation)) {
-        _session = session.withoutApiToken(api);
-      }
+    final cached = _session?.apiTokens[api]?.value;
+    if (cached != null) {
+      _refusedTokens[api] = cached;
     }
-
-    discard();
-    await _queued<void>(() async => discard());
     return Ok(null);
   }
 
@@ -2816,6 +2815,7 @@ class LoginFlowAuth {
     );
     _generation++;
     _refreshing.clear();
+    _refusedTokens.clear();
     _refreshQueue = Future<void>.value();
     final reset = _reset;
     if (reset != null) {
@@ -2905,10 +2905,11 @@ class LoginFlowAuth {
     return refresh;
   }
 
-  /// Runs [task] (a refresh, or a change it must not undo) after every
-  /// refresh queued before it.
-  Future<T> _queued<T>(Future<T> Function() task) {
-    final queued = _refreshQueue.then((_) => task());
+  /// Runs [refresh] after every refresh queued before it.
+  Future<Result<String, LoginFlowError>> _queued(
+    Future<Result<String, LoginFlowError>> Function() refresh,
+  ) {
+    final queued = _refreshQueue.then((_) => refresh());
     _refreshQueue = queued.then<void>((_) {}, onError: (Object _) {});
     return queued;
   }
@@ -3303,6 +3304,7 @@ class LoginFlowAuth {
   Future<void> _endLocalSession(SignOutReason reason) async {
     _generation++;
     _refreshing.clear();
+    _refusedTokens.clear();
     _refreshQueue = Future<void>.value();
     final cleared = await _sessionStore.clear();
     if (cleared case Err(:final error)) {

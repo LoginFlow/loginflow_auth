@@ -46,7 +46,7 @@ void main() {
     );
     final refreshes = server.refreshRequestCount();
 
-    final discarded = await fixture.auth.discardAccessToken(
+    final discarded = fixture.auth.discardAccessToken(
       FakeLoginFlowServer.routesApi,
     );
     final renewed = await fixture.auth.accessTokenFor(
@@ -75,7 +75,7 @@ void main() {
     );
     server.rejectNextRefresh = true;
 
-    await fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
     final next = await fixture.auth.authorizedHeadersFor(
       FakeLoginFlowServer.routesApi,
       method: 'POST',
@@ -102,12 +102,9 @@ void main() {
     final reports = fixture.auth.accessTokenFor(FakeLoginFlowServer.reportsApi);
     await untilRefreshCount(refreshes + 1);
 
-    final discarding = fixture.auth.discardAccessToken(
-      FakeLoginFlowServer.routesApi,
-    );
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
     gate.complete();
     await reports;
-    await discarding;
     server.refreshResponseGate = null;
     final renewed = await fixture.auth.accessTokenFor(
       FakeLoginFlowServer.routesApi,
@@ -117,8 +114,8 @@ void main() {
     expect(renewed.data, isNot(routes.data));
   });
 
-  test('a token asked right after a discard, not awaited and while another '
-      'API refreshes, is a new one', () async {
+  test('a token asked right after a discard, while another API refreshes, '
+      'is a new one', () async {
     final fixture = await signedIn();
     final routes = await fixture.auth.accessTokenFor(
       FakeLoginFlowServer.routesApi,
@@ -129,17 +126,51 @@ void main() {
     final reports = fixture.auth.accessTokenFor(FakeLoginFlowServer.reportsApi);
     await untilRefreshCount(refreshes + 1);
 
-    final discarding = fixture.auth.discardAccessToken(
-      FakeLoginFlowServer.routesApi,
-    );
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
     final renewing = fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
     gate.complete();
     await reports;
-    await discarding;
     final renewed = await renewing;
 
     expect(renewed.isOk, isTrue);
     expect(renewed.data, isNot(routes.data));
+  });
+
+  test('the published claims of a discarded API stay until a new token '
+      'replaces them', () async {
+    final fixture = await signedIn();
+    await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
+
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
+    await fixture.auth.accessTokenFor(FakeLoginFlowServer.reportsApi);
+
+    final state = fixture.auth.state;
+    expect(state, isA<SignedIn>());
+    expect(
+      (state as SignedIn).session.accessClaims.keys,
+      containsAll(<String>[
+        FakeLoginFlowServer.routesApi,
+        FakeLoginFlowServer.reportsApi,
+      ]),
+    );
+  });
+
+  test('renewing a discarded token whose claims did not change publishes '
+      'no state', () async {
+    final fixture = await signedIn();
+    await fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
+    final published = <AuthState>[];
+    final subscription = fixture.auth.states.listen(published.add);
+
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
+    final renewed = await fixture.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
+    await pumpEventQueue();
+    await subscription.cancel();
+
+    expect(renewed.isOk, isTrue);
+    expect(published, isEmpty);
   });
 
   test('an API missing from LoginFlowConfig.apis is refused before any '
@@ -147,7 +178,7 @@ void main() {
     final fixture = await signedIn();
     final requests = server.tokenRequestCount;
 
-    final refused = await fixture.auth.discardAccessToken('API-UNDECLARED');
+    final refused = fixture.auth.discardAccessToken('API-UNDECLARED');
 
     expect(refused.errorOrNull, isA<ConfigurationInvalid>());
     expect(server.tokenRequestCount, requests);

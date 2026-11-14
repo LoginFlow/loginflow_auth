@@ -292,16 +292,18 @@ Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
   proof to that origin, and answers `true` only for `401` +
   `WWW-Authenticate: DPoP error="use_dpop_nonce"` (RFC 9449 §9): retry that
   request once, never twice.
-- `discardAccessToken(String api)` → `Future<Result<void, LoginFlowError>>`:
+- `discardAccessToken(String api)` → `Result<void, LoginFlowError>`:
   when your API refused the token itself (a `401` that
   `shouldRetryResourceRequest` does not answer `true` for, such as
   `error="invalid_token"`: a revoked token, or one signed with a key the API
   does not trust yet), drop the cached token of `api` and send the request
   once more with new headers. The next `authorizedHeadersFor` asks LoginFlow
   for a new token, and fails with `SessionRevoked` (state `SignedOut`) when
-  LoginFlow ended the session. One such retry per request, never more. Other
-  APIs keep their tokens; `ConfigurationInvalid` for an API missing from
-  `LoginFlowConfig.apis`.
+  LoginFlow ended the session. One such retry per request, never more. The
+  discarded token is never handed out again; nothing is published (the
+  claims of `api` stay in `accessClaims` until a new token replaces them);
+  other APIs keep their tokens. `ConfigurationInvalid` for an API missing
+  from `LoginFlowConfig.apis`.
 - Your API (and, for a browser app, its CORS policy) must accept the `DPoP`
   request header and expose `DPoP-Nonce` and `WWW-Authenticate`.
   LoginFlow's own `/v1/*` scopes already do.
