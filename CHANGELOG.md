@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.1
+
+- Fix: depend on `qr` ^3.0.2 instead of ^4.0.0. `pdf` depends on `barcode`,
+  whose every release (latest 2.2.9) needs `qr` ^3, and the two `qr` majors
+  share no constructor, so an app that prints PDFs (FacturaMóvil's admin)
+  could not resolve this library at all. Only the sign-in QR code painter
+  changes (`QrCode.fromData`, medium error correction as before); the
+  library's API does not. An app that uses `qr` 4 directly moves its own QR
+  code to `qr` 3 or `qr_flutter` when it takes this version.
+
 ## 0.24.0
 
 Shares `major.minor` with LoginFlow API `0.24.x`. API `0.24.2` completes

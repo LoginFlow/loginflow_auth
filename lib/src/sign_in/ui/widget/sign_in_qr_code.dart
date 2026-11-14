@@ -35,8 +35,11 @@ class _QrCodePainter extends CustomPainter {
 
   final String data;
 
+  /// `qr` 3 (not 4): `pdf` depends on `barcode`, which needs `qr` ^3, so
+  /// an app that prints PDFs can only resolve this library on `qr` 3.
+  /// Medium error correction, as before.
   late final QrImage _image = QrImage(
-    QrCode(payload: QrPayload.fromString(data)),
+    QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M),
   );
 
   @override
