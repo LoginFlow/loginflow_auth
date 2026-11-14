@@ -2,9 +2,9 @@
 
 ## 0.24.2
 
-- Feature: `discardAccessToken(api)` drops the cached access token of one
-  API, so the next `accessTokenFor` / `authorizedHeadersFor` asks LoginFlow
-  for a new one. Call it when your API refused the token itself (a `401`
+- Feature: `discardAccessToken(api)` stops handing out the cached access
+  token of one API, so the next `accessTokenFor` / `authorizedHeadersFor`
+  asks LoginFlow for a new one. Call it when your API refused the token itself (a `401`
   that is not the DPoP nonce challenge, such as `error="invalid_token"`),
   then retry the request once with new headers: until now the retry sent
   the very token that was refused until it neared expiry, and a session

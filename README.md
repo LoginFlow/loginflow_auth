@@ -296,7 +296,7 @@ Future<http.Response?> getOrders(LoginFlowAuth auth, Uri uri) async {
   when your API refused the token itself (a `401` that
   `shouldRetryResourceRequest` does not answer `true` for, such as
   `error="invalid_token"`: a revoked token, or one signed with a key the API
-  does not trust yet), drop the cached token of `api` and send the request
+  does not trust yet), discard the cached token of `api` and send the request
   once more with new headers. The next `authorizedHeadersFor` asks LoginFlow
   for a new token, and fails with `SessionRevoked` (state `SignedOut`) when
   LoginFlow ended the session. One such retry per request, never more. The

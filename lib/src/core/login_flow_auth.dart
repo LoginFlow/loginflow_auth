@@ -1185,8 +1185,8 @@ class LoginFlowAuth {
     );
   }
 
-  /// Drops the cached access token of [api] (an audience listed in
-  /// [LoginFlowConfig.apis]): the next [accessTokenFor] or
+  /// Stops handing out the cached access token of [api] (an audience listed
+  /// in [LoginFlowConfig.apis]): the next [accessTokenFor] or
   /// [authorizedHeadersFor] for it asks LoginFlow for a new one.
   ///
   /// Call it when your API refused the token itself: a `401` that is not
