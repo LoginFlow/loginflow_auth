@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.25.0
+
+Shares `major.minor` with LoginFlow API `0.25.x`.
+
+- Feature: self-selectable roles (API 0.25.0,
+  `/v1/app/self-selectable-roles`, `doc/server-contract.md` §22). The
+  signed-in person takes or leaves, for themself, the roles the
+  application's owner marked self-selectable, in the root organization; same
+  DPoP-bound LoginFlow token as the members API, no step-up.
+  - `listSelfSelectableRoles()` → `SelfSelectableRoles`: the root
+    `organization` and every `SelfSelectableRole` with `isHeld` and
+    `assignmentId`.
+  - `takeSelfSelectableRole(roleId)` → `SelfSelectedRole`: `isNew` is
+    `true` for a new assignment (`201`), `false` when already held (`200`).
+    Then the session switches to the root organization
+    (`switchOrganization`), dropping every cached API token, so the next
+    `accessTokenFor` carries the role's permissions.
+  - `leaveSelfSelectableRole(roleId)`: then the session is refreshed in its
+    organization and every cached API token is dropped, so the next
+    `accessTokenFor` no longer carries them.
+  - A failed refresh after a take or leave is only logged; the change is
+    already done on the server.
+  - Refusals are `DelegationDenied` with the existing
+    `DelegationDenialCode` values (`selfAssignmentForbidden`,
+    `organizationOutOfReach`, `roleNotGrantable`, `assignmentNotFound`,
+    `memberInactive`, …); `429 self_selection_rate_limited` is
+    `RateLimited` with `retryAfter` from `Retry-After`.
+- `DelegationDenied.message` now reads "Refused by the delegation rules"
+  instead of "Members call refused", since it also covers self-selection.
+  Additive otherwise: the members API behaves as before.
+
 ## 0.24.2
 
 - Feature: `discardAccessToken(api)` stops handing out the cached access

@@ -385,6 +385,38 @@ if (roles.data.canGrant) {
 }
 ```
 
+Self-selectable roles (`doc/server-contract.md` §22, API 0.25): the
+signed-in person takes or leaves, for themself, the roles the application's
+owner marked self-selectable ("I am also a seller"), in the root
+organization. Same LoginFlow token as the members calls, no step-up.
+
+- `listSelfSelectableRoles()` → `SelfSelectableRoles`: the root
+  `organization` and every role with `isHeld` and `assignmentId`. Empty
+  `roles`: the application marks none, hide the screen.
+- `takeSelfSelectableRole(roleId)` → `SelfSelectedRole`: `isNew` is `true`
+  when assigned now (`201`), `false` when already held (`200`). Then the
+  session switches to the root (`switchOrganization`), dropping every cached
+  API token, so the next `accessTokenFor` carries the role's permissions.
+- `leaveSelfSelectableRole(roleId)` → `void`. Then the session is refreshed
+  in its organization and every cached API token is dropped, so the next
+  `accessTokenFor` no longer carries them. When the server ended this app's
+  session because its client no longer admits the person, that refresh
+  signs out (`SessionRevoked`).
+- A failed refresh after a take or leave is only logged: the change is done
+  on the server and the next refresh shows it.
+- Refusals are `DelegationDenied`: `selfAssignmentForbidden` (not
+  self-selectable), `assignmentNotFound` (a leave of a role not held),
+  `memberInactive`, `organizationOutOfReach`, `roleNotGrantable`, … Past 10
+  takes and leaves in an hour, `RateLimited` with `retryAfter`.
+
+```dart
+final roles = await auth.listSelfSelectableRoles();
+final seller = roles.data.roles.firstWhere((role) => role.key == 'seller');
+if (!seller.isHeld) {
+  await auth.takeSelfSelectableRole(seller.id);
+}
+```
+
 Changing the email (`doc/server-contract.md` §19): the signed-in person
 changes their OWN address, in two steps. Same LoginFlow token as the members
 calls; products keep no email-change route of their own.

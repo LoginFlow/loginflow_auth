@@ -1,9 +1,8 @@
-import 'package:loginflow_auth/src/core/error/delegation_denial_code.dart';
 import 'package:loginflow_auth/src/core/error/login_flow_error.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_envelope.dart';
 import 'package:loginflow_auth/src/core/http/login_flow_transport.dart';
 import 'package:loginflow_auth/src/core/http/transport_reply.dart';
-import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
+import 'package:loginflow_auth/src/core/protocol/members/delegation_refusal.dart';
 import 'package:loginflow_auth/src/core/protocol/members/grantable_roles.dart';
 import 'package:loginflow_auth/src/core/protocol/members/member_assignment.dart';
 import 'package:loginflow_auth/src/core/protocol/members/member_invitation.dart';
@@ -120,31 +119,14 @@ class AppMembersClient {
       bearerToken: bearerToken,
     );
     return reply.flatMap(
-      (reply) => reply.isSuccess ? Ok(null) : Err(_error(reply)),
+      (reply) => reply.isSuccess ? Ok(null) : Err(reply.toDelegationError()),
     );
   }
 
   Result<T, LoginFlowError> _model<T>(
     TransportReply reply,
     T Function(Map<String, Object?> json) fromJson,
-  ) => reply.isSuccess ? reply.envelopeModel(fromJson) : Err(_error(reply));
-
-  /// A refusal of the delegation rules is [DelegationDenied] with its code;
-  /// anything else (step-up, rate limit, a malformed request) is the account
-  /// API's usual error.
-  LoginFlowError _error(TransportReply reply) {
-    final code = reply.jsonObject().when(
-      ok: (json) {
-        final wireCode = json.optionalObject('error')?.optionalString('code');
-        return wireCode == null
-            ? null
-            : DelegationDenialCode.fromWireName(wireCode);
-      },
-      err: (_) => null,
-    );
-    if (code == null) {
-      return reply.toAccountApiError();
-    }
-    return DelegationDenied(code: code, statusCode: reply.statusCode);
-  }
+  ) => reply.isSuccess
+      ? reply.envelopeModel(fromJson)
+      : Err(reply.toDelegationError());
 }

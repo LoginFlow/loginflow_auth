@@ -618,8 +618,9 @@ final class OrganizationUnavailable extends LoginFlowError {
   int get hashCode => Object.hash(OrganizationUnavailable, organizationId);
 }
 
-/// LoginFlow refused a members call (`doc/server-contract.md` §18): [code]
-/// names the delegation rule, so the UI shows why without parsing text.
+/// LoginFlow refused a members or self-selectable roles call
+/// (`doc/server-contract.md` §18, §22): [code] names the delegation rule, so
+/// the UI shows why without parsing text.
 final class DelegationDenied extends LoginFlowError {
   /// Creates a [DelegationDenied].
   const DelegationDenied({required this.code, required this.statusCode});
@@ -631,7 +632,8 @@ final class DelegationDenied extends LoginFlowError {
   final int statusCode;
 
   @override
-  String get message => 'Members call refused ($statusCode): ${code.wireName}';
+  String get message =>
+      'Refused by the delegation rules ($statusCode): ${code.wireName}';
 
   @override
   bool operator ==(Object other) =>

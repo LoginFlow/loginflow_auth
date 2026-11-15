@@ -1,6 +1,7 @@
-/// Why LoginFlow refused a members call (`error.code`,
-/// `doc/server-contract.md` §18): the delegation rules decide every grant
-/// and revocation on the server, and this says which one refused.
+/// Why LoginFlow refused a members or self-selectable roles call
+/// (`error.code`, `doc/server-contract.md` §18, §22): the delegation rules
+/// decide every grant and revocation on the server, and this says which one
+/// refused.
 enum DelegationDenialCode {
   /// The organization is not of the user's company and application.
   organizationNotFound('organization_not_found'),
@@ -24,7 +25,9 @@ enum DelegationDenialCode {
   /// The expiry asked for is later than the user's own assignment there.
   privilegeExceedsGrantor('privilege_exceeds_grantor'),
 
-  /// A person never grants, invites or revokes their own roles.
+  /// A person never grants, invites or revokes their own roles, except a
+  /// role the application marked self-selectable; on a take or leave of
+  /// one, the role is not (or no longer) self-selectable.
   selfAssignmentForbidden('self_assignment_forbidden'),
 
   /// The role cannot be assigned in that kind of organization.
