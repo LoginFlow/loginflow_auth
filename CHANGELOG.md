@@ -16,12 +16,16 @@ Shares `major.minor` with LoginFlow API `0.25.x`.
     `true` for a new assignment (`201`), `false` when already held (`200`).
     Then the session switches to the root organization
     (`switchOrganization`), dropping every cached API token, so the next
-    `accessTokenFor` carries the role's permissions.
-  - `leaveSelfSelectableRole(roleId)`: then the session is refreshed in its
-    organization and every cached API token is dropped, so the next
-    `accessTokenFor` no longer carries them.
-  - A failed refresh after a take or leave is only logged; the change is
-    already done on the server.
+    `accessTokenFor` carries the role's permissions. A failed switch is only
+    logged and the take is still `Ok`; the cached tokens then lack the new
+    permissions until the next refresh (they can deny, never over-grant).
+  - `leaveSelfSelectableRole(roleId)` fails closed: as soon as the server
+    answers, every cached API token is dropped, before and whatever the
+    refresh that follows does, and a token asked for afterwards never joins
+    a refresh that started before the leave. Then the session is refreshed
+    in its organization; a failed refresh is only logged and the leave is
+    still `Ok`, and `accessTokenFor` fails rather than hand out a token with
+    the left permissions while the token endpoint is down.
   - Refusals are `DelegationDenied` with the existing
     `DelegationDenialCode` values (`selfAssignmentForbidden`,
     `organizationOutOfReach`, `roleNotGrantable`, `assignmentNotFound`,

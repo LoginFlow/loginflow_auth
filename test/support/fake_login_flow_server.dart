@@ -497,6 +497,10 @@ class FakeLoginFlowServer {
   /// The next refresh answers `invalid_grant`.
   bool rejectNextRefresh = false;
 
+  /// This many next refreshes answer `503 temporarily_unavailable`, as a
+  /// token endpoint that is down; nothing is rotated.
+  int failingRefreshes = 0;
+
   /// Refresh responses leave out the ID token (a server bug the client
   /// must survive without pairing a new device secret with an old token).
   bool omitsIdTokenOnRefresh = false;
@@ -1435,6 +1439,10 @@ class FakeLoginFlowServer {
     if (rejectNextRefresh) {
       rejectNextRefresh = false;
       return _oauthError(response, 400, 'invalid_grant');
+    }
+    if (failingRefreshes > 0) {
+      failingRefreshes--;
+      return _oauthError(response, 503, 'temporarily_unavailable');
     }
     final record = _refreshTokens[form['refresh_token']];
     if (record == null || record.clientId != clientId) {
@@ -2602,10 +2610,12 @@ class FakeLoginFlowServer {
   /// `404 role_not_found`.
   final Set<String> unmarkedRoleIds = <String>{};
 
-  /// The next take or leave is refused with this status and `error.code`
-  /// after the guard, for the rules a person's own call does not reach
-  /// here (`organization_out_of_reach`, `role_not_grantable`) and a
-  /// deactivated membership (`member_inactive`).
+  /// The next call (list, take or leave) is refused with this status and
+  /// `error.code` after the guard, for what the fake does not model: the
+  /// rules a person's own call does not reach here
+  /// (`organization_out_of_reach`, `role_not_grantable`), a deactivated
+  /// membership (`member_inactive`) and a missing root
+  /// (`organization_not_found`).
   ({int status, String code})? nextSelfSelectionRefusal;
 
   /// Every request that reached the self-selectable roles routes, in order.
@@ -2633,6 +2643,11 @@ class FakeLoginFlowServer {
     final access = _loginFlowAccess(request, response);
     if (access == null) {
       return;
+    }
+    final refusal = nextSelfSelectionRefusal;
+    if (refusal != null) {
+      nextSelfSelectionRefusal = null;
+      return _denied(response, refusal.status, refusal.code);
     }
     final held = _selfSelected.putIfAbsent(
       access.subject,
@@ -2666,11 +2681,6 @@ class FakeLoginFlowServer {
       return unmarkedRoleIds.contains(roleId)
           ? _denied(response, 403, 'self_assignment_forbidden')
           : _denied(response, 404, 'role_not_found');
-    }
-    final refusal = nextSelfSelectionRefusal;
-    if (refusal != null) {
-      nextSelfSelectionRefusal = null;
-      return _denied(response, refusal.status, refusal.code);
     }
     final assignmentId = held[roleId];
     if (method == 'PUT' && assignmentId != null) {

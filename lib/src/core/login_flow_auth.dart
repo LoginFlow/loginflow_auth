@@ -1783,8 +1783,11 @@ class LoginFlowAuth {
   /// [listSelfSelectableRoles] names): every cached API token is dropped and
   /// the next [accessTokenFor] carries the role. When the session already
   /// works in the root, that refresh only renews its tokens. The take is
-  /// already done on the server, so a failed refresh is only logged: the
-  /// next refresh picks the role up.
+  /// already done on the server, so a failed switch is only logged and the
+  /// take is still `Ok`: the session keeps its organization and its cached
+  /// API tokens, which lack the new role's permissions until the next
+  /// refresh or switch — a window that can only deny what the person now
+  /// holds, never grant what they do not.
   ///
   /// Fails with [DelegationDenied]: `selfAssignmentForbidden` (the role is
   /// not self-selectable), `roleNotFound`, `memberInactive`,
@@ -1813,12 +1816,16 @@ class LoginFlowAuth {
   /// person's assignment of it in the root organization, whoever granted it
   /// (`DELETE /v1/app/self-selectable-roles/{role_id}`). No step-up.
   ///
-  /// On success the session is refreshed in its active organization and
-  /// every cached API token is dropped, so the next [accessTokenFor] no
-  /// longer carries the role's permissions. When the server ended this
-  /// app's refresh family because its client no longer admits the person,
-  /// that refresh signs out ([SignedOut], `sessionRevoked`). The leave is
-  /// already done on the server, so a failed refresh is only logged.
+  /// It fails closed: as soon as the server answers, every cached API token
+  /// is dropped (they carry the role's permissions), before and whatever
+  /// the refresh that follows does. So the next [accessTokenFor] asks for a
+  /// new token, and fails rather than hand out an old one while the token
+  /// endpoint is down; a token asked for from then on never joins a refresh
+  /// that started before the leave. Then the session is refreshed in its
+  /// active organization. When the server ended this app's refresh family
+  /// because its client no longer admits the person, that refresh signs out
+  /// ([SignedOut], `sessionRevoked`). The leave is already done on the
+  /// server, so a failed refresh is only logged and the leave is still `Ok`.
   ///
   /// Fails with [DelegationDenied]: `assignmentNotFound` (`404`, the person
   /// does not hold it), `selfAssignmentForbidden` (it is no longer
@@ -1832,7 +1839,7 @@ class LoginFlowAuth {
       (token) => _selfSelection.leave(bearerToken: token, roleId: roleId),
     );
     if (left case Ok()) {
-      await _refreshPermissions();
+      await _refreshAfterLeave();
     }
     return left;
   }
@@ -1890,24 +1897,45 @@ class LoginFlowAuth {
     }
   }
 
-  /// A refresh of the session's own token in its active organization,
-  /// queued behind every refresh in flight, that drops every cached API
-  /// token: they carry the permissions from before a role was left. The
-  /// change is already done on the server, so a failed refresh is only
-  /// logged.
-  Future<void> _refreshPermissions() async {
+  /// After a role was left: drops every cached API token at once
+  /// ([_dropApiTokens]), then refreshes the session's own token in its
+  /// active organization, queued behind every refresh in flight. One of
+  /// those, started before the leave, writes back the API tokens it started
+  /// with when it completes, so they are dropped again when this refresh's
+  /// turn comes. The leave is already done on the server, so a failed
+  /// refresh is only logged.
+  Future<void> _refreshAfterLeave() async {
+    _dropApiTokens();
     final generation = _generation;
-    // A token refresh asked for after the change must not join one that
-    // started before it: that one carries the previous permissions.
-    _refreshing.clear();
-    final refreshed = await _queued(
-      () => _refresh(generation, dropsApiTokens: true),
-    );
+    final refreshed = await _queued(() {
+      _dropApiTokens();
+      return _refresh(generation);
+    });
     if (refreshed case Err(:final error)) {
       Log.w(
         'The session was not refreshed after a role was left: '
         '${error.message}',
       );
+    }
+  }
+
+  /// Forgets every cached API token, publishing the emptied
+  /// [LoginFlowSession.accessClaims], so the next [accessTokenFor] of every
+  /// API asks LoginFlow for a new one. A token asked for from now on never
+  /// joins a refresh that started before: that one may carry permissions
+  /// the session no longer has.
+  void _dropApiTokens() {
+    _refreshing.clear();
+    final session = _session;
+    if (session == null || session.apiTokens.isEmpty) {
+      return;
+    }
+    final dropped = session.copyWith(
+      apiTokens: const <String, IssuedAccessToken>{},
+    );
+    _session = dropped;
+    if (dropped.toPublic() != session.toPublic() && !_isSessionHeld) {
+      _emit(SignedIn(session: dropped.toPublic()));
     }
   }
 
@@ -3020,13 +3048,11 @@ class LoginFlowAuth {
 
   /// Rotates the refresh token for a new access token: for [api] when given
   /// (`resource`, RFC 8707), the session's own otherwise, and with
-  /// [organization] made the active organization of the family. A switched
-  /// [organization], or [dropsApiTokens], drops every cached API token.
+  /// [organization] made the active organization of the family.
   Future<Result<String, LoginFlowError>> _refresh(
     int generation, {
     String? api,
     String? organization,
-    bool dropsApiTokens = false,
   }) async {
     final current = _session;
     if (current == null) {
@@ -3059,7 +3085,6 @@ class LoginFlowAuth {
         generation,
         api: api,
         organization: organization,
-        dropsApiTokens: dropsApiTokens || organization != null,
       ),
       err: (error) => _refreshFailed(
         error,
@@ -3113,7 +3138,6 @@ class LoginFlowAuth {
     int generation, {
     required String? api,
     required String? organization,
-    required bool dropsApiTokens,
   }) async {
     if (!_isCurrent(generation)) {
       return _discardLateRefresh(response);
@@ -3170,7 +3194,7 @@ class LoginFlowAuth {
         expiresIn: response.expiresIn,
       ),
       api: api,
-      dropsApiTokens: dropsApiTokens,
+      hasSwitchedOrganization: organization != null,
     );
     _session = updated;
     final deviceSecret = response.deviceSecret;
@@ -3189,16 +3213,15 @@ class LoginFlowAuth {
   }
 
   /// [session] holding [token] where it belongs: the token of [api], or the
-  /// session's own. [dropsApiTokens] (a switched organization, or a role
-  /// left) drops every API token, all of them issued with the previous
-  /// organization or permissions.
+  /// session's own. A switched organization drops every API token, all of
+  /// them issued for the previous one.
   ActiveSession _withRefreshedToken(
     ActiveSession session,
     IssuedAccessToken token, {
     required String? api,
-    required bool dropsApiTokens,
+    required bool hasSwitchedOrganization,
   }) {
-    if (dropsApiTokens) {
+    if (hasSwitchedOrganization) {
       return ActiveSession(
         stored: session.stored,
         identity: session.identity,

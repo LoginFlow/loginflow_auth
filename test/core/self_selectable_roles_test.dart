@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:loginflow_auth/loginflow_auth_core.dart';
 import 'package:loginflow_auth/src/core/jose/compact_jws.dart';
@@ -87,6 +89,28 @@ void main() {
     return (fixture.auth.state as SignedIn)
         .session
         .accessClaims[FakeLoginFlowServer.routesApi];
+  }
+
+  /// The `permissions` claim of [token], decoded without verification.
+  List<Object?> permissionsOf(String token) =>
+      CompactJws.parse(token).data.claims['permissions']! as List<Object?>;
+
+  /// The permissions of the routes API token [LoginFlowAuth.accessTokenFor]
+  /// hands out now, read from the token itself: the published claims can
+  /// lag behind the cache, and a missing entry would pass any "does not
+  /// contain" check.
+  Future<List<Object?>> routesPermissions(AuthFixture fixture) async {
+    final token = await fixture.auth.accessTokenFor(
+      FakeLoginFlowServer.routesApi,
+    );
+    expect(token.isOk, isTrue, reason: '$token');
+    return permissionsOf(token.data);
+  }
+
+  Future<void> untilRefreshCount(int count) async {
+    while (server.refreshRequestCount() < count) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
   }
 
   // TEST_CHARTER
@@ -200,7 +224,7 @@ void main() {
   // Requirement: a leave is a `DELETE` of the role, DPoP-bound, answered
   // `204`; after it the session drops its API tokens and refreshes in its
   // organization, so the next token of the API no longer carries the
-  // role's permissions.
+  // role's permissions. (The take already moved the session to the root.)
   // Oracle: the recorded request, the result, and the `permissions` of the
   // next routes token.
   // Risk edge: the app keeps handing out a cached token that still carries
@@ -211,14 +235,13 @@ void main() {
   test('a leave drops the role permissions from the next token', () async {
     final fixture = await signedIn();
     await fixture.auth.takeSelfSelectableRole(_seller);
-    await fixture.auth.switchOrganization(_rootId);
-    final held = await routesClaims(fixture);
+    final held = await routesPermissions(fixture);
 
     final left = await fixture.auth.leaveSelfSelectableRole(_seller);
     final leaveRequest = server.selfSelectionRequests.last;
-    final after = await routesClaims(fixture);
+    final after = await routesPermissions(fixture);
 
-    expect(held?.permissions, contains(_salesCreate));
+    expect(held, contains(_salesCreate));
     expect(left.isOk, isTrue, reason: '$left');
     expect(leaveRequest.method, 'DELETE');
     expect(leaveRequest.uri.path, '/v1/app/self-selectable-roles/$_seller');
@@ -228,13 +251,13 @@ void main() {
       server.issuerText,
     );
     expect(leaveRequest.headers['dpop'], isNotNull);
-    expect(after?.permissions, isNot(contains(_salesCreate)));
+    expect(after, isNot(contains(_salesCreate)));
   });
 
   // TEST_CHARTER
-  // Requirement: every refusal of the self-selection rules is
-  // `DelegationDenied` with its code and status, and a refused take or
-  // leave refreshes nothing.
+  // Requirement: every refusal of the self-selection rules, on the list, a
+  // take or a leave, is `DelegationDenied` with its code and status, and a
+  // refused take or leave refreshes nothing.
   // Oracle: the returned errors and the number of refresh requests.
   // Risk edge: every refusal collapses into one opaque "unexpected server
   // response", so the UI cannot say why; or a refusal still rotates the
@@ -258,6 +281,11 @@ void main() {
     server.nextSelfSelectionRefusal = (status: 409, code: 'member_inactive');
     final inactive = await fixture.auth.takeSelfSelectableRole(_seller);
     final notHeld = await fixture.auth.leaveSelfSelectableRole(_beta);
+    server.nextSelfSelectionRefusal = (
+      status: 404,
+      code: 'organization_not_found',
+    );
+    final noRoot = await fixture.auth.listSelfSelectableRoles();
 
     expect(
       unmarked.errorOrNull,
@@ -294,7 +322,186 @@ void main() {
         statusCode: 404,
       ),
     );
+    expect(
+      noRoot.errorOrNull,
+      const DelegationDenied(
+        code: DelegationDenialCode.organizationNotFound,
+        statusCode: 404,
+      ),
+    );
     expect(server.refreshRequestCount(), refreshes);
+  });
+
+  // TEST_CHARTER
+  // Requirement: a leave fails closed. Once the `DELETE` answers `204` the
+  // cached API tokens are gone, whatever the refresh after it does: while
+  // the token endpoint is down `accessTokenFor` fails, and once it is back
+  // it hands out a token without the role. The leave itself is `Ok`.
+  // Oracle: the leave's result, the `accessTokenFor` result while the token
+  // endpoint answers `503`, and the `permissions` of the next routes token.
+  // Risk edge: the refresh after the leave fails and the app keeps handing
+  // out the cached token that carries the permission just left, for up to
+  // its lifetime.
+  // Layer: integration against the fake LoginFlow (a real `503` from the
+  // token endpoint).
+  // Counterfactual: dropping the API tokens only when the refresh succeeds
+  // hands out the cached token with `rutafacil.sales.create`, with no
+  // refresh at all.
+  test(
+    'a leave whose refresh fails never hands out the left permission',
+    () async {
+      final fixture = await signedIn();
+      await fixture.auth.takeSelfSelectableRole(_seller);
+      final held = await routesPermissions(fixture);
+      // The LoginFlow token the leave presents, so that the only refreshes
+      // that fail are the ones after the leave.
+      await fixture.auth.listSelfSelectableRoles();
+      server.failingRefreshes = 2;
+
+      final left = await fixture.auth.leaveSelfSelectableRole(_seller);
+      final whileDown = await fixture.auth.accessTokenFor(
+        FakeLoginFlowServer.routesApi,
+      );
+      final afterwards = await routesPermissions(fixture);
+
+      expect(held, contains(_salesCreate));
+      expect(left.isOk, isTrue, reason: '$left');
+      expect(whileDown.isOk, isFalse, reason: '$whileDown');
+      expect(afterwards, isNot(contains(_salesCreate)));
+      expect(fixture.auth.state, isA<SignedIn>());
+    },
+  );
+
+  // TEST_CHARTER
+  // Requirement: a token asked for after a leave never joins a refresh of
+  // that API which started before it: that refresh was answered while the
+  // role was still held.
+  // Oracle: the `permissions` of the token handed to the call made after
+  // the leave's `204`, against the one handed to the call made before.
+  // Risk edge: the call after the leave shares the earlier refresh's
+  // answer and gets the left permission for the token's whole lifetime.
+  // Layer: integration against the fake LoginFlow, with the earlier refresh
+  // held back by the server.
+  // Counterfactual: without clearing the refreshes in flight at the leave,
+  // the later call joins the earlier one and gets `rutafacil.sales.create`.
+  test('a token asked after a leave never joins a refresh that started '
+      'before it', () async {
+    final fixture = await signedIn();
+    await fixture.auth.takeSelfSelectableRole(_seller);
+    await routesClaims(fixture);
+    await fixture.auth.listSelfSelectableRoles();
+    fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
+    final gate = Completer<void>();
+    server.refreshResponseGate = gate;
+    final refreshes = server.refreshRequestCount();
+    final before = fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
+    await untilRefreshCount(refreshes + 1);
+    final requests = server.selfSelectionRequests.length;
+
+    final leaving = fixture.auth.leaveSelfSelectableRole(_seller);
+    while (server.selfSelectionRequests.length == requests) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await pumpEventQueue();
+    final after = fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
+    gate.complete();
+    final beforeToken = await before;
+    final left = await leaving;
+    final afterToken = await after;
+
+    expect(left.isOk, isTrue, reason: '$left');
+    expect(permissionsOf(beforeToken.data), contains(_salesCreate));
+    expect(permissionsOf(afterToken.data), isNot(contains(_salesCreate)));
+  });
+
+  // TEST_CHARTER
+  // Requirement: a refresh of an API that was in flight at the leave, and
+  // answered while the role was still held, does not put its token back in
+  // the cache when it completes.
+  // Oracle: the `permissions` of the routes token handed out after the
+  // leave returns.
+  // Risk edge: the late refresh writes back the left permission after the
+  // drop, and every later call gets it for the token's whole lifetime.
+  // Layer: integration against the fake LoginFlow, with the earlier refresh
+  // held back by the server until after the leave's `204`.
+  // Counterfactual: dropping the API tokens only once, at the `204`, keeps
+  // the late token with `rutafacil.sales.create`.
+  test(
+    'a refresh in flight at the leave does not put its token back',
+    () async {
+      final fixture = await signedIn();
+      await fixture.auth.takeSelfSelectableRole(_seller);
+      await routesClaims(fixture);
+      await fixture.auth.listSelfSelectableRoles();
+      fixture.auth.discardAccessToken(FakeLoginFlowServer.routesApi);
+      final gate = Completer<void>();
+      server.refreshResponseGate = gate;
+      final refreshes = server.refreshRequestCount();
+      final before = fixture.auth.accessTokenFor(FakeLoginFlowServer.routesApi);
+      await untilRefreshCount(refreshes + 1);
+      final requests = server.selfSelectionRequests.length;
+
+      final leaving = fixture.auth.leaveSelfSelectableRole(_seller);
+      while (server.selfSelectionRequests.length == requests) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      await pumpEventQueue();
+      gate.complete();
+      final beforeToken = await before;
+      final left = await leaving;
+      final afterwards = await routesPermissions(fixture);
+
+      expect(left.isOk, isTrue, reason: '$left');
+      expect(permissionsOf(beforeToken.data), contains(_salesCreate));
+      expect(afterwards, isNot(contains(_salesCreate)));
+    },
+  );
+
+  // TEST_CHARTER
+  // Requirement: when the server ended this app's refresh family at the
+  // leave (its client no longer admits the person), the leave is still
+  // `Ok` and the refresh after it signs out with `sessionRevoked`.
+  // Oracle: the leave's result and the state afterwards.
+  // Risk edge: the app reports a failed leave that did happen, or keeps a
+  // session the server already ended.
+  // Layer: integration against the fake LoginFlow (`invalid_grant` on the
+  // refresh).
+  // Counterfactual: no refresh after the leave keeps the state `SignedIn`;
+  // returning the refresh failure makes the leave an error.
+  test('a leave whose session the server ended is Ok and signs out', () async {
+    final fixture = await signedIn();
+    await fixture.auth.takeSelfSelectableRole(_seller);
+    await fixture.auth.listSelfSelectableRoles();
+    server.rejectNextRefresh = true;
+
+    final left = await fixture.auth.leaveSelfSelectableRole(_seller);
+
+    expect(left.isOk, isTrue, reason: '$left');
+    expect(
+      fixture.auth.state,
+      const SignedOut(reason: SignOutReason.sessionRevoked),
+    );
+  });
+
+  // TEST_CHARTER
+  // Requirement: a take whose switch to the root fails is still `Ok` (the
+  // role is held on the server) and the session stays signed in.
+  // Oracle: the take's result and the state afterwards.
+  // Risk edge: the app reports a failed take that did happen, or drops the
+  // session over a transient token endpoint failure.
+  // Layer: integration against the fake LoginFlow (a real `503` from the
+  // token endpoint).
+  // Counterfactual: returning the switch failure makes the take an error.
+  test('a take whose switch fails is Ok and stays signed in', () async {
+    final fixture = await signedIn();
+    await fixture.auth.listSelfSelectableRoles();
+    server.failingRefreshes = 1;
+
+    final taken = await fixture.auth.takeSelfSelectableRole(_seller);
+
+    expect(taken.isOk, isTrue, reason: '$taken');
+    expect(taken.data.isNew, isTrue);
+    expect(fixture.auth.state, isA<SignedIn>());
   });
 
   // TEST_CHARTER

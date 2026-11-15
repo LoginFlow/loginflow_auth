@@ -1588,11 +1588,17 @@ the library switches the session to the root (`switchOrganization` with
 `SelfSelectedRole.organizationId`, the same root the list names), which
 drops every cached API token, so the next `accessTokenFor` carries the
 role's permissions; when the session already works in the root that refresh
-only renews its tokens. After a successful leave, it refreshes the session
-in its active organization and drops every cached API token, so the next
-`accessTokenFor` no longer carries them; when the server ended the family,
-that refresh signs out (`SessionRevoked`). The take or leave is already done
-on the server, so a failed refresh is only logged and the call still
-succeeds. A refusal is `DelegationDenied(code, statusCode)` with a
+only renews its tokens; a failed switch is only logged and the take still
+succeeds, the cached tokens then lacking the new permissions until the next
+refresh (a window that can deny, never over-grant). A successful leave fails
+closed: the library drops every cached API token as soon as the `204`
+arrives, before and whatever the refresh that follows does, and a token asked
+for afterwards never joins a refresh that started before the leave (one that
+was in flight has its write-back dropped again before the next refresh). Then
+it refreshes the session in its active organization; when the server ended
+the family, that refresh signs out (`SessionRevoked`). A failed refresh is
+only logged and the leave still succeeds: `accessTokenFor` then asks for a
+new token, and fails rather than hand out one carrying the left
+permissions. A refusal is `DelegationDenied(code, statusCode)` with a
 `DelegationDenialCode`; `429` is `RateLimited(retryAfter)`, read from
 `Retry-After`.

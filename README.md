@@ -396,24 +396,39 @@ organization. Same LoginFlow token as the members calls, no step-up.
 - `takeSelfSelectableRole(roleId)` → `SelfSelectedRole`: `isNew` is `true`
   when assigned now (`201`), `false` when already held (`200`). Then the
   session switches to the root (`switchOrganization`), dropping every cached
-  API token, so the next `accessTokenFor` carries the role's permissions.
-- `leaveSelfSelectableRole(roleId)` → `void`. Then the session is refreshed
-  in its organization and every cached API token is dropped, so the next
-  `accessTokenFor` no longer carries them. When the server ended this app's
-  session because its client no longer admits the person, that refresh
-  signs out (`SessionRevoked`).
-- A failed refresh after a take or leave is only logged: the change is done
-  on the server and the next refresh shows it.
+  API token, so the next `accessTokenFor` carries the role's permissions. If
+  that switch fails it is only logged and the take is still `Ok`: the
+  session keeps its organization and cached tokens, which lack the new
+  permissions until the next refresh — they can deny, never over-grant.
+- `leaveSelfSelectableRole(roleId)` → `void`. It fails closed: as soon as
+  the server answers, every cached API token is dropped, before and
+  whatever the refresh that follows does; a token asked for afterwards
+  never joins a refresh that started before the leave. Then the session is
+  refreshed in its organization. If that refresh fails it is only logged
+  and the leave is still `Ok`: the next `accessTokenFor` asks for a new
+  token, and fails rather than hand out one with the left permissions while
+  the token endpoint is down. When the server ended this app's session
+  because its client no longer admits the person, that refresh signs out
+  (`SessionRevoked`).
 - Refusals are `DelegationDenied`: `selfAssignmentForbidden` (not
   self-selectable), `assignmentNotFound` (a leave of a role not held),
   `memberInactive`, `organizationOutOfReach`, `roleNotGrantable`, … Past 10
   takes and leaves in an hour, `RateLimited` with `retryAfter`.
 
 ```dart
-final roles = await auth.listSelfSelectableRoles();
-final seller = roles.data.roles.firstWhere((role) => role.key == 'seller');
-if (!seller.isHeld) {
-  await auth.takeSelfSelectableRole(seller.id);
+final listed = await auth.listSelfSelectableRoles();
+switch (listed) {
+  case Ok(data: SelfSelectableRoles(:final roles)):
+    // Absent when the application does not (or no longer) marks it.
+    final seller = roles.where((role) => role.key == 'seller').firstOrNull;
+    if (seller != null && !seller.isHeld) {
+      final taken = await auth.takeSelfSelectableRole(seller.id);
+      if (taken case Err(:final error)) {
+        showError(error); // DelegationDenied, RateLimited, NetworkFailure, …
+      }
+    }
+  case Err(:final error):
+    showError(error);
 }
 ```
 

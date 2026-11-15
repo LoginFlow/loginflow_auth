@@ -657,10 +657,14 @@ Future<Result<void, LoginFlowError>> leave(String roleId) =>
   (`200`): nothing changed on the server.
 - After a take the library switches the session to the root organization
   (section 6), whose tokens carry the role's permissions: every cached API
-  token is dropped and the next `accessTokenFor` carries them. After a leave
-  it refreshes the session in its organization and drops every cached API
-  token, so the next one no longer carries them. Nothing to do in the app;
-  re-read `session.accessClaims` after the call.
+  token is dropped and the next `accessTokenFor` carries them. If the
+  switch fails the take is still `Ok`, and the cached tokens lack the new
+  permissions until the next refresh.
+- A leave fails closed: every cached API token is dropped as soon as the
+  server answers, then the session is refreshed in its organization. If
+  that refresh fails the leave is still `Ok`, and the next `accessTokenFor`
+  fails rather than hand out a token with the left permissions. Nothing to
+  do in the app; re-read `session.accessClaims` after the call.
 - A refusal is `DelegationDenied(code, statusCode)`:
   `selfAssignmentForbidden` (not self-selectable), `assignmentNotFound` (a
   leave of a role not held), `memberInactive`, … Past 10 takes and leaves
