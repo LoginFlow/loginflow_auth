@@ -1599,6 +1599,8 @@ it refreshes the session in its active organization; when the server ended
 the family, that refresh signs out (`SessionRevoked`). A failed refresh is
 only logged and the leave still succeeds: `accessTokenFor` then asks for a
 new token, and fails rather than hand out one carrying the left
-permissions. A refusal is `DelegationDenied(code, statusCode)` with a
+permissions. A call that asked for a token before the `204` may still
+receive the earlier refresh's token: an issued token keeps its claims until
+it expires (see **Tokens** above). A refusal is `DelegationDenied(code, statusCode)` with a
 `DelegationDenialCode`; `429` is `RateLimited(retryAfter)`, read from
 `Retry-After`.

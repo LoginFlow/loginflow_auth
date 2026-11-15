@@ -1826,6 +1826,9 @@ class LoginFlowAuth {
   /// because its client no longer admits the person, that refresh signs out
   /// ([SignedOut], `sessionRevoked`). The leave is already done on the
   /// server, so a failed refresh is only logged and the leave is still `Ok`.
+  /// A call that asked for a token before the `204` may still receive the
+  /// earlier refresh's token: like any issued token, it keeps its claims
+  /// until it expires (`doc/server-contract.md` §22).
   ///
   /// Fails with [DelegationDenied]: `assignmentNotFound` (`404`, the person
   /// does not hold it), `selfAssignmentForbidden` (it is no longer

@@ -107,6 +107,15 @@ void main() {
     return permissionsOf(token.data);
   }
 
+  /// The routes permissions the session publishes now
+  /// (`session.accessClaims`), empty when it publishes none for that API.
+  List<String> publishedRoutesPermissions(AuthFixture fixture) =>
+      (fixture.auth.state as SignedIn)
+          .session
+          .accessClaims[FakeLoginFlowServer.routesApi]
+          ?.permissions ??
+      const <String>[];
+
   Future<void> untilRefreshCount(int count) async {
     while (server.refreshRequestCount() < count) {
       await Future<void>.delayed(const Duration(milliseconds: 1));
@@ -337,8 +346,9 @@ void main() {
   // cached API tokens are gone, whatever the refresh after it does: while
   // the token endpoint is down `accessTokenFor` fails, and once it is back
   // it hands out a token without the role. The leave itself is `Ok`.
-  // Oracle: the leave's result, the `accessTokenFor` result while the token
-  // endpoint answers `503`, and the `permissions` of the next routes token.
+  // Oracle: the leave's result, the `accessTokenFor` result and the
+  // published `accessClaims` while the token endpoint answers `503`, and the
+  // `permissions` of the next routes token.
   // Risk edge: the refresh after the leave fails and the app keeps handing
   // out the cached token that carries the permission just left, for up to
   // its lifetime.
@@ -356,15 +366,19 @@ void main() {
       // The LoginFlow token the leave presents, so that the only refreshes
       // that fail are the ones after the leave.
       await fixture.auth.listSelfSelectableRoles();
+      final publishedHeld = publishedRoutesPermissions(fixture);
       server.failingRefreshes = 2;
 
       final left = await fixture.auth.leaveSelfSelectableRole(_seller);
       final whileDown = await fixture.auth.accessTokenFor(
         FakeLoginFlowServer.routesApi,
       );
+      final publishedWhileDown = publishedRoutesPermissions(fixture);
       final afterwards = await routesPermissions(fixture);
 
       expect(held, contains(_salesCreate));
+      expect(publishedHeld, contains(_salesCreate));
+      expect(publishedWhileDown, isNot(contains(_salesCreate)));
       expect(left.isOk, isTrue, reason: '$left');
       expect(whileDown.isOk, isFalse, reason: '$whileDown');
       expect(afterwards, isNot(contains(_salesCreate)));
