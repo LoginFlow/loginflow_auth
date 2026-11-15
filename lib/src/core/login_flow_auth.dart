@@ -499,8 +499,8 @@ class LoginFlowAuth {
   /// approval (the attempt must name an email) or a QR on this attempt, as
   /// [requestPhoneApproval] / [requestQrSignIn] do, and
   /// [ChallengeStep.passkeySignUp] creates an account with a passkey on this
-  /// attempt, as [signUpWithPasskey] does (with no display name). Any
-  /// polling in progress stops.
+  /// attempt, as [signUpWithPasskey] does (with no display name) and with
+  /// its same refusals before any request. Any polling in progress stops.
   Future<Result<AuthState, LoginFlowError>> selectMethod(ChallengeStep method) {
     _stopPolling();
     return switch (method) {
@@ -508,9 +508,7 @@ class LoginFlowAuth {
       ChallengeStep.totp ||
       ChallengeStep.recoveryCode ||
       ChallengeStep.temporaryAccessPass => _promptFor(method),
-      ChallengeStep.passkeySignUp => _continueAttempt(
-        const PasskeySignUpInput(),
-      ),
+      ChallengeStep.passkeySignUp => _continuePasskeySignUp(),
       _ => _continueAttempt(MethodSelectionInput(method: method)),
     };
   }
@@ -673,24 +671,42 @@ class LoginFlowAuth {
   Future<Result<AuthState, LoginFlowError>> signUpWithPasskey({
     String? displayName,
   }) async {
-    if (_dpop == null) {
-      return Err(
-        const ConfigurationInvalid(
-          description:
-              'Passkey sign-up needs LoginFlowConfig.enableDpop and a '
-              'DpopKeyStore: the account is bound to the device key.',
-        ),
-      );
-    }
-    if (_passkeyAuthenticator == null) {
-      return Err(
-        const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
-      );
+    final refusal = _passkeySignUpRefusal();
+    if (refusal != null) {
+      return Err(refusal);
     }
     return _startAttempt(
       purpose: ChallengePurpose.signIn,
       input: PasskeySignUpInput(displayName: displayName),
     );
+  }
+
+  /// [selectMethod] with [ChallengeStep.passkeySignUp]: the sign-up on the
+  /// current attempt, refused like [signUpWithPasskey] before any request.
+  Future<Result<AuthState, LoginFlowError>> _continuePasskeySignUp() async {
+    final refusal = _passkeySignUpRefusal();
+    if (refusal != null) {
+      return Err(refusal);
+    }
+    return _continueAttempt(const PasskeySignUpInput());
+  }
+
+  /// Why this client cannot run a passkey sign-up at all, known before any
+  /// request; `null` when it can. Each opening leg counts against the
+  /// server's hourly ceremony starts, so nothing is sent that could only
+  /// fail.
+  LoginFlowError? _passkeySignUpRefusal() {
+    if (_dpop == null) {
+      return const ConfigurationInvalid(
+        description:
+            'Passkey sign-up needs LoginFlowConfig.enableDpop and a '
+            'DpopKeyStore: the account is bound to the device key.',
+      );
+    }
+    if (_passkeyAuthenticator == null) {
+      return const PasskeyFailed(reason: PasskeyFailureReason.notConfigured);
+    }
+    return null;
   }
 
   /// Identifier plus an admin-issued, single-use Temporary Access Pass in
@@ -2486,11 +2502,14 @@ class LoginFlowAuth {
   /// The typed error of a refused passkey sign-up leg
   /// (`doc/server-contract.md` §23); anything else (network, DPoP, a `429`
   /// already [RateLimited]) is reported as it came. The display name's
-  /// `422` comes in LoginFlow's general error envelope, not an OAuth body.
+  /// `422` comes in LoginFlow's general error envelope, not an OAuth body
+  /// (read as [ServerResponseInvalid]); an OAuth body with that status is
+  /// the same refusal.
   LoginFlowError _passkeySignUpFailure(LoginFlowError error) => switch (error) {
     OAuthProtocolError(code: 'unsupported_client') =>
       const PasskeySignUpUnavailable(),
-    ServerResponseInvalid(statusCode: 422) => const InvalidProfileName(),
+    ServerResponseInvalid(statusCode: 422) ||
+    OAuthProtocolError(statusCode: 422) => const InvalidProfileName(),
     _ => error,
   };
 

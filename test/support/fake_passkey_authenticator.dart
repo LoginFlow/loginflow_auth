@@ -25,6 +25,11 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
   /// maps a platform error.
   PasskeyFailureReason? enrollmentFailure;
 
+  /// Makes [createCredential] report a credential that is not discoverable
+  /// (`clientExtensionResults.credProps.rk: false`), which a passkey sign-up
+  /// refuses: such a credential could never sign the account in.
+  bool reportsNonDiscoverable = false;
+
   @override
   Future<Result<Map<String, Object?>, LoginFlowError>> getAssertion({
     required Map<String, Object?> options,
@@ -52,6 +57,13 @@ class FakePasskeyAuthenticator implements PasskeyAuthenticator {
         const PasskeyFailed(reason: PasskeyFailureReason.userCancelled),
       );
     }
-    return Ok(<String, Object?>{'id': credentialId, 'type': 'public-key'});
+    return Ok(<String, Object?>{
+      'id': credentialId,
+      'type': 'public-key',
+      if (reportsNonDiscoverable)
+        'clientExtensionResults': <String, Object?>{
+          'credProps': <String, Object?>{'rk': false},
+        },
+    });
   }
 }

@@ -1693,14 +1693,16 @@ and no recovery TAP is issued for it.
 The library refuses the call before any request with `ConfigurationInvalid`
 when the client has no DPoP key store, and with
 `PasskeyFailed(notConfigured)` when it has no passkey authenticator (every
-opening leg counts against the hourly ceremony starts). The platform ceremony
+opening leg counts against the hourly ceremony starts) — through
+`signUpWithPasskey` and through `selectMethod(ChallengeStep.passkeySignUp)`
+alike. The platform ceremony
 (`PasskeyAuthenticator.createCredential`) runs automatically between the
 legs, never as a `ChallengeRequired`. Every failure ends the attempt with no
 account: `unsupported_client`, and an opening answered with anything but
 `next: passkey_registration` (a server before 0.26 ignores the method), are
 `PasskeySignUpUnavailable`; `429` is `RateLimited(retryAfter)`; a refused
 registration is `PasskeyRejected`; the display name's `422` is
-`InvalidProfileName`; a platform failure is `PasskeyFailed` (e.g.
+`InvalidProfileName`, whether in the general envelope or an OAuth body; a platform failure is `PasskeyFailed` (e.g.
 `userCancelled`). In the built-in UI's "Continue as …" (Native SSO) an
 account with neither a name nor an email is named "Passkey account".
 

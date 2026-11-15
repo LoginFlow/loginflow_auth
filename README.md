@@ -619,7 +619,9 @@ says so. The account is born bound to this device's DPoP key, so it needs
   platform's passkey creation in between (the same `PasskeyAuthenticator`
   as the passkey sign-in), then the code redeemed with the same DPoP key.
   Never a `ChallengeRequired`; `selectMethod(ChallengeStep.passkeySignUp)`
-  does the same on a `select_method` step that lists it.
+  does the same on a `select_method` step that lists it, with the same
+  refusals before any request (`ConfigurationInvalid` without DPoP,
+  `PasskeyFailed(notConfigured)` without a passkey authenticator).
 - `displayName` (optional) becomes the first name and the name the passkey
   manager shows; the client's name otherwise.
 - The identity has **no email** (`UserIdentity.email` `null`) and no name

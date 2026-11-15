@@ -198,4 +198,92 @@ void main() {
     );
     expect(server.challengeRequests, isEmpty);
   });
+
+  group('choosing it on a select_method step is refused like the call, '
+      'before any request', () {
+    test('without a passkey authenticator', () async {
+      final fixture = AuthFixture.create(server, enableDpop: true);
+      await fixture.auth.initialize();
+      await fixture.auth.beginSignIn();
+
+      final result = await fixture.auth.selectMethod(
+        ChallengeStep.passkeySignUp,
+      );
+
+      expect(
+        result.errorOrNull,
+        const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
+      );
+      expect(server.challengeRequests, hasLength(1));
+    });
+
+    test('without DPoP', () async {
+      server.requiresDpop = false;
+      final fixture = AuthFixture.create(
+        server,
+        passkey: FakePasskeyAuthenticator(),
+      );
+      await fixture.auth.initialize();
+      await fixture.auth.beginSignIn();
+
+      final result = await fixture.auth.selectMethod(
+        ChallengeStep.passkeySignUp,
+      );
+
+      expect(result.errorOrNull, isA<ConfigurationInvalid>());
+      expect(server.challengeRequests, hasLength(1));
+    });
+  });
+
+  test('a registration the server refuses (step_error) is PasskeyRejected, '
+      'with no account and no second ceremony', () async {
+    final passkey = FakePasskeyAuthenticator()..reportsNonDiscoverable = true;
+    final fixture = await signedOutFixture(passkey: passkey);
+
+    final result = await fixture.auth.signUpWithPasskey();
+
+    expect(result.errorOrNull, const PasskeyRejected());
+    expect(passkey.creationOptionsSeen, hasLength(1));
+    expect(server.challengeRequests, hasLength(2));
+    expect(server.passkeySignUps, isEmpty);
+    expect(server.tokenRequests, isEmpty);
+    expect(fixture.auth.state, isA<SignedOut>());
+  });
+
+  test('an invalid display name (422, general envelope) is '
+      'InvalidProfileName, before any ceremony', () async {
+    final passkey = FakePasskeyAuthenticator();
+    final fixture = await signedOutFixture(passkey: passkey);
+
+    final result = await fixture.auth.signUpWithPasskey(displayName: 'Ana 2');
+
+    expect(result.errorOrNull, const InvalidProfileName());
+    expect(passkey.creationOptionsSeen, isEmpty);
+    expect(fixture.auth.state, isA<SignedOut>());
+  });
+
+  test('an invalid display name answered in an OAuth body (422) is '
+      'InvalidProfileName too', () async {
+    server.refusesDisplayNameInOAuthBody = true;
+    final passkey = FakePasskeyAuthenticator();
+    final fixture = await signedOutFixture(passkey: passkey);
+
+    final result = await fixture.auth.signUpWithPasskey(displayName: 'Ana 2');
+
+    expect(result.errorOrNull, const InvalidProfileName());
+    expect(passkey.creationOptionsSeen, isEmpty);
+  });
+
+  test('a server that ignores the method (before API 0.26) is '
+      'PasskeySignUpUnavailable, not a select_method prompt', () async {
+    server.implementsPasskeySignUp = false;
+    final passkey = FakePasskeyAuthenticator();
+    final fixture = await signedOutFixture(passkey: passkey);
+
+    final result = await fixture.auth.signUpWithPasskey();
+
+    expect(result.errorOrNull, const PasskeySignUpUnavailable());
+    expect(passkey.creationOptionsSeen, isEmpty);
+    expect(fixture.auth.state, isA<SignedOut>());
+  });
 }

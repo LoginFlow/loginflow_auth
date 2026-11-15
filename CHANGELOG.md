@@ -16,7 +16,8 @@ two features below.
     without DPoP the call is `ConfigurationInvalid`, and without a passkey
     authenticator `PasskeyFailed(notConfigured)`, before any request.
     `selectMethod(ChallengeStep.passkeySignUp)` does the same on a
-    `select_method` step that lists it.
+    `select_method` step that lists it, with the same refusals before any
+    request.
   - New `ChallengeStep.passkeySignUp` (`passkey_signup`, listed among a
     `select_method` step's alternatives when the client is configured for
     it) and `ChallengeStep.passkeyRegistration` (answered by the library,
@@ -26,8 +27,9 @@ two features below.
     method), `RateLimited(retryAfter)` for every `429` (starts per address,
     attempts per address and per DPoP key, the application's hourly cap),
     `PasskeyRejected` for a refused registration, new `InvalidProfileName`
-    for an invalid `displayName` (`422`), `PasskeyFailed` for the platform
-    ceremony (e.g. `userCancelled`).
+    for an invalid `displayName` (`422`, in the general error envelope or
+    an OAuth body), `PasskeyFailed` for the platform ceremony (e.g.
+    `userCancelled`).
 - Feature: own profile (API 0.26.0, `/v1/app/profile`,
   `doc/server-contract.md` §24). `fetchProfile()` → `OwnProfile(email,
   firstName, lastName, name)`; `updateProfile(firstName:, lastName:)` sends
@@ -37,7 +39,11 @@ two features below.
 - Changed (breaking): `MemberIdentity.email` is `String?`. `GET
   /v1/app/members` answers `email: null` for a passkey-only account; the
   whole page used to fail with `ServerResponseInvalid`. The constructor's
-  `email` is optional.
+  `email` is optional. Migration: treat `member.identity.email` (and
+  `MemberInvitation.member.email`) as nullable — show
+  `identity.email ?? identity.name ?? <a generic label>`, and key nothing
+  on it (`principalId` is the stable id); `MemberIdentity(principalId: …,
+  email: …)` keeps compiling.
 - Accounts without an email: `UserIdentity.email`, `IdTokenClaims.email`
   and `SsoCandidate.email` were already nullable and now document it; the
   built-in UI's "Continue as …" names an account with neither a name nor an
@@ -45,8 +51,12 @@ two features below.
   and Spanish) instead of its `sub`; the bundled passkey manager names a
   new passkey of such an account by its name, else its `sub`.
 - `LoginFlowStrings` gains `passkeyAccount`: an app that implements the
-  interface itself adds it. `LoginFlowError` gains two subtypes, so an
-  exhaustive `switch` over it adds them.
+  interface itself adds it.
+
+Breaking (exhaustive switches): new cases in `ChallengeStep`
+(`passkeySignUp`, `passkeyRegistration`) and two new `LoginFlowError`
+subclasses (`PasskeySignUpUnavailable`, `InvalidProfileName`); a `switch`
+over them without a catch-all must add them.
 
 ## 0.25.0
 
