@@ -462,8 +462,7 @@ final signedUp = await _auth.signUpWithPasskey(displayName: 'Ana');
 - `SignedIn` as after any sign-in, DPoP-bound to this device's key. The
   identity has **no email** (`identity.email == null`), and no name unless
   one was given: key the app's data on `identity.subject` only, never
-  expect an email. No role either: offer the self-selectable ones
-  (section 8.1).
+  expect an email. No role either.
 - Errors, each ending the attempt with no account:
   `PasskeySignUpUnavailable` (the client is not configured for it, or the
   server is older than 0.26), `RateLimited(retryAfter)` (too many sign-ups
@@ -670,45 +669,6 @@ Future<Result<void, LoginFlowError>> revoke(String assignmentId) =>
 The calls use LoginFlow's own token (`resource=<issuer>`), asked on the
 same refresh family and key; the app does nothing for it.
 
-### 8.1 Self-selectable roles
-
-Since API 0.25, the application's owner can mark roles **self-selectable**
-on the LoginFlow panel; each person then takes or leaves them for themself
-("I am also a seller", "I want the beta features"), in the root
-organization. Same LoginFlow token as the members calls, no step-up. The
-app's repository:
-
-```dart
-Future<Result<SelfSelectableRoles, LoginFlowError>> selfSelectableRoles() =>
-    _auth.listSelfSelectableRoles();
-
-Future<Result<SelfSelectedRole, LoginFlowError>> take(String roleId) =>
-    _auth.takeSelfSelectableRole(roleId);
-
-Future<Result<void, LoginFlowError>> leave(String roleId) =>
-    _auth.leaveSelfSelectableRole(roleId);
-```
-
-- Hide the screen when `SelfSelectableRoles.roles` is empty (the
-  application marks none). `SelfSelectableRole.isHeld` says which to offer
-  as "leave".
-- `SelfSelectedRole.isNew` is `false` when the person already held the role
-  (`200`): nothing changed on the server.
-- After a take the library switches the session to the root organization
-  (section 6), whose tokens carry the role's permissions: every cached API
-  token is dropped and the next `accessTokenFor` carries them. If the
-  switch fails the take is still `Ok`, and the cached tokens lack the new
-  permissions until the next refresh.
-- A leave fails closed: every cached API token is dropped as soon as the
-  server answers, then the session is refreshed in its organization. If
-  that refresh fails the leave is still `Ok`, and the next `accessTokenFor`
-  fails rather than hand out a token with the left permissions. Nothing to
-  do in the app; re-read `session.accessClaims` after the call.
-- A refusal is `DelegationDenied(code, statusCode)`:
-  `selfAssignmentForbidden` (not self-selectable), `assignmentNotFound` (a
-  leave of a role not held), `memberInactive`, … Past 10 takes and leaves
-  in an hour it is `RateLimited`; wait `retryAfter`.
-
 ## 9. Email change
 
 A person changes their own email. Start with the new address; LoginFlow
@@ -826,7 +786,7 @@ by the compiler. The ones an app usually handles:
 | `SessionRevoked` | the refresh was refused; already signed out |
 | `StepUpRequired(requirement)` | section 7 |
 | `InvalidTarget(api)` / `OrganizationUnavailable(id)` | sections 5 and 6 |
-| `DelegationDenied(code, statusCode)` | sections 8 and 8.1 |
+| `DelegationDenied(code, statusCode)` | section 8 |
 | `InvalidEmailAddress` / `InvalidEmailChangeCode` | section 9 |
 | `InvalidProfileName` | a refused name: the passkey sign-up's display name (4.3) or the own profile (9.1) |
 | `PasskeySignUpUnavailable` | the client may not create accounts with a passkey (section 4.3) |

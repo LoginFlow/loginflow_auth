@@ -68,13 +68,6 @@ class LoginFlowTransport {
     jsonBody: body,
   );
 
-  /// PUT with no body: an idempotent account-API write whose path names
-  /// everything (`/v1/app/self-selectable-roles/{role_id}`).
-  Future<Result<TransportReply, LoginFlowError>> putJson(
-    Uri uri, {
-    required String bearerToken,
-  }) => _sendJson(httpMethod: 'PUT', uri: uri, bearerToken: bearerToken);
-
   Future<Result<TransportReply, LoginFlowError>> deleteJson(
     Uri uri, {
     required String bearerToken,
