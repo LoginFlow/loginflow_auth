@@ -136,48 +136,6 @@ void main() {
     );
   });
 
-  test('every self-selectable roles model round-trips and compares by '
-      'value', () {
-    const held = <String, Object?>{
-      'id': 'role-seller',
-      'key': 'seller',
-      'name': 'Seller',
-      'description': null,
-      'held': true,
-      'assignment_id': 'as-1',
-    };
-    roundTrips(
-      held,
-      SelfSelectableRole.fromJson,
-      (value) => value.toJson(),
-      (value) => value.copyWith(),
-    );
-    roundTrips(
-      const <String, Object?>{
-        'organization': <String, Object?>{
-          'id': 'org-root',
-          'name': 'TurnosQR',
-          'kind': 'root',
-        },
-        'roles': <Object?>[held],
-      },
-      SelfSelectableRoles.fromJson,
-      (value) => value.toJson(),
-      (value) => value.copyWith(),
-    );
-    roundTrips(
-      const <String, Object?>{
-        'assignment_id': 'as-1',
-        'organization_id': 'org-root',
-        'role': role,
-        'created': true,
-      },
-      SelfSelectedRole.fromJson,
-      (value) => value.toJson(),
-      (value) => value.copyWith(),
-    );
-  });
-
   // Requirement: a passkey-only account (API 0.26.0, no email) is listed by
   // `GET /v1/app/members` with `email: null`; the page still loads.
   // Oracle: the parsed member carries no email and round-trips.

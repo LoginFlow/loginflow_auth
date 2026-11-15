@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.27.0
+
+Shares `major.minor` with LoginFlow API `0.27.x`.
+
+- Breaking: the self-selectable roles API is removed (the server withdrew
+  the feature, LoginFlow 0.27.0). `listSelfSelectableRoles`,
+  `takeSelfSelectableRole` and `leaveSelfSelectableRole` are gone, and so
+  are `SelfSelectableRoles`, `SelfSelectableRole` and `SelfSelectedRole`.
+  `doc/server-contract.md` §22 only records the withdrawal; its number is
+  kept so §23 and §24 keep their meaning.
+- `DelegationDenied.message` reads "Members call refused" again: the members
+  API is the only call it covers.
+- Migration: delete every call to the three methods and every reference to
+  the three models, and the screen that offered the roles. A role is now
+  only granted or revoked by someone else through the members API
+  (`grantRole`, `inviteMember`, `revokeAssignment`).
+
 ## 0.26.0
 
 Shares `major.minor` with LoginFlow API `0.26.x`, which it requires for the
