@@ -133,6 +133,9 @@ class LoginFlowLocalizationsEn extends LoginFlowLocalizations {
       'You are already signed in to another app on this device.';
 
   @override
+  String get passkeyAccount => 'Passkey account';
+
+  @override
   String get useAnotherAccount => 'Use another account';
 
   @override

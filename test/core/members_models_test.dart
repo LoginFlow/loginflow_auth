@@ -178,6 +178,30 @@ void main() {
     );
   });
 
+  // Requirement: a passkey-only account (API 0.26.0, no email) is listed by
+  // `GET /v1/app/members` with `email: null`; the page still loads.
+  // Oracle: the parsed member carries no email and round-trips.
+  test('a member without an email is read and round-trips', () {
+    final emailLess = <String, Object?>{
+      ...member,
+      'principal_id': 'cu_passkey_1',
+      'email': null,
+      'name': null,
+    };
+
+    final read = OrganizationMember.fromJson(emailLess);
+
+    expect(read.identity.principalId, 'cu_passkey_1');
+    expect(read.identity.email, isNull);
+    expect(read.identity.name, isNull);
+    roundTrips(
+      emailLess,
+      OrganizationMember.fromJson,
+      (value) => value.toJson(),
+      (value) => value.copyWith(),
+    );
+  });
+
   test('values differ when a field differs', () {
     final first = MemberAssignment.fromJson(assignment);
 

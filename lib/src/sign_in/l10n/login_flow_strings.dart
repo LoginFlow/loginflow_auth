@@ -119,6 +119,11 @@ abstract interface class LoginFlowStrings {
   /// English: "You are already signed in to another app on this device."
   String get ssoSubtitle;
 
+  /// Names an account with neither a name nor an email (a passkey-only
+  /// account), e.g. in "Continue as …".
+  /// English: "Passkey account".
+  String get passkeyAccount;
+
   /// English: "Use another account".
   String get useAnotherAccount;
 

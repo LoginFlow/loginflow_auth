@@ -55,6 +55,8 @@
     "placeholders": {"name": {"type": "String"}}
   },
   "ssoSubtitle": "Ya iniciaste sesión en otra app de este dispositivo.",
+  "passkeyAccount": "Cuenta con llave de acceso",
+  "@passkeyAccount": {"description": "Names an account with neither a name nor an email (a passkey-only account), e.g. in \"Continue as\"."},
   "useAnotherAccount": "Usar otra cuenta",
   "lockedOutTitle": "Demasiados intentos",
   "lockedOutMessage": "Vuelve a intentarlo en {seconds} segundos.",

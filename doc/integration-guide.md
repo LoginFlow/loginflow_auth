@@ -41,7 +41,9 @@ one web).
      and the server both enforce this list. An app whose people or devices
      come from your backend lists `access_code` (plus enable access codes
      on the application) and, for "code once, then passkey", `passkey` —
-     and no human method it never uses.
+     and no human method it never uses. An app where people create an
+     account with a passkey alone lists `passkey_signup` together with
+     `passkey` (API 0.26, section 4.3).
 3. **First party** — `PATCH /v1/control/oauth-clients/{client_id}/first-party`
    `{"first_party": true}`, for an app the company owns. It skips the
    hosted consent page and is required for browser origins (section 3.4),
@@ -302,6 +304,7 @@ Two ways, same session:
   [Ready-to-use sign-in UI](../README.md#ready-to-use-sign-in-ui).
 - **Your own screens** over the API: `signInWithPassword`,
   `requestEmailOtp` / `submitEmailOtp`, `signInWithPasskey`,
+  `signUpWithPasskey` (section 4.3),
   `signInWithGoogle` / `Microsoft` / `Apple` / `Facebook`,
   `signInWithTemporaryAccessPass`, `signInWithAccessCode`,
   `signInWithBrowser`. Each returns `Result<AuthState, LoginFlowError>`;
@@ -437,6 +440,42 @@ Future<Result<AuthState, LoginFlowError>> cancel() =>
 - `PasswordRejected(reason)` keeps `AwaitingNewPassword`. "Back" at any step
   is `cancelPasswordReset()`: `SignedOut`, and a held session is revoked.
 - `AlreadySignedIn`: someone is signed in — they use `changePassword`.
+
+### 4.3 Passkey sign-up (no email)
+
+A person creates an account with a passkey alone — no email, no password —
+and is signed in at once (API 0.26). Requirements: the client lists
+`passkey_signup` **and** `passkey`, is first-party with no sign-in gate, the
+application admits self sign-up, the company's passkeys are `passwordless`
+(section 1), the app is registered for the passkey domain (section 3.5) and
+`enableDpop: true`. Offer the entry only while the login options say so:
+
+```dart
+final options = await _auth.fetchLoginOptions();
+final canSignUp = options.data.isPasskeySignUpOffered;
+// "Create an account with a passkey":
+final signedUp = await _auth.signUpWithPasskey(displayName: 'Ana');
+```
+
+- `displayName` is optional: it becomes the first name and the name the
+  passkey manager shows (the client's name otherwise).
+- `SignedIn` as after any sign-in, DPoP-bound to this device's key. The
+  identity has **no email** (`identity.email == null`), and no name unless
+  one was given: key the app's data on `identity.subject` only, never
+  expect an email. No role either: offer the self-selectable ones
+  (section 8.1).
+- Errors, each ending the attempt with no account:
+  `PasskeySignUpUnavailable` (the client is not configured for it, or the
+  server is older than 0.26), `RateLimited(retryAfter)` (too many sign-ups
+  from this address or device, or for the application this hour),
+  `PasskeyFailed(userCancelled)` (the person dismissed the sheet), other
+  `PasskeyFailed` reasons (no passkeys on this device), `PasskeyRejected`
+  (the server did not accept the new passkey: just try again),
+  `InvalidProfileName` (the display name), `ConfigurationInvalid` (no DPoP).
+- Losing every passkey loses the account: suggest a second passkey (the
+  bundled `LoginFlowPasskeys`, or `enrollPasskey`) and adding an email
+  later (section 9), which keeps the same `sub`, roles and passkeys.
+- Names later: section 9.1.
 
 ## 5. Call your API with the user's token
 
@@ -698,6 +737,27 @@ Future<Result<EmailChangeConfirmed, LoginFlowError>> confirmEmailChange(
   session of the person. The panel notices the new email in its
   `SignedIn` handler and re-reads its own session in place.
 
+A passkey-only account (section 4.3) has no email: the start adds its
+first one, with only the new address's code; it needs a recent strong
+sign-in (its passkey). The confirmation's `SignedIn` then carries the email.
+
+### 9.1 Names (own profile)
+
+The person's names belong to LoginFlow: read and set them with the
+library, keep no name route of your own.
+
+```dart
+final profile = await _auth.fetchProfile(); // OwnProfile(email, firstName, lastName, name)
+final updated = await _auth.updateProfile(firstName: 'Ana', lastName: 'Ruiz');
+```
+
+- `email` is `null` for a passkey-only account.
+- `updateProfile` sends only the names given; a name left out keeps its
+  value (none can be cleared). No step-up. Then the session is refreshed,
+  so a new `SignedIn` carries the new `name`.
+- `InvalidProfileName`: longer than 100 characters, a digit, `@`, angle
+  brackets or a control character, or no name given.
+
 ## 10. Authenticator app (TOTP)
 
 A person turns an authenticator app on or off as their second factor, and
@@ -768,11 +828,13 @@ by the compiler. The ones an app usually handles:
 | `InvalidTarget(api)` / `OrganizationUnavailable(id)` | sections 5 and 6 |
 | `DelegationDenied(code, statusCode)` | sections 8 and 8.1 |
 | `InvalidEmailAddress` / `InvalidEmailChangeCode` | section 9 |
+| `InvalidProfileName` | a refused name: the passkey sign-up's display name (4.3) or the own profile (9.1) |
+| `PasskeySignUpUnavailable` | the client may not create accounts with a passkey (section 4.3) |
 | `InvalidTotpCode` / `TotpAccountRefused(code)` | section 10 |
 | `InvalidResetCode` / `ResetCodeExpired` / `PasswordRejected(reason)` / `AlreadySignedIn` | password reset, section 4.2 |
 | `InvalidAccessCode` / `AccessCodeThrottled` / `AccessCodesUnavailable` | access codes |
 | `PasskeyAccountRefused(code)` | the passkey account API refused with a coded `403` (section 4.1) |
-| `PasskeyRejected` | the server did not accept a passkey sign-in: deleted credential, policy, client or gate (section 4.1) |
+| `PasskeyRejected` | the server did not accept a passkey sign-in: deleted credential, policy, client or gate (section 4.1); or a passkey sign-up's new credential (section 4.3) |
 | `PasskeyFailed(reason)` / `UpstreamFailed(provider, reason)` / `BrowserFailed(reason)` | a platform ceremony failed or was cancelled |
 | `OAuthProtocolError(statusCode, code)` | any other OAuth refusal, with the server's `error` code |
 | `ConfigurationInvalid` / `UnsupportedByServer(feature)` | the app's configuration or the server's discovery cannot do it |

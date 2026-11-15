@@ -323,6 +323,12 @@ abstract class LoginFlowLocalizations {
   /// **'Ya iniciaste sesión en otra app de este dispositivo.'**
   String get ssoSubtitle;
 
+  /// Names an account with neither a name nor an email (a passkey-only account), e.g. in "Continue as".
+  ///
+  /// In es, this message translates to:
+  /// **'Cuenta con llave de acceso'**
+  String get passkeyAccount;
+
   /// No description provided for @useAnotherAccount.
   ///
   /// In es, this message translates to:

@@ -76,6 +76,8 @@ import 'package:loginflow_auth/src/core/protocol/organizations/organizations_cli
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:loginflow_auth/src/core/protocol/password_change/password_change_client.dart';
+import 'package:loginflow_auth/src/core/protocol/profile/own_profile.dart';
+import 'package:loginflow_auth/src/core/protocol/profile/own_profile_client.dart';
 import 'package:loginflow_auth/src/core/protocol/self_selection/self_selectable_roles.dart';
 import 'package:loginflow_auth/src/core/protocol/self_selection/self_selectable_roles_client.dart';
 import 'package:loginflow_auth/src/core/protocol/self_selection/self_selected_role.dart';
@@ -203,6 +205,7 @@ class LoginFlowAuth {
       transport: transport,
       issuer: config.issuer,
     );
+    _ownProfile = OwnProfileClient(transport: transport, issuer: config.issuer);
   }
 
   /// How this app identifies itself to LoginFlow.
@@ -263,6 +266,7 @@ class LoginFlowAuth {
   late final AppMembersClient _appMembers;
   late final SelfSelectableRolesClient _selfSelection;
   late final EmailChangeClient _emailChange;
+  late final OwnProfileClient _ownProfile;
 
   final StreamController<AuthState> _states =
       StreamController<AuthState>.broadcast();
@@ -493,8 +497,10 @@ class LoginFlowAuth {
   /// [ChallengeStep.webauthnIdentify] runs the passkey ceremony, and
   /// [ChallengeStep.devicePush] / [ChallengeStep.deviceQr] ask for a phone
   /// approval (the attempt must name an email) or a QR on this attempt, as
-  /// [requestPhoneApproval] / [requestQrSignIn] do. Any polling in progress
-  /// stops.
+  /// [requestPhoneApproval] / [requestQrSignIn] do, and
+  /// [ChallengeStep.passkeySignUp] creates an account with a passkey on this
+  /// attempt, as [signUpWithPasskey] does (with no display name) and with
+  /// its same refusals before any request. Any polling in progress stops.
   Future<Result<AuthState, LoginFlowError>> selectMethod(ChallengeStep method) {
     _stopPolling();
     return switch (method) {
@@ -502,6 +508,7 @@ class LoginFlowAuth {
       ChallengeStep.totp ||
       ChallengeStep.recoveryCode ||
       ChallengeStep.temporaryAccessPass => _promptFor(method),
+      ChallengeStep.passkeySignUp => _continuePasskeySignUp(),
       _ => _continueAttempt(MethodSelectionInput(method: method)),
     };
   }
@@ -627,6 +634,80 @@ class LoginFlowAuth {
             method: ChallengeStep.webauthnIdentify,
           ),
   );
+
+  /// Creates an account with a passkey alone — no email, no password — and
+  /// signs it in (`doc/server-contract.md` §23, API 0.26): the opening leg
+  /// (`method=passkey_signup`) answers the creation options of the new
+  /// account's first passkey, the platform ceremony
+  /// ([PasskeyAuthenticator.createCredential]) runs automatically, and the
+  /// closing leg (`passkey_registration`) answers the authorization code,
+  /// redeemed like any sign-in. Never surfaced as a [ChallengeRequired].
+  ///
+  /// [displayName], when given, becomes the account's first name (change it
+  /// later with [updateProfile]) and the name the passkey manager shows; the
+  /// client's name otherwise. The account has no email: [UserIdentity.email]
+  /// is `null` until the person adds one with [startEmailChange], keeping
+  /// the same `sub`. It holds no role; [listSelfSelectableRoles] offers the
+  /// ones it may take.
+  ///
+  /// Both legs and the code redemption must prove the same DPoP key, which
+  /// the account is born bound to: without [LoginFlowConfig.enableDpop] and
+  /// a `DpopKeyStore` this fails with [ConfigurationInvalid] before any
+  /// request; without a [PasskeyAuthenticator], with [PasskeyFailed]
+  /// ([PasskeyFailureReason.notConfigured]), also before any request (each
+  /// opening leg counts against the server's hourly ceremony starts). Other
+  /// failures:
+  /// - [PasskeySignUpUnavailable]: the client is not configured for it
+  ///   (`400 unsupported_client`), or the server ignores the method.
+  /// - [RateLimited]: too many sign-ups from this address or device, or for
+  ///   the application this hour (`429`); `retryAfter` from `Retry-After`.
+  /// - [PasskeyFailed]: the platform ceremony did not produce a credential,
+  ///   e.g. [PasskeyFailureReason.userCancelled].
+  /// - [PasskeyRejected]: the server did not accept the new credential; no
+  ///   account exists, call this again.
+  /// - [InvalidProfileName]: [displayName] is not a valid name (`422`).
+  ///
+  /// Every failure ends the attempt with no account created.
+  Future<Result<AuthState, LoginFlowError>> signUpWithPasskey({
+    String? displayName,
+  }) async {
+    final refusal = _passkeySignUpRefusal();
+    if (refusal != null) {
+      return Err(refusal);
+    }
+    return _startAttempt(
+      purpose: ChallengePurpose.signIn,
+      input: PasskeySignUpInput(displayName: displayName),
+    );
+  }
+
+  /// [selectMethod] with [ChallengeStep.passkeySignUp]: the sign-up on the
+  /// current attempt, refused like [signUpWithPasskey] before any request.
+  Future<Result<AuthState, LoginFlowError>> _continuePasskeySignUp() async {
+    final refusal = _passkeySignUpRefusal();
+    if (refusal != null) {
+      return Err(refusal);
+    }
+    return _continueAttempt(const PasskeySignUpInput());
+  }
+
+  /// Why this client cannot run a passkey sign-up at all, known before any
+  /// request; `null` when it can. Each opening leg counts against the
+  /// server's hourly ceremony starts, so nothing is sent that could only
+  /// fail.
+  LoginFlowError? _passkeySignUpRefusal() {
+    if (_dpop == null) {
+      return const ConfigurationInvalid(
+        description:
+            'Passkey sign-up needs LoginFlowConfig.enableDpop and a '
+            'DpopKeyStore: the account is bound to the device key.',
+      );
+    }
+    if (_passkeyAuthenticator == null) {
+      return const PasskeyFailed(reason: PasskeyFailureReason.notConfigured);
+    }
+    return null;
+  }
 
   /// Identifier plus an admin-issued, single-use Temporary Access Pass in
   /// one request: satisfies both the primary method and the second factor
@@ -1880,23 +1961,55 @@ class LoginFlowAuth {
       ),
     );
     if (confirmed case Ok()) {
-      await _refreshIdentity();
+      await _refreshIdentity(after: 'an email change');
     }
     return confirmed;
+  }
+
+  /// What LoginFlow holds about the signed-in person: their email — `null`
+  /// for a passkey-only account ([signUpWithPasskey]) — and names
+  /// (`GET /v1/app/profile`, `doc/server-contract.md` §24). Same LoginFlow
+  /// token as the email change; no step-up.
+  Future<Result<OwnProfile, LoginFlowError>> fetchProfile() =>
+      _withLoginFlowToken((token) => _ownProfile.read(bearerToken: token));
+
+  /// Sets the signed-in person's [firstName] and/or [lastName]
+  /// (`PATCH /v1/app/profile`): a name left `null` keeps its value; there is
+  /// no way to clear one. Answers the profile after the change. No step-up.
+  ///
+  /// On success the session is refreshed so its ID token carries the new
+  /// `name`: a new [SignedIn] is emitted with it. The change is already done
+  /// on the server, so a failed refresh is only logged.
+  ///
+  /// Fails with [InvalidProfileName] for a name longer than 100 characters
+  /// or holding a digit, `@`, an angle bracket or a control character, and
+  /// when neither name is given (`422`).
+  Future<Result<OwnProfile, LoginFlowError>> updateProfile({
+    String? firstName,
+    String? lastName,
+  }) async {
+    final updated = await _withLoginFlowToken(
+      (token) => _ownProfile.update(
+        bearerToken: token,
+        firstName: firstName,
+        lastName: lastName,
+      ),
+    );
+    if (updated case Ok()) {
+      await _refreshIdentity(after: 'a name change');
+    }
+    return updated;
   }
 
   /// A refresh of the session's own token queued behind every refresh in
   /// flight — those started before the change and carry the old profile —
   /// whose ID token re-reads the profile. The change is already done on the
   /// server, so a failed refresh is only logged: the next one shows it.
-  Future<void> _refreshIdentity() async {
+  Future<void> _refreshIdentity({required String after}) async {
     final generation = _generation;
     final refreshed = await _queued(() => _refresh(generation));
     if (refreshed case Err(:final error)) {
-      Log.w(
-        'The session was not refreshed after an email change: '
-        '${error.message}',
-      );
+      Log.w('The session was not refreshed after $after: ${error.message}');
     }
   }
 
@@ -2331,9 +2444,12 @@ class LoginFlowAuth {
       return Err(const NoChallengeInProgress());
     }
     if (response case Err(:final error)) {
-      return input is AccessCodeInput
-          ? _abandon(_accessCodeFailure(error))
-          : Err(error);
+      return switch (input) {
+        AccessCodeInput() => _abandon(_accessCodeFailure(error)),
+        PasskeySignUpInput() ||
+        PasskeyRegistrationInput() => _abandon(_passkeySignUpFailure(error)),
+        _ => Err(error),
+      };
     }
     final sent = attempt.copyWith(isAuthorizationSent: true);
     _attempt = sent;
@@ -2341,6 +2457,9 @@ class LoginFlowAuth {
       // One leg by contract: a step or a browser hand-off means the server
       // did not take the `access_code` method at all.
       return _abandon(const AccessCodesUnavailable());
+    }
+    if (input is PasskeySignUpInput && _ignoresPasskeySignUp(response.data)) {
+      return _abandon(const PasskeySignUpUnavailable());
     }
     return switch (response.data) {
       final ChallengeStepRequired step => _onStepRequired(sent, step, input),
@@ -2380,6 +2499,31 @@ class LoginFlowAuth {
     _ => error,
   };
 
+  /// The typed error of a refused passkey sign-up leg
+  /// (`doc/server-contract.md` §23); anything else (network, DPoP, a `429`
+  /// already [RateLimited]) is reported as it came. The display name's
+  /// `422` comes in LoginFlow's general error envelope, not an OAuth body
+  /// (read as [ServerResponseInvalid]); an OAuth body with that status is
+  /// the same refusal.
+  LoginFlowError _passkeySignUpFailure(LoginFlowError error) => switch (error) {
+    OAuthProtocolError(code: 'unsupported_client') =>
+      const PasskeySignUpUnavailable(),
+    ServerResponseInvalid(statusCode: 422) ||
+    OAuthProtocolError(statusCode: 422) => const InvalidProfileName(),
+    _ => error,
+  };
+
+  /// Whether the opening leg of a passkey sign-up was answered with anything
+  /// but its creation options: a server older than API 0.26 ignores the
+  /// method and answers its own next step. An expired `auth_session` is
+  /// handled like on every other leg.
+  bool _ignoresPasskeySignUp(ChallengeResponse response) => switch (response) {
+    ChallengeStepRequired(:final next) =>
+      next != ChallengeStep.passkeyRegistration,
+    ChallengeCodeIssued() || ChallengeRedirectToWeb() => true,
+    ChallengeSessionInvalid() => false,
+  };
+
   Future<Result<AuthState, LoginFlowError>> _onStepRequired(
     AuthorizationAttempt sent,
     ChallengeStepRequired step,
@@ -2402,6 +2546,9 @@ class LoginFlowAuth {
     }
     if (step.next == ChallengeStep.webauthnAssertion) {
       return _answerWebauthnAssertion(step);
+    }
+    if (step.next == ChallengeStep.passkeyRegistration) {
+      return _answerPasskeyRegistration(step);
     }
     final reset = _reset;
     if (reset != null &&
@@ -2696,6 +2843,41 @@ class LoginFlowAuth {
       return _abandon(error);
     }
     return _continueAttempt(WebauthnAssertionInput(assertion: assertion.data));
+  }
+
+  /// The closing leg of a passkey sign-up (`doc/server-contract.md` §23):
+  /// creates the new account's passkey on the platform from the step's
+  /// creation options and sends it back.
+  Future<Result<AuthState, LoginFlowError>> _answerPasskeyRegistration(
+    ChallengeStepRequired step,
+  ) async {
+    if (step.stepError != null) {
+      // The server refused the registration just sent: its ceremony is
+      // consumed, so the creation is never run again on this step.
+      return _abandon(const PasskeyRejected());
+    }
+    final authenticator = _passkeyAuthenticator;
+    final options = step.options;
+    if (authenticator == null) {
+      return _abandon(
+        const PasskeyFailed(reason: PasskeyFailureReason.notConfigured),
+      );
+    }
+    if (options == null) {
+      return _abandon(
+        const ServerResponseInvalid(
+          statusCode: 403,
+          description: 'passkey_registration step without "options"',
+        ),
+      );
+    }
+    final created = await authenticator.createCredential(options: options);
+    if (created case Err(:final error)) {
+      return _abandon(error);
+    }
+    return _continueAttempt(
+      PasskeyRegistrationInput(registration: created.data),
+    );
   }
 
   Future<Result<AuthState, LoginFlowError>> _onRedirectToWeb(

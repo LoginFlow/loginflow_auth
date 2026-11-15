@@ -83,9 +83,10 @@ class ClientLoginOptions {
 
   /// The primary methods the server allows for this client, by wire name:
   /// `password`, `email_otp`, `magic_link`, `google`, `microsoft`, `apple`,
-  /// `facebook`, `access_code` (see [isAccessCodeOffered]), and `passkey`
+  /// `facebook`, `access_code` (see [isAccessCodeOffered]), `passkey`
   /// when a passkey may be the first factor (see
-  /// [isFirstFactorPasskeyOffered]). Unknown names are kept so newer server
+  /// [isFirstFactorPasskeyOffered]), and `passkey_signup` (see
+  /// [isPasskeySignUpOffered]). Unknown names are kept so newer server
   /// methods are simply not matched.
   final List<String> loginMethods;
 
@@ -154,6 +155,14 @@ class ClientLoginOptions {
   /// never a sign-in button of its own: the server refuses a redemption
   /// from a client without it (`unauthorized_client`).
   bool get isAccessCodeOffered => allows('access_code');
+
+  /// Whether this client may create accounts with a passkey alone
+  /// (`passkey_signup`, `doc/server-contract.md` §23) — a "Create an account
+  /// with a passkey" entry calling `LoginFlowAuth.signUpWithPasskey`.
+  /// LoginFlow lists it only when it also lists `passkey`, the client is
+  /// first-party with no sign-in gate and the application admits self
+  /// sign-up.
+  bool get isPasskeySignUpOffered => allows('passkey_signup');
 
   /// Whether a passkey may be offered as its own first-factor button
   /// (`PasskeyMode.passwordless`). `false` when passkeys are disabled or

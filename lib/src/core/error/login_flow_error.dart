@@ -499,6 +499,46 @@ final class AccessCodesUnavailable extends LoginFlowError {
   int get hashCode => (AccessCodesUnavailable).hashCode;
 }
 
+/// This client may not create accounts with a passkey alone
+/// (`doc/server-contract.md` §23): `400 unsupported_client`, the same answer
+/// whichever condition failed — the client does not list `passkey_signup`
+/// and `passkey`, is not first-party or has a sign-in gate, the application
+/// does not admit self sign-up, or the company's passkeys are not
+/// `passwordless` —, or a server older than API 0.26 that ignores the
+/// method. Retrying does not help; offer another way in.
+final class PasskeySignUpUnavailable extends LoginFlowError {
+  /// Creates a [PasskeySignUpUnavailable].
+  const PasskeySignUpUnavailable();
+
+  @override
+  String get message => 'Passkey sign-up is not available for this app.';
+
+  @override
+  bool operator ==(Object other) => other is PasskeySignUpUnavailable;
+
+  @override
+  int get hashCode => (PasskeySignUpUnavailable).hashCode;
+}
+
+/// A name was refused (`422`, `doc/server-contract.md` §23, §24): the
+/// display name of a passkey sign-up, or a first or last name of
+/// `LoginFlowAuth.updateProfile`, is longer than 100 characters, or holds a
+/// digit, `@`, an angle bracket or a control character; or a profile update
+/// sets no name at all.
+final class InvalidProfileName extends LoginFlowError {
+  /// Creates an [InvalidProfileName].
+  const InvalidProfileName();
+
+  @override
+  String get message => 'The name is not valid.';
+
+  @override
+  bool operator ==(Object other) => other is InvalidProfileName;
+
+  @override
+  int get hashCode => (InvalidProfileName).hashCode;
+}
+
 /// A LoginFlow account API refused the access token because the user's
 /// authentication is too old or too weak for that operation (RFC 9470:
 /// `401` with `WWW-Authenticate: Bearer
@@ -533,6 +573,11 @@ final class StepUpRequired extends LoginFlowError {
 /// after a new access code, a revocation or by the user), or a company
 /// policy, client or sign-in gate that refuses it. The attempt is over and
 /// the ceremony is not run again; offer another way in (a code, a password).
+///
+/// Also the refusal of a passkey sign-up's new credential (the
+/// `passkey_registration` step with a `step_error`, §23): not verified, not
+/// discoverable, or its ceremony already used or expired. No account was
+/// created; call `LoginFlowAuth.signUpWithPasskey` again for a new ceremony.
 final class PasskeyRejected extends LoginFlowError {
   /// Creates a [PasskeyRejected].
   const PasskeyRejected();

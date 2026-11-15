@@ -87,6 +87,8 @@ final class LoginFlowStringsEs implements LoginFlowStrings {
   @override
   String get ssoSubtitle => _l10n.ssoSubtitle;
   @override
+  String get passkeyAccount => _l10n.passkeyAccount;
+  @override
   String get useAnotherAccount => _l10n.useAnotherAccount;
   @override
   String get lockedOutTitle => _l10n.lockedOutTitle;

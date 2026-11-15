@@ -360,8 +360,8 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
   /// [displayName] when given, else the session identity. An access-code
   /// subject shows its display name, else the tenant's external subject —
   /// the server's own default (`doc/server-contract.md` §15); a person
-  /// shows the email, else the subject. The display name falls back to the
-  /// username.
+  /// shows the email, else — a passkey-only account (§23) — the name, else
+  /// the subject. The display name falls back to the username.
   _Enrollment _enrollmentFor(
     LoginFlowSession session, {
     String? username,
@@ -372,7 +372,7 @@ class PasskeysViewModel extends ViewModel<PasskeysState> {
         username ??
         switch (identity.externalSubject) {
           final externalSubject? => identity.name ?? externalSubject,
-          null => identity.email ?? identity.subject,
+          null => identity.email ?? identity.name ?? identity.subject,
         };
     return (
       username: resolvedUsername,

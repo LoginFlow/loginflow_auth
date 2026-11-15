@@ -12,6 +12,10 @@ import 'package:loginflow_auth/src/core/session/access_subject_kind.dart';
 /// also carries [externalSubject], [subjectKind] and [subjectProfile]; LoginFlow
 /// keeps no personal data for it, so [email] and [name] are usually `null`.
 /// All three are `null` for a regular user.
+///
+/// A person who signed up with a passkey alone
+/// (`LoginFlowAuth.signUpWithPasskey`) has no [email], and no [name] unless
+/// they gave one: identify them by [subject] only.
 class UserIdentity {
   /// Creates an [UserIdentity].
   const UserIdentity({
@@ -77,7 +81,8 @@ class UserIdentity {
   /// `sid`: the device or browser session.
   final String? sessionId;
 
-  /// `email`; absent for access-code subjects.
+  /// `email`; absent for access-code subjects and for a passkey-only
+  /// account until its owner adds one (`doc/server-contract.md` §23).
   final String? email;
 
   /// `email_verified`.

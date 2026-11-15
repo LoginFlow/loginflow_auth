@@ -478,6 +478,61 @@ final class AccessCodeInput extends ChallengeInput {
   int get hashCode => code.hashCode;
 }
 
+/// The opening leg of a passkey sign-up (`method=passkey_signup`,
+/// `doc/server-contract.md` §23): the server answers with the WebAuthn
+/// creation options of the new account's first passkey. [displayName], when
+/// given, becomes the account's first name and the name the passkey manager
+/// shows; no `login_hint` travels with it.
+final class PasskeySignUpInput extends ChallengeInput {
+  const PasskeySignUpInput({this.displayName});
+
+  final String? displayName;
+
+  PasskeySignUpInput copyWith({String? displayName}) =>
+      PasskeySignUpInput(displayName: displayName ?? this.displayName);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'method': ChallengeStep.passkeySignUp.wireName,
+    'display_name': ?displayName,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PasskeySignUpInput && displayName == other.displayName;
+
+  @override
+  int get hashCode => Object.hash(PasskeySignUpInput, displayName);
+}
+
+/// Answer to `next: passkey_registration`: the raw
+/// `RegisterPublicKeyCredential` JSON the platform produced from the
+/// creation options (`PasskeyAuthenticator.createCredential`). Sent as a
+/// JSON-encoded string form field, like [WebauthnAssertionInput].
+final class PasskeyRegistrationInput extends ChallengeInput {
+  const PasskeyRegistrationInput({required this.registration});
+
+  final Map<String, Object?> registration;
+
+  PasskeyRegistrationInput copyWith({Map<String, Object?>? registration}) =>
+      PasskeyRegistrationInput(registration: registration ?? this.registration);
+
+  @override
+  Map<String, String> toFormFields() => <String, String>{
+    'passkey_registration': jsonEncode(registration),
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PasskeyRegistrationInput &&
+          jsonEncode(registration) == jsonEncode(other.registration);
+
+  @override
+  int get hashCode => jsonEncode(registration).hashCode;
+}
+
 /// One poll of a sign-in on another device ([ChallengeStep.devicePush] or
 /// [ChallengeStep.deviceQr]): `method=device_push_poll` or
 /// `method=device_qr_poll` (`doc/server-contract.md` §21).

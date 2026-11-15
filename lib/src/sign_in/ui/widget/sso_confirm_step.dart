@@ -32,7 +32,7 @@ class SsoConfirmStep extends StatelessWidget {
       children: [
         Text(strings.ssoSubtitle, textAlign: .center),
         SignInPrimaryButton(
-          label: strings.continueAs(phase.candidate.toDisplayName()),
+          label: strings.continueAs(phase.candidate.toDisplayName(strings)),
           onPressed: isEnabled
               ? () => unawaited(viewModel.continueWithSso())
               : null,

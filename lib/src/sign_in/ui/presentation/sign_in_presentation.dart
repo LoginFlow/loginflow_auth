@@ -103,9 +103,12 @@ extension SignInCopyPresentation on SignInCopy {
       subtitle?.forLanguage(languageCode) ?? strings.signInSubtitle;
 }
 
-/// How the Native SSO account is named in "Continue as …".
+/// How the Native SSO account is named in "Continue as …": its name, else
+/// its email, else — a passkey-only account without a name — "Passkey
+/// account", like LoginFlow's own account chooser; never its opaque `sub`.
 extension SsoCandidatePresentation on SsoCandidate {
-  String toDisplayName() => name ?? email ?? subject;
+  String toDisplayName(LoginFlowStrings strings) =>
+      name ?? email ?? strings.passkeyAccount;
 }
 
 /// Texts of the email-code step.

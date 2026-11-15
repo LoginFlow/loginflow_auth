@@ -75,7 +75,9 @@ extension LoginFlowErrorFeedback on LoginFlowError {
     AlreadySignedIn() ||
     PhoneApprovalRefused() ||
     SignInQrRefused() ||
-    InvalidSignInQr() => SignInFeedback.unexpected,
+    InvalidSignInQr() ||
+    PasskeySignUpUnavailable() ||
+    InvalidProfileName() => SignInFeedback.unexpected,
   };
 }
 
@@ -126,7 +128,9 @@ extension AccessCodeErrorFeedback on LoginFlowError {
     AlreadySignedIn() ||
     PhoneApprovalRefused() ||
     SignInQrRefused() ||
-    InvalidSignInQr() => toFeedback(),
+    InvalidSignInQr() ||
+    PasskeySignUpUnavailable() ||
+    InvalidProfileName() => toFeedback(),
   };
 }
 
