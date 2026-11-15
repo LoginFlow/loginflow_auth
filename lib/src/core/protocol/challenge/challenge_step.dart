@@ -61,7 +61,20 @@ enum ChallengeStep {
   /// code a tenant backend issued for one of its own subjects
   /// (`AccessCodeInput`, `doc/server-contract.md` §16). One leg: the server
   /// answers with an authorization code or an error, never a `next` value.
-  accessCode('access_code');
+  accessCode('access_code'),
+
+  /// Client-initiated only (`method=passkey_signup`,
+  /// `LoginFlowAuth.signUpWithPasskey`): creates an account with a passkey
+  /// alone, no email and no password (`doc/server-contract.md` §23). Also
+  /// listed among a `select_method` step's alternatives when the client is
+  /// configured for it.
+  passkeySignUp('passkey_signup'),
+
+  /// Closing leg of a passkey sign-up: answer with the raw
+  /// `RegisterPublicKeyCredential` JSON from `navigator.credentials.create()`
+  /// (`PasskeyRegistrationInput`). Answered by the library itself, never
+  /// surfaced as a prompt.
+  passkeyRegistration('passkey_registration');
 
   const ChallengeStep(this.wireName);
 

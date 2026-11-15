@@ -183,7 +183,11 @@ the server does not allow is never shown.
   appears as a challenge step (§5). `magic_link` turns on the "email me a
   sign-in link instead" action of the `email_otp` step (§5.8). A Temporary
   Access Pass is never advertised here — it is admin-issued, not
-  client-selected.
+  client-selected. `passkey_signup` (API 0.26+) lets the client create
+  accounts with a passkey alone (§23); it is listed only together with
+  `passkey`, for a first-party client with no sign-in gate whose
+  application admits self sign-up
+  (`ClientLoginOptions.isPasskeySignUpOffered`).
 - `self_signup`: the application's `allow_self_signup` flag.
 - `password_reset`: whether password reset is enabled for the client
   (`ClientLoginOptions.isPasswordResetEnabled`). It sends a code by email,
@@ -319,6 +323,8 @@ A missing `code_challenge` on an opening request → `400 invalid_request`.
 | `webauthn_assertion` | **LoginFlow extension.** The raw `PublicKeyCredential` JSON from `navigator.credentials.get()`, JSON-encoded as a single form field (nested JSON has no native form-urlencoded shape). A valid assertion satisfies both the primary method and the second factor in the same step |
 | `temporary_access_pass` | **LoginFlow extension.** An admin-issued, single-use recovery code, identified by `login_hint` like `password`. Also satisfies both factors in one step, but is never phishing-resistant |
 | `method` (access codes) + `access_code` | **LoginFlow extension.** `method=access_code` with `access_code=<normalized code>` in the opening request: a single-use code a tenant backend issued for one of its own subjects. Answered in one leg, never with a `next` (§16) |
+| `method` (passkey sign-up) + `display_name` | **LoginFlow extension** (API 0.26). `method=passkey_signup`, optionally with `display_name`, on a plain opening (no `login_hint`, not a step-up) with a DPoP proof: answers `next: passkey_registration` with the creation `options` of the new account's first passkey (§23) |
+| `passkey_registration` | **LoginFlow extension** (API 0.26). The raw `RegisterPublicKeyCredential` JSON from `navigator.credentials.create()`, JSON-encoded as a single form field like `webauthn_assertion`, with a DPoP proof of the same key as the opening leg (§23) |
 
 ### 5.5 Responses
 
@@ -773,7 +779,7 @@ RFC6749 §5.2 with `400` (`invalid_request`, `invalid_grant`,
 | `acr` | when requested |
 | `company_id` | **LoginFlow claim**: the company of the identity (tenant) |
 | `ds_hash` | REQUIRED when a `device_secret` is issued; HMAC of the secret under a server key (OIDC-NSSO §3.4.1) |
-| `email`, `email_verified`, `name` | with `email` / `profile` scopes |
+| `email`, `email_verified`, `name` | with `email` / `profile` scopes; `email` and `email_verified` are absent for an account without an email (a passkey-only account, §23) whatever the scopes, and `name` when it has no names |
 | `ext_sub`, `subject_kind`, `ext_profile` | **LoginFlow extension**, access-code subjects only (§16). The library reads `subject_kind` and `ext_profile` only when `ext_sub` is present, and never reads the standard `profile` claim |
 
 The library validates every ID token before trusting it (OIDC-CORE §3.1.3.7):
@@ -1211,6 +1217,10 @@ offset. Bodies and queries reject unknown fields (`400`).
 | `POST /v1/app/members/{principal_id}/assignments` | `{organization_id, role_id, expires_at?}` | `201` (`200` when it existed) `{id, role, expires_at, manageable}` |
 | `DELETE /v1/app/members/assignments/{assignment_id}` | — | `204` |
 
+Since API 0.26 a passkey-only account (§23) is listed with `email: null`
+(and `name: null` when it has no names), after the people with an email:
+`MemberIdentity.email` is nullable; show the name, else a generic label.
+
 **Refusals** (`error.code`): `404` `organization_not_found`,
 `role_not_found`, `member_not_found`, `assignment_not_found`; `403`
 `organization_out_of_reach`, `role_not_grantable`,
@@ -1604,3 +1614,122 @@ receive the earlier refresh's token: an issued token keeps its claims until
 it expires (see **Tokens** above). A refusal is `DelegationDenied(code, statusCode)` with a
 `DelegationDenialCode`; `429` is `RateLimited(retryAfter)`, read from
 `Retry-After`.
+
+## 23. Passkey sign-up (LoginFlow extension, API 0.26)
+
+A person creates an account with a passkey alone — no email, no password —
+through the native challenge, and is signed in at once. The account is a
+person like any other (`sub` = its company user), whose profile has no email
+until they add one through §19 (the same `sub`, roles and passkeys stay).
+The hosted pages run no passkey sign-up: the account is born bound to a DPoP
+key.
+
+**Who may run it.** The client lists `passkey_signup` **and** `passkey`, is
+first-party with no sign-in gate, its application admits self sign-up (never
+the LoginFlow admin application), the company's passkey policy is
+`passwordless`, and the transaction is a plain opening (no `login_hint`, not
+a step-up). Otherwise the opening leg answers `400
+{"error":"unsupported_client"}` before any ceremony, the same body whichever
+condition failed. Both legs need a DPoP proof (`400
+{"error":"invalid_dpop_proof"}` without one). `GET /oauth2/login-options`
+lists `passkey_signup`, and a `select_method` step lists it in `methods`,
+only for a client configured for it.
+
+**Opening leg.** `method=passkey_signup` on the opening request (or on the
+`auth_session` of a `select_method` answer), with the usual authorization
+parameters (§5.3) and an optional `display_name` (1 to 100 characters, no
+digits, `@`, angle brackets or control characters; stored as the profile's
+first name and shown by the passkey manager, the client's name when absent).
+An invalid one is `422` in LoginFlow's general error envelope
+(`{"error": {"code": "VALIDATION_ERROR", …}, "meta": …}`). Answer `403`:
+
+```json
+{
+  "error": "insufficient_authorization",
+  "next": "passkey_registration",
+  "auth_session": "…",
+  "options": { "publicKey": { "rp": {…}, "user": {"id": "…", "name": "Ana", "displayName": "Ana"},
+    "challenge": "…", "authenticatorSelection": { "residentKey": "required",
+    "requireResidentKey": true, "userVerification": "required" }, "attestation": "none", … } }
+}
+```
+
+`options` is `webauthn-rs`'s `CreationChallengeResponse`, unmodified,
+passed to `navigator.credentials.create()` (or the platform equivalent).
+The ceremony lives 5 minutes, on the transaction, with the proof's key.
+
+**Closing leg.** `auth_session` + `passkey_registration` (§5.4), with a DPoP
+proof of **the same key**. A refused registration (not verified, not
+discoverable — a client reporting `credProps.rk: false` —, another key, or
+no ceremony) answers `403 next: passkey_registration` with `step_error:
+"invalid_credential"`, no `options` and a new `auth_session`: a new ceremony
+needs a new `method=passkey_signup`. Success: `200 {"authorization_code"}`,
+bound to the DPoP key (RFC 9449 §10: only a token request proving that key
+redeems it), `amr` of a passkey, `acr` `urn:loginflow:acr:phr`. A request
+that lost the race to another on the same `auth_session` creates no account
+and answers `400 {"error":"invalid_session"}`.
+
+**Limits.** Each a `429 {"error":"temporarily_unavailable"}` with
+`Retry-After`: 20 ceremony starts per client address and application and
+hour (`PASSKEY_SIGNUP_STARTS_PER_ADDRESS_PER_HOUR`), on the opening leg; 5
+closing legs per client address and 3 per DPoP key, per application and
+hour, counted before anything is verified; and, for a verified registration
+only, 50 accounts per company and application and hour
+(`PASSKEY_SIGNUP_CAP_PER_HOUR`, `Retry-After` the whole hour).
+
+**Afterwards.** No `email`/`email_verified` in the ID token or
+`/oauth2/userinfo` (§8.1): a product MUST accept a `sub` without an email.
+No role by default (§22 offers the self-selectable ones). Names: §24. Email:
+§19, the upgrade to a full account. Losing every passkey loses the account:
+the last one is never deleted (`409 last_passkey_of_passkey_only_account`)
+and no recovery TAP is issued for it.
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `signUpWithPasskey(displayName:)` | `method=passkey_signup` (+ `display_name`), then `passkey_registration`, then the code redeemed (§7.1) | `SignedIn`, the session bound to the DPoP key; `UserIdentity.email` `null` |
+
+The library refuses the call before any request with `ConfigurationInvalid`
+when the client has no DPoP key store, and with
+`PasskeyFailed(notConfigured)` when it has no passkey authenticator (every
+opening leg counts against the hourly ceremony starts). The platform ceremony
+(`PasskeyAuthenticator.createCredential`) runs automatically between the
+legs, never as a `ChallengeRequired`. Every failure ends the attempt with no
+account: `unsupported_client`, and an opening answered with anything but
+`next: passkey_registration` (a server before 0.26 ignores the method), are
+`PasskeySignUpUnavailable`; `429` is `RateLimited(retryAfter)`; a refused
+registration is `PasskeyRejected`; the display name's `422` is
+`InvalidProfileName`; a platform failure is `PasskeyFailed` (e.g.
+`userCancelled`). In the built-in UI's "Continue as …" (Native SSO) an
+account with neither a name nor an email is named "Passkey account".
+
+## 24. Own profile (LoginFlow extension, authenticated, API 0.26)
+
+A person reads and completes their own names from any product: identity
+belongs to LoginFlow, so products copy the name from it (the ID token's
+`name`) and keep no name route of their own. Same door as §19: the person's
+own DPoP-bound LoginFlow token (`aud` = the issuer, an active session); a
+machine or access-code token is `403`. **No step-up.** The email has its own
+door (§19).
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /v1/app/profile` | — | `200 {email, first_name, last_name, name}`; `email` `null` for a passkey-only account, `name` the names joined |
+| `PATCH /v1/app/profile` | `{first_name?, last_name?}`, at least one | `200` with the profile after the change |
+
+A given name is trimmed and must be 1 to 100 characters with no digits, `@`,
+angle brackets or control characters; a name left out keeps its value (none
+can be cleared). Unknown fields (an `email` included) are `400`; an invalid
+name or a body that sets nothing is `422`; `401` when the account no longer
+exists. The next ID token carries the new names.
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `fetchProfile()` | `GET /v1/app/profile` | `OwnProfile(email, firstName, lastName, name)` |
+| `updateProfile(firstName:, lastName:)` | `PATCH /v1/app/profile`, only the names given | `OwnProfile`, then a refresh of the session (a new `SignedIn` carrying the new `name`) |
+
+Both use LoginFlow's own token, like §18. `422` is `InvalidProfileName`; a
+refresh that fails after a successful update is only logged.

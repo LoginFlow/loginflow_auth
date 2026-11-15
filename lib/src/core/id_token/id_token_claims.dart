@@ -101,7 +101,8 @@ class IdTokenClaims {
   /// LoginFlow tenant claim: the company the identity belongs to.
   final String? companyId;
 
-  /// `email`, with the `email` scope.
+  /// `email`, with the `email` scope; never present for an account without
+  /// one (a passkey-only account, `doc/server-contract.md` §23).
   final String? email;
 
   /// `email_verified`.

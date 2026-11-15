@@ -6,6 +6,7 @@ import 'package:loginflow_auth/src/sign_in/ui/mobile/sign_in_screen_mobile.dart'
 import 'package:loginflow_auth/src/sign_in/ui/sign_in_keys.dart';
 
 import '../support/fake_login_flow_server.dart';
+import '../support/fake_passkey_authenticator.dart';
 import '../support/sign_in_harness.dart';
 import '../support/test_clock.dart';
 import '../support/test_signing_keys.dart';
@@ -404,6 +405,38 @@ void main() {
       await tester.tap(find.text('Continue as Ana Ruiz'));
       await tester.pumpAndSettle();
       expect(appTwo.signedIn.single.isSsoBound, isTrue);
+    });
+
+    // A passkey-only account signed up without a name has neither a name
+    // nor an email (API 0.26.0): it is named like LoginFlow's own account
+    // chooser does, never by its opaque `sub`.
+    testWidgets('names an account without a name or email "Passkey account"', (
+      tester,
+    ) async {
+      server
+        ..requiresDpop = true
+        ..loginMethods = <String>['password', 'passkey', 'passkey_signup'];
+      final shared = InMemorySsoStore();
+      final appOne = SignInHarness.install(
+        server,
+        allMethods,
+        ssoStore: shared,
+        passkey: FakePasskeyAuthenticator(),
+        enableDpop: true,
+      );
+      await appOne.auth.initialize();
+      expect((await appOne.auth.signUpWithPasskey()).data, isA<SignedIn>());
+      final appTwo = SignInHarness.install(
+        server,
+        allMethods,
+        clientId: 'app-two',
+        ssoStore: shared,
+        enableDpop: true,
+      );
+
+      await appTwo.pump(tester);
+
+      expect(find.text('Continue as Passkey account'), findsOneWidget);
     });
   });
 

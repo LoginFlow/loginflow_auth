@@ -118,9 +118,11 @@ final class ChallengeStepRequired extends ChallengeResponse {
   /// Present when [next] is [ChallengeStep.upstreamToken].
   final UpstreamPrompt? upstream;
 
-  /// Present when [next] is [ChallengeStep.webauthnAssertion]: the
-  /// `webauthn-rs` request/creation challenge, passed straight to
-  /// `PasskeyAuthenticator.getAssertion`.
+  /// Present when [next] is [ChallengeStep.webauthnAssertion] or
+  /// [ChallengeStep.passkeyRegistration]: the `webauthn-rs` request or
+  /// creation challenge, passed straight to
+  /// `PasskeyAuthenticator.getAssertion` or
+  /// `PasskeyAuthenticator.createCredential`.
   final Map<String, Object?>? options;
 
   /// Present when [next] is [ChallengeStep.devicePush] or

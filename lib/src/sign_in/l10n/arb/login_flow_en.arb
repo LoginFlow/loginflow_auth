@@ -37,6 +37,7 @@
   "continueInBrowser": "Continue in your browser…",
   "continueAs": "Continue as {name}",
   "ssoSubtitle": "You are already signed in to another app on this device.",
+  "passkeyAccount": "Passkey account",
   "useAnotherAccount": "Use another account",
   "lockedOutTitle": "Too many attempts",
   "lockedOutMessage": "Try again in {seconds} seconds.",

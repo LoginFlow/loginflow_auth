@@ -61,6 +61,7 @@ export 'src/core/protocol/organizations/organization.dart';
 export 'src/core/protocol/organizations/organization_kind.dart';
 export 'src/core/protocol/organizations/organization_list.dart';
 export 'src/core/protocol/passkeys/passkey_credential.dart';
+export 'src/core/protocol/profile/own_profile.dart';
 export 'src/core/protocol/self_selection/self_selectable_role.dart';
 export 'src/core/protocol/self_selection/self_selectable_roles.dart';
 export 'src/core/protocol/self_selection/self_selected_role.dart';

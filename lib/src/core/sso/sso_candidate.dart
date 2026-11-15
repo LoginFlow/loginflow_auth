@@ -27,7 +27,8 @@ class SsoCandidate {
   /// The user's name, for "Continue as …".
   final String? name;
 
-  /// The user's email, for "Continue as …".
+  /// The user's email, for "Continue as …"; `null` for a passkey-only
+  /// account (`doc/server-contract.md` §23).
   final String? email;
 
   /// The company of the user.

@@ -15,6 +15,11 @@ provider. It gives first-party apps:
   code to write. **Google native sign-in** is one small optional package
   away (`loginflow_auth_google` — see [Google](#google)); without it,
   Google still works through the system browser.
+- **Passkey sign-up**: an account created with a passkey alone — no
+  email, no password — and signed in at once
+  ([Passkey sign-up (no email)](#passkey-sign-up-no-email)); the person
+  completes their names with the [own profile](#apis-organizations-and-permissions)
+  and adds an email later.
 - **In-app password reset**: an emailed code, the new password, then
   signed in — the library holds the session until the password is set
   ([Password reset (in-app)](#password-reset-in-app)). No browser.
@@ -194,7 +199,8 @@ that sign-in.
 Challenge steps: `requestEmailOtp`, `submitEmailOtp`, `resendEmailOtp`,
 `submitPassword`, `submitTotp`, `submitRecoveryCode`, `selectMethod`,
 `signInWithGoogle`, `signInWithMicrosoft`, `signUp`, `cancelChallenge`.
-Password reset: `startPasswordReset`, `submitResetCode`, `resendResetCode`,
+Passkey sign-up (no email): `signUpWithPasskey`
+([below](#passkey-sign-up-no-email)). Password reset: `startPasswordReset`, `submitResetCode`, `resendResetCode`,
 `setNewPassword`, `cancelPasswordReset`. Step-up: `auth.stepUp(StepUpRequirement(acrValues: ['mfa']))`
 or `StepUpRequirement.fromWwwAuthenticate(header)` from a 401 of your API
 (RFC 9470).
@@ -368,7 +374,8 @@ LoginFlow's delegation rules — the UI never deduces power from roles.
   there would allow. Empty (`canGrant` false): hide the screen.
 - `listMembers(organizationId:, query:, limit:, offset:)` → `MembersPage`:
   the people holding a role there, each `MemberAssignment` with
-  `manageable` (offer "revoke" only when `true`).
+  `manageable` (offer "revoke" only when `true`). `identity.email` is
+  `null` for a passkey-only account: show the name, else a generic label.
 - `inviteMember(organizationId:, email:, roleId:, …)` → `MemberInvitation`;
   `grantRole(…)` → `MemberAssignment`; `revokeAssignment(id)`.
 - Refusals are `DelegationDenied(code: DelegationDenialCode.…)`; a write past
@@ -463,6 +470,25 @@ await auth.confirmEmailChange(
   newAddressCode,
   currentCode: confirmCurrent ? currentAddressCode : null,
 );
+```
+
+Own profile (`doc/server-contract.md` §24, API 0.26): the signed-in person
+reads and sets their OWN names; products keep no name route of their own.
+Same LoginFlow token as the members calls, no step-up.
+
+- `fetchProfile()` → `OwnProfile(email, firstName, lastName, name)`;
+  `email` is `null` for a passkey-only account.
+- `updateProfile(firstName:, lastName:)` → `OwnProfile` after the change.
+  Only the names given are sent; a name left out keeps its value (none can
+  be cleared). The session is then refreshed: a new `SignedIn` carries the
+  new `name`. `InvalidProfileName`: more than 100 characters, a digit, `@`,
+  angle brackets or a control character, or no name given.
+
+```dart
+final updated = await auth.updateProfile(lastName: 'Ruiz');
+if (updated case Err(error: InvalidProfileName())) {
+  showNameError();
+}
 ```
 
 Authenticator app (`doc/server-contract.md` §20): the signed-in person
@@ -577,6 +603,59 @@ Future<void> runPasswordReset(LoginFlowAuth auth) async {
 ```
 
 The ready-to-use UI does all of this behind "Forgot your password?".
+
+### Passkey sign-up (no email)
+
+A person creates an account with a passkey alone — no email, no password —
+and is signed in at once (`doc/server-contract.md` §23, API 0.26). The
+client lists `passkey_signup` together with `passkey`, is first-party with
+no sign-in gate, its application admits self sign-up and the company's
+passkeys are `passwordless`; `ClientLoginOptions.isPasskeySignUpOffered`
+says so. The account is born bound to this device's DPoP key, so it needs
+`enableDpop: true` (otherwise `ConfigurationInvalid`, no request).
+
+- `signUpWithPasskey({displayName})` → `SignedIn`. Two legs of the native
+  challenge (`method=passkey_signup`, then `passkey_registration`) with the
+  platform's passkey creation in between (the same `PasskeyAuthenticator`
+  as the passkey sign-in), then the code redeemed with the same DPoP key.
+  Never a `ChallengeRequired`; `selectMethod(ChallengeStep.passkeySignUp)`
+  does the same on a `select_method` step that lists it.
+- `displayName` (optional) becomes the first name and the name the passkey
+  manager shows; the client's name otherwise.
+- The identity has **no email** (`UserIdentity.email` `null`) and no name
+  unless one was given: key data on `subject`. No role by default
+  (`listSelfSelectableRoles`). Names later with `updateProfile`; an email
+  later with `startEmailChange` (the same `sub`, roles and passkeys).
+- Every failure ends the attempt with no account: `PasskeySignUpUnavailable`
+  (the client is not configured for it, or a server before 0.26),
+  `RateLimited(retryAfter)` (too many from this address or device, or the
+  application's hourly cap), `PasskeyFailed` (e.g. `userCancelled`),
+  `PasskeyRejected` (the server did not accept the new passkey; try again),
+  `InvalidProfileName` (the display name).
+- Losing every passkey loses the account: offer a second passkey
+  (`LoginFlowPasskeys`) and adding an email.
+
+```dart
+final options = await auth.fetchLoginOptions();
+if (options case Ok(data: ClientLoginOptions(isPasskeySignUpOffered: true))) {
+  final result = await auth.signUpWithPasskey(displayName: 'Ana');
+  switch (result) {
+    case Ok(data: SignedIn(:final session)):
+      openHome(session.identity.subject); // no email to show
+    case Err(error: RateLimited(:final retryAfter)):
+      showTryLater(retryAfter);
+    case Err(error: PasskeyFailed(reason: PasskeyFailureReason.userCancelled)):
+      break; // the person changed their mind
+    case Err(:final error):
+      showError(error);
+    case Ok():
+      break;
+  }
+}
+```
+
+In the built-in UI's "Continue as …" (Native SSO), an account with neither
+a name nor an email reads "Passkey account".
 
 ## Ready-to-use sign-in UI
 

@@ -4,16 +4,12 @@ import 'package:loginflow_auth/src/core/json/json_field_reader.dart';
 /// this application.
 class MemberIdentity {
   /// Creates a [MemberIdentity].
-  const MemberIdentity({
-    required this.principalId,
-    required this.email,
-    this.name,
-  });
+  const MemberIdentity({required this.principalId, this.email, this.name});
 
   /// Reads a [MemberIdentity] from its JSON form ([toJson]).
   factory MemberIdentity.fromJson(Map<String, Object?> json) => MemberIdentity(
     principalId: json.requireString('principal_id'),
-    email: json.requireString('email'),
+    email: json.optionalString('email'),
     name: json.optionalString('name'),
   );
 
@@ -21,8 +17,9 @@ class MemberIdentity {
   /// `grantRole` takes.
   final String principalId;
 
-  /// The person's email.
-  final String email;
+  /// The person's email; `null` for a passkey-only account (API 0.26), which
+  /// has none until its owner adds one. Show [name], else a generic label.
+  final String? email;
 
   /// The person's name, when known.
   final String? name;

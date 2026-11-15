@@ -134,6 +134,9 @@ class LoginFlowLocalizationsEs extends LoginFlowLocalizations {
       'Ya iniciaste sesión en otra app de este dispositivo.';
 
   @override
+  String get passkeyAccount => 'Cuenta con llave de acceso';
+
+  @override
   String get useAnotherAccount => 'Usar otra cuenta';
 
   @override

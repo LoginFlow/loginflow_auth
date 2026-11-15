@@ -33,6 +33,8 @@ extension PasskeysErrorFeedback on LoginFlowError {
     InvalidAccessCode() ||
     AccessCodeThrottled() ||
     AccessCodesUnavailable() ||
+    PasskeySignUpUnavailable() ||
+    InvalidProfileName() ||
     InvalidTarget() ||
     OrganizationUnavailable() ||
     DelegationDenied() ||
