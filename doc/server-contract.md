@@ -1528,3 +1528,79 @@ within 110 s, once after a `401` challenge, then exactly one more call). A
 `device_qr_*` code is `SignInQrRefused(reason)` (`notFound`, `expired`,
 `notAllowed`); `429` is `RateLimited`; anything else is the account API's
 usual error (§15).
+
+## 22. Self-selectable roles (LoginFlow extension, authenticated)
+
+Since API 0.25.0. A person of a product takes or leaves, for themself, the
+roles the application's owner company marked **self-selectable** on the
+panel ("I am also a seller", "I want the beta features"), in the ROOT
+organization of their company and application. It is the second exception
+to "nobody grants or revokes their own assignments" (the first is a
+founding); the members API (§18) still refuses it
+(`self_assignment_forbidden`). An application that marks no role sees no
+change.
+
+**Token.** The same door as §18: the person's OWN LoginFlow token (`aud` =
+the issuer, asked with `resource=<issuer>`), DPoP-bound, an active `sid`, a
+person's (`403 permission_denied` for an access-code subject; `403
+wrong_audience` for a product API's token; `401` + `WWW-Authenticate: DPoP
+error="invalid_token"` for a plain bearer). **No step-up.** The actor and
+the principal are the token's person; no request names anybody else.
+
+Fixed account-API paths under the issuer, with the `ApiResponse` envelope
+(§15). No body on any route.
+
+| Route | Answer |
+|---|---|
+| `GET /v1/app/self-selectable-roles` | `200 {organization: {id, name, kind: root}, roles: [{id, key, name, description, held, assignment_id}]}`, sorted by `key`; never the permissions; empty `roles` = the application marks none (hide the screen) |
+| `PUT /v1/app/self-selectable-roles/{role_id}` | `201` new, `200` already held (nothing written, nothing counted) `{assignment_id, organization_id, role: {id, key, name}}` |
+| `DELETE /v1/app/self-selectable-roles/{role_id}` | `204`, whoever granted the assignment; a deactivated member may still leave |
+
+**Refusals** (`error.code`): `403` `self_assignment_forbidden` (the role is
+not, or no longer, self-selectable), `organization_out_of_reach`,
+`role_not_grantable`, `wrong_audience`, `permission_denied`; `404`
+`role_not_found`, `assignment_not_found` (a leave of a role not held),
+`organization_not_found`; `409` `member_inactive` (a take by a deactivated,
+suspended or deleted membership), `system_application`; `429`
+`self_selection_rate_limited` past 10 takes and leaves together per person
+and application in a rolling hour, with `Retry-After`
+(`details.retry_after_secs`).
+
+**Tokens.** A take is an ordinary assignment in the root: the next refresh
+re-reads it, but only a token whose active organization is the root carries
+its permissions — a session working in another organization refreshes with
+`organization` = the root's id (§17). A leave runs the revocation on change
+before answering: a gated client that no longer admits the person loses its
+refresh families (with a back-channel logout); the permissions leave at the
+next refresh. An access token already issued keeps its claims until it
+expires.
+
+**Library behaviour.**
+
+| Call | Wire | Result |
+|---|---|---|
+| `listSelfSelectableRoles()` | `GET /v1/app/self-selectable-roles` | `SelfSelectableRoles` (`organization` is the root; each `SelfSelectableRole` with `isHeld` and `assignmentId`) |
+| `takeSelfSelectableRole(roleId)` | `PUT …/{role_id}` | `SelfSelectedRole` (`isNew`: `true` for `201`, `false` for `200`) |
+| `leaveSelfSelectableRole(roleId)` | `DELETE …/{role_id}` | `void` |
+
+Every call uses LoginFlow's own token, like §18. After a successful take,
+the library switches the session to the root (`switchOrganization` with
+`SelfSelectedRole.organizationId`, the same root the list names), which
+drops every cached API token, so the next `accessTokenFor` carries the
+role's permissions; when the session already works in the root that refresh
+only renews its tokens; a failed switch is only logged and the take still
+succeeds, the cached tokens then lacking the new permissions until the next
+refresh (a window that can deny, never over-grant). A successful leave fails
+closed: the library drops every cached API token as soon as the `204`
+arrives, before and whatever the refresh that follows does, and a token asked
+for afterwards never joins a refresh that started before the leave (one that
+was in flight has its write-back dropped again before the next refresh). Then
+it refreshes the session in its active organization; when the server ended
+the family, that refresh signs out (`SessionRevoked`). A failed refresh is
+only logged and the leave still succeeds: `accessTokenFor` then asks for a
+new token, and fails rather than hand out one carrying the left
+permissions. A call that asked for a token before the `204` may still
+receive the earlier refresh's token: an issued token keeps its claims until
+it expires (see **Tokens** above). A refusal is `DelegationDenied(code, statusCode)` with a
+`DelegationDenialCode`; `429` is `RateLimited(retryAfter)`, read from
+`Retry-After`.

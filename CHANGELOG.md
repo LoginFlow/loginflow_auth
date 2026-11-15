@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.25.0
+
+Shares `major.minor` with LoginFlow API `0.25.x`.
+
+- Feature: self-selectable roles (API 0.25.0,
+  `/v1/app/self-selectable-roles`, `doc/server-contract.md` §22). The
+  signed-in person takes or leaves, for themself, the roles the
+  application's owner marked self-selectable, in the root organization; same
+  DPoP-bound LoginFlow token as the members API, no step-up.
+  - `listSelfSelectableRoles()` → `SelfSelectableRoles`: the root
+    `organization` and every `SelfSelectableRole` with `isHeld` and
+    `assignmentId`.
+  - `takeSelfSelectableRole(roleId)` → `SelfSelectedRole`: `isNew` is
+    `true` for a new assignment (`201`), `false` when already held (`200`).
+    Then the session switches to the root organization
+    (`switchOrganization`), dropping every cached API token, so the next
+    `accessTokenFor` carries the role's permissions. A failed switch is only
+    logged and the take is still `Ok`; the cached tokens then lack the new
+    permissions until the next refresh (they can deny, never over-grant).
+  - `leaveSelfSelectableRole(roleId)` fails closed: as soon as the server
+    answers, every cached API token is dropped, before and whatever the
+    refresh that follows does, and a token asked for afterwards never joins
+    a refresh that started before the leave. Then the session is refreshed
+    in its organization; a failed refresh is only logged and the leave is
+    still `Ok`, and `accessTokenFor` fails rather than hand out a token with
+    the left permissions while the token endpoint is down.
+  - Refusals are `DelegationDenied` with the existing
+    `DelegationDenialCode` values (`selfAssignmentForbidden`,
+    `organizationOutOfReach`, `roleNotGrantable`, `assignmentNotFound`,
+    `memberInactive`, …); `429 self_selection_rate_limited` is
+    `RateLimited` with `retryAfter` from `Retry-After`.
+- `DelegationDenied.message` now reads "Refused by the delegation rules"
+  instead of "Members call refused", since it also covers self-selection.
+  Additive otherwise: the members API behaves as before.
+
 ## 0.24.2
 
 - Feature: `discardAccessToken(api)` stops handing out the cached access

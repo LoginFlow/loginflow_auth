@@ -76,6 +76,9 @@ import 'package:loginflow_auth/src/core/protocol/organizations/organizations_cli
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_account_client.dart';
 import 'package:loginflow_auth/src/core/protocol/passkeys/passkey_credential.dart';
 import 'package:loginflow_auth/src/core/protocol/password_change/password_change_client.dart';
+import 'package:loginflow_auth/src/core/protocol/self_selection/self_selectable_roles.dart';
+import 'package:loginflow_auth/src/core/protocol/self_selection/self_selectable_roles_client.dart';
+import 'package:loginflow_auth/src/core/protocol/self_selection/self_selected_role.dart';
 import 'package:loginflow_auth/src/core/protocol/step_up/step_up_requirement.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_client.dart';
 import 'package:loginflow_auth/src/core/protocol/token/token_grant.dart';
@@ -192,6 +195,10 @@ class LoginFlowAuth {
     );
     _organizations = OrganizationsClient(transport: transport);
     _appMembers = AppMembersClient(transport: transport, issuer: config.issuer);
+    _selfSelection = SelfSelectableRolesClient(
+      transport: transport,
+      issuer: config.issuer,
+    );
     _emailChange = EmailChangeClient(
       transport: transport,
       issuer: config.issuer,
@@ -254,6 +261,7 @@ class LoginFlowAuth {
   late final PasswordChangeClient _passwordChange;
   late final OrganizationsClient _organizations;
   late final AppMembersClient _appMembers;
+  late final SelfSelectableRolesClient _selfSelection;
   late final EmailChangeClient _emailChange;
 
   final StreamController<AuthState> _states =
@@ -1754,6 +1762,91 @@ class LoginFlowAuth {
             _appMembers.revoke(bearerToken: token, assignmentId: assignmentId),
       );
 
+  /// The roles the signed-in person may take or leave for themself, which
+  /// of them they hold, and the root organization they are held in
+  /// (`GET /v1/app/self-selectable-roles`, `doc/server-contract.md` §22).
+  /// Empty [SelfSelectableRoles.roles]: the application marks none, hide
+  /// the screen.
+  Future<Result<SelfSelectableRoles, LoginFlowError>>
+  listSelfSelectableRoles() =>
+      _withLoginFlowToken((token) => _selfSelection.list(bearerToken: token));
+
+  /// Takes the self-selectable role [roleId] for the signed-in person in
+  /// the root organization (`PUT /v1/app/self-selectable-roles/{role_id}`).
+  /// [SelfSelectedRole.isNew] is `true` when it was assigned now (`201`),
+  /// `false` when the person already held it (`200`). No step-up.
+  ///
+  /// The role's permissions live in the root organization, and an access
+  /// token only carries those of its active organization. So on success the
+  /// session then switches to the root ([switchOrganization] with
+  /// [SelfSelectedRole.organizationId], the same root
+  /// [listSelfSelectableRoles] names): every cached API token is dropped and
+  /// the next [accessTokenFor] carries the role. When the session already
+  /// works in the root, that refresh only renews its tokens. The take is
+  /// already done on the server, so a failed switch is only logged and the
+  /// take is still `Ok`: the session keeps its organization and its cached
+  /// API tokens, which lack the new role's permissions until the next
+  /// refresh or switch — a window that can only deny what the person now
+  /// holds, never grant what they do not.
+  ///
+  /// Fails with [DelegationDenied]: `selfAssignmentForbidden` (the role is
+  /// not self-selectable), `roleNotFound`, `memberInactive`,
+  /// `systemApplication`, `organizationOutOfReach`, `roleNotGrantable`;
+  /// with [RateLimited] past 10 takes and leaves in an hour, `retryAfter`
+  /// from `Retry-After`.
+  Future<Result<SelfSelectedRole, LoginFlowError>> takeSelfSelectableRole(
+    String roleId,
+  ) async {
+    final taken = await _withLoginFlowToken(
+      (token) => _selfSelection.take(bearerToken: token, roleId: roleId),
+    );
+    if (taken case Ok(:final data)) {
+      final switched = await switchOrganization(data.organizationId);
+      if (switched case Err(:final error)) {
+        Log.w(
+          'The session did not switch to the root after a role was taken: '
+          '${error.message}',
+        );
+      }
+    }
+    return taken;
+  }
+
+  /// Leaves the self-selectable role [roleId]: removes the signed-in
+  /// person's assignment of it in the root organization, whoever granted it
+  /// (`DELETE /v1/app/self-selectable-roles/{role_id}`). No step-up.
+  ///
+  /// It fails closed: as soon as the server answers, every cached API token
+  /// is dropped (they carry the role's permissions), before and whatever
+  /// the refresh that follows does. So the next [accessTokenFor] asks for a
+  /// new token, and fails rather than hand out an old one while the token
+  /// endpoint is down; a token asked for from then on never joins a refresh
+  /// that started before the leave. Then the session is refreshed in its
+  /// active organization. When the server ended this app's refresh family
+  /// because its client no longer admits the person, that refresh signs out
+  /// ([SignedOut], `sessionRevoked`). The leave is already done on the
+  /// server, so a failed refresh is only logged and the leave is still `Ok`.
+  /// A call that asked for a token before the `204` may still receive the
+  /// earlier refresh's token: like any issued token, it keeps its claims
+  /// until it expires (`doc/server-contract.md` §22).
+  ///
+  /// Fails with [DelegationDenied]: `assignmentNotFound` (`404`, the person
+  /// does not hold it), `selfAssignmentForbidden` (it is no longer
+  /// self-selectable: an administrator revokes it), `systemApplication`,
+  /// `organizationOutOfReach`, `roleNotGrantable`; with [RateLimited] like
+  /// [takeSelfSelectableRole].
+  Future<Result<void, LoginFlowError>> leaveSelfSelectableRole(
+    String roleId,
+  ) async {
+    final left = await _withLoginFlowToken(
+      (token) => _selfSelection.leave(bearerToken: token, roleId: roleId),
+    );
+    if (left case Ok()) {
+      await _refreshAfterLeave();
+    }
+    return left;
+  }
+
   /// Starts changing the signed-in person's email to [newEmail]
   /// (`POST /v1/app/email-change`, `doc/server-contract.md` §19): a code goes
   /// to [newEmail] and, when [EmailChangeStarted.confirmCurrent], another to
@@ -1804,6 +1897,48 @@ class LoginFlowAuth {
         'The session was not refreshed after an email change: '
         '${error.message}',
       );
+    }
+  }
+
+  /// After a role was left: drops every cached API token at once
+  /// ([_dropApiTokens]), then refreshes the session's own token in its
+  /// active organization, queued behind every refresh in flight. One of
+  /// those, started before the leave, writes back the API tokens it started
+  /// with when it completes, so they are dropped again when this refresh's
+  /// turn comes. The leave is already done on the server, so a failed
+  /// refresh is only logged.
+  Future<void> _refreshAfterLeave() async {
+    _dropApiTokens();
+    final generation = _generation;
+    final refreshed = await _queued(() {
+      _dropApiTokens();
+      return _refresh(generation);
+    });
+    if (refreshed case Err(:final error)) {
+      Log.w(
+        'The session was not refreshed after a role was left: '
+        '${error.message}',
+      );
+    }
+  }
+
+  /// Forgets every cached API token, publishing the emptied
+  /// [LoginFlowSession.accessClaims], so the next [accessTokenFor] of every
+  /// API asks LoginFlow for a new one. A token asked for from now on never
+  /// joins a refresh that started before: that one may carry permissions
+  /// the session no longer has.
+  void _dropApiTokens() {
+    _refreshing.clear();
+    final session = _session;
+    if (session == null || session.apiTokens.isEmpty) {
+      return;
+    }
+    final dropped = session.copyWith(
+      apiTokens: const <String, IssuedAccessToken>{},
+    );
+    _session = dropped;
+    if (dropped.toPublic() != session.toPublic() && !_isSessionHeld) {
+      _emit(SignedIn(session: dropped.toPublic()));
     }
   }
 

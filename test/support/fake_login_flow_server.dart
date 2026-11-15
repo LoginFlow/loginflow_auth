@@ -210,6 +210,32 @@ class FakeOrganization {
   };
 }
 
+/// A role the application's owner marked self-selectable
+/// (`app_roles.self_selectable`), with the permissions holding it gives in
+/// the root organization, keyed by API audience.
+class FakeSelfSelectableRole {
+  const FakeSelfSelectableRole({
+    required this.id,
+    required this.key,
+    required this.name,
+    this.description,
+    this.permissions = const <String, List<String>>{},
+  });
+
+  final String id;
+  final String key;
+  final String name;
+  final String? description;
+  final Map<String, List<String>> permissions;
+
+  Map<String, Object?> get summary => <String, Object?>{
+    'id': id,
+    'key': key,
+    'name': name,
+    'description': description,
+  };
+}
+
 /// An organization as the members API sees it (`doc/server-contract.md`
 /// §18), its JSON exactly as `loginflow_api` serializes it.
 class FakeMembersOrganization {
@@ -470,6 +496,10 @@ class FakeLoginFlowServer {
 
   /// The next refresh answers `invalid_grant`.
   bool rejectNextRefresh = false;
+
+  /// This many next refreshes answer `503 temporarily_unavailable`, as a
+  /// token endpoint that is down; nothing is rotated.
+  int failingRefreshes = 0;
 
   /// Refresh responses leave out the ID token (a server bug the client
   /// must survive without pairing a new device secret with an old token).
@@ -790,6 +820,15 @@ class FakeLoginFlowServer {
       case (final method, final path)
           when path == membersPath || path.startsWith('$membersPath/'):
         _members(request, response, method, path.substring(membersPath.length));
+      case (final method, final path)
+          when path == selfSelectableRolesPath ||
+              path.startsWith('$selfSelectableRolesPath/'):
+        _selfSelection(
+          request,
+          response,
+          method,
+          path.substring(selfSelectableRolesPath.length),
+        );
       case (final method, final path) when path.startsWith('$deviceQrPath/'):
         _deviceQr(
           request,
@@ -1400,6 +1439,10 @@ class FakeLoginFlowServer {
     if (rejectNextRefresh) {
       rejectNextRefresh = false;
       return _oauthError(response, 400, 'invalid_grant');
+    }
+    if (failingRefreshes > 0) {
+      failingRefreshes--;
+      return _oauthError(response, 503, 'temporarily_unavailable');
     }
     final record = _refreshTokens[form['refresh_token']];
     if (record == null || record.clientId != clientId) {
@@ -2353,18 +2396,9 @@ class FakeLoginFlowServer {
     String route,
   ) {
     membersRequests.add(request);
-    final header = request.headers['authorization'] ?? '';
-    final access = header.startsWith('DPoP ')
-        ? _liveAccess(header.substring(5))
-        : null;
-    if (access == null || _checkDpop(request, response) != null) {
-      response
-        ..statusCode = 401
-        ..headers['www-authenticate'] = 'DPoP error="invalid_token"';
+    final access = _loginFlowAccess(request, response);
+    if (access == null) {
       return;
-    }
-    if (access.audience != issuerText) {
-      return _envelopeError(response, 403, 'wrong_audience', 'Wrong audience');
     }
     final isWrite = method != 'GET';
     if (isWrite && _staleAuthentications.contains(access.sid)) {
@@ -2523,6 +2557,204 @@ class FakeLoginFlowServer {
   static bool _onlyKeys(Iterable<String> keys, Set<String> accepted) =>
       keys.every(accepted.contains);
 
+  /// `require_dpop_bound_loginflow_token`: the live access record of a
+  /// DPoP-bound token for LoginFlow itself, or `null` after writing the
+  /// refusal — `401 DPoP error="invalid_token"` for a missing, dead or plain
+  /// bearer token, `403 wrong_audience` for a product API's token.
+  _AccessRecord? _loginFlowAccess(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+  ) {
+    final header = request.headers['authorization'] ?? '';
+    final access = header.startsWith('DPoP ')
+        ? _liveAccess(header.substring(5))
+        : null;
+    if (access == null || _checkDpop(request, response) != null) {
+      response
+        ..statusCode = 401
+        ..headers['www-authenticate'] = 'DPoP error="invalid_token"';
+      return null;
+    }
+    if (access.audience != issuerText) {
+      _envelopeError(response, 403, 'wrong_audience', 'Wrong audience');
+      return null;
+    }
+    return access;
+  }
+
+  /// LoginFlow's self-selectable roles for a person
+  /// (`loginflow_api/docs/api/v1/app/self-selectable-roles/`).
+  static const String selfSelectableRolesPath = '/v1/app/self-selectable-roles';
+
+  /// The root organization of the application, where every self-selectable
+  /// role is taken.
+  static const FakeOrganization selfSelectionRoot = FakeOrganization(
+    id: 'org-root',
+    name: 'RutaFácil',
+    kind: 'root',
+  );
+
+  /// `SELF_SELECTION_CAP`: takes and leaves together per person and
+  /// application in a rolling hour.
+  static const int selfSelectionCap = 10;
+
+  /// The `Retry-After` of a take or leave past [selfSelectionCap].
+  static const Duration selfSelectionRetryAfter = Duration(minutes: 37);
+
+  /// The roles the application marked self-selectable, sorted by `key`.
+  final List<FakeSelfSelectableRole> selfSelectableRoles =
+      <FakeSelfSelectableRole>[];
+
+  /// Roles of the application that are NOT marked: a take or leave of one
+  /// is `403 self_assignment_forbidden`. Any other unknown id is
+  /// `404 role_not_found`.
+  final Set<String> unmarkedRoleIds = <String>{};
+
+  /// The next call (list, take or leave) is refused with this status and
+  /// `error.code` after the guard, for what the fake does not model: the
+  /// rules a person's own call does not reach here
+  /// (`organization_out_of_reach`, `role_not_grantable`), a deactivated
+  /// membership (`member_inactive`) and a missing root
+  /// (`organization_not_found`).
+  ({int status, String code})? nextSelfSelectionRefusal;
+
+  /// Every request that reached the self-selectable roles routes, in order.
+  final List<FakeHttpRequest> selfSelectionRequests = <FakeHttpRequest>[];
+
+  /// The assignment id of each role each subject took, by role id.
+  final Map<String, Map<String, String>> _selfSelected =
+      <String, Map<String, String>>{};
+
+  /// The takes and leaves that counted against [selfSelectionCap], per
+  /// subject.
+  final Map<String, int> _selfSelectionChanges = <String, int>{};
+
+  /// `require_dpop_bound_loginflow_token`, then the route — the shapes
+  /// `self_selection_handler.rs` answers. A take or leave rewrites the
+  /// subject's root organization in [organizationsBySubject], so the next
+  /// refresh carries the permissions of the roles held there.
+  void _selfSelection(
+    FakeHttpRequest request,
+    FakeHttpResponse response,
+    String method,
+    String route,
+  ) {
+    selfSelectionRequests.add(request);
+    final access = _loginFlowAccess(request, response);
+    if (access == null) {
+      return;
+    }
+    final refusal = nextSelfSelectionRefusal;
+    if (refusal != null) {
+      nextSelfSelectionRefusal = null;
+      return _denied(response, refusal.status, refusal.code);
+    }
+    final held = _selfSelected.putIfAbsent(
+      access.subject,
+      () => <String, String>{},
+    );
+    if (method == 'GET' && route.isEmpty) {
+      return _envelopeSuccess(response, 200, <String, Object?>{
+        'organization': <String, Object?>{
+          'id': selfSelectionRoot.id,
+          'name': selfSelectionRoot.name,
+          'kind': selfSelectionRoot.kind,
+        },
+        'roles': <Object?>[
+          for (final role in selfSelectableRoles)
+            <String, Object?>{
+              ...role.summary,
+              'held': held.containsKey(role.id),
+              'assignment_id': held[role.id],
+            },
+        ],
+      });
+    }
+    if (!route.startsWith('/') || (method != 'PUT' && method != 'DELETE')) {
+      return _envelopeError(response, 404, 'NOT_FOUND', 'No such route');
+    }
+    final roleId = Uri.decodeComponent(route.substring(1));
+    final role = selfSelectableRoles
+        .where((role) => role.id == roleId)
+        .firstOrNull;
+    if (role == null) {
+      return unmarkedRoleIds.contains(roleId)
+          ? _denied(response, 403, 'self_assignment_forbidden')
+          : _denied(response, 404, 'role_not_found');
+    }
+    final assignmentId = held[roleId];
+    if (method == 'PUT' && assignmentId != null) {
+      return _envelopeSuccess(
+        response,
+        200,
+        _selfSelectedJson(role, assignmentId),
+      );
+    }
+    if (method == 'DELETE' && assignmentId == null) {
+      return _denied(response, 404, 'assignment_not_found');
+    }
+    final changes = (_selfSelectionChanges[access.subject] ?? 0) + 1;
+    if (changes > selfSelectionCap) {
+      response.headers['retry-after'] = '${selfSelectionRetryAfter.inSeconds}';
+      return _denied(response, 429, 'self_selection_rate_limited');
+    }
+    _selfSelectionChanges[access.subject] = changes;
+    if (method == 'DELETE') {
+      held.remove(roleId);
+      _applySelfSelected(access.subject, held);
+      response.statusCode = 204;
+      return;
+    }
+    _assignmentSequence++;
+    final created = 'as_$_assignmentSequence';
+    held[roleId] = created;
+    _applySelfSelected(access.subject, held);
+    _envelopeSuccess(response, 201, _selfSelectedJson(role, created));
+  }
+
+  Map<String, Object?> _selfSelectedJson(
+    FakeSelfSelectableRole role,
+    String assignmentId,
+  ) => <String, Object?>{
+    'assignment_id': assignmentId,
+    'organization_id': selfSelectionRoot.id,
+    'role': <String, Object?>{
+      'id': role.id,
+      'key': role.key,
+      'name': role.name,
+    },
+  };
+
+  /// [subject]'s organizations with the root holding exactly the
+  /// permissions of the self-selectable roles in [held], or without the root
+  /// when none is held.
+  void _applySelfSelected(String subject, Map<String, String> held) {
+    final permissions = <String, List<String>>{};
+    for (final role in selfSelectableRoles) {
+      if (!held.containsKey(role.id)) {
+        continue;
+      }
+      for (final MapEntry(key: api, value: granted)
+          in role.permissions.entries) {
+        permissions.putIfAbsent(api, () => <String>[]).addAll(granted);
+      }
+    }
+    final others =
+        (organizationsBySubject[subject] ?? const <FakeOrganization>[]).where(
+          (organization) => organization.id != selfSelectionRoot.id,
+        );
+    organizationsBySubject[subject] = <FakeOrganization>[
+      ...others,
+      if (held.isNotEmpty)
+        FakeOrganization(
+          id: selfSelectionRoot.id,
+          name: selfSelectionRoot.name,
+          kind: selfSelectionRoot.kind,
+          permissions: permissions,
+        ),
+    ];
+  }
+
   /// LoginFlow's self-service email change for a person
   /// (`loginflow_api/docs/api/v1/app/email-change/`).
   static const String emailChangePath = '/v1/app/email-change';
@@ -2569,18 +2801,9 @@ class FakeLoginFlowServer {
     String route,
   ) {
     emailChangeRequests.add(request);
-    final header = request.headers['authorization'] ?? '';
-    final access = header.startsWith('DPoP ')
-        ? _liveAccess(header.substring(5))
-        : null;
-    if (access == null || _checkDpop(request, response) != null) {
-      response
-        ..statusCode = 401
-        ..headers['www-authenticate'] = 'DPoP error="invalid_token"';
+    final access = _loginFlowAccess(request, response);
+    if (access == null) {
       return;
-    }
-    if (access.audience != issuerText) {
-      return _envelopeError(response, 403, 'wrong_audience', 'Wrong audience');
     }
     final user = _userBySubject(access.subject);
     if (user == null || user.subjectKind != null) {

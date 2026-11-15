@@ -385,6 +385,53 @@ if (roles.data.canGrant) {
 }
 ```
 
+Self-selectable roles (`doc/server-contract.md` §22, API 0.25): the
+signed-in person takes or leaves, for themself, the roles the application's
+owner marked self-selectable ("I am also a seller"), in the root
+organization. Same LoginFlow token as the members calls, no step-up.
+
+- `listSelfSelectableRoles()` → `SelfSelectableRoles`: the root
+  `organization` and every role with `isHeld` and `assignmentId`. Empty
+  `roles`: the application marks none, hide the screen.
+- `takeSelfSelectableRole(roleId)` → `SelfSelectedRole`: `isNew` is `true`
+  when assigned now (`201`), `false` when already held (`200`). Then the
+  session switches to the root (`switchOrganization`), dropping every cached
+  API token, so the next `accessTokenFor` carries the role's permissions. If
+  that switch fails it is only logged and the take is still `Ok`: the
+  session keeps its organization and cached tokens, which lack the new
+  permissions until the next refresh — they can deny, never over-grant.
+- `leaveSelfSelectableRole(roleId)` → `void`. It fails closed: as soon as
+  the server answers, every cached API token is dropped, before and
+  whatever the refresh that follows does; a token asked for afterwards
+  never joins a refresh that started before the leave. Then the session is
+  refreshed in its organization. If that refresh fails it is only logged
+  and the leave is still `Ok`: the next `accessTokenFor` asks for a new
+  token, and fails rather than hand out one with the left permissions while
+  the token endpoint is down. When the server ended this app's session
+  because its client no longer admits the person, that refresh signs out
+  (`SessionRevoked`).
+- Refusals are `DelegationDenied`: `selfAssignmentForbidden` (not
+  self-selectable), `assignmentNotFound` (a leave of a role not held),
+  `memberInactive`, `organizationOutOfReach`, `roleNotGrantable`, … Past 10
+  takes and leaves in an hour, `RateLimited` with `retryAfter`.
+
+```dart
+final listed = await auth.listSelfSelectableRoles();
+switch (listed) {
+  case Ok(data: SelfSelectableRoles(:final roles)):
+    // Absent when the application does not (or no longer) marks it.
+    final seller = roles.where((role) => role.key == 'seller').firstOrNull;
+    if (seller != null && !seller.isHeld) {
+      final taken = await auth.takeSelfSelectableRole(seller.id);
+      if (taken case Err(:final error)) {
+        showError(error); // DelegationDenied, RateLimited, NetworkFailure, …
+      }
+    }
+  case Err(:final error):
+    showError(error);
+}
+```
+
 Changing the email (`doc/server-contract.md` §19): the signed-in person
 changes their OWN address, in two steps. Same LoginFlow token as the members
 calls; products keep no email-change route of their own.
